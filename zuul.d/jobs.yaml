@@ -1,0 +1,72 @@
+- job:
+    name: nebulous-optimiser-controller-build-container-images
+    parent: nebulous-build-container-images
+    dependencies:
+      - name: opendev-buildset-registry
+        soft: false
+    provides:
+      - nebulous-optimiser-controller-container-images
+    description: Build the container images.
+    files: &image_files
+      - ^java-spring-boot-demo/
+    vars: &image_vars
+      promote_container_image_job: nebulous-optimiser-controller-upload-container-images
+      container_images:
+        - context: java-spring-boot-demo
+          registry: quay.io
+          repository: quay.io/nebulous/optimiser-controller-java-spring-boot-demo
+          namespace: nebulous
+          repo_shortname: optimiser-controller-java-spring-boot-demo
+          repo_description: ""
+
+- job:
+    name: nebulous-optimiser-controller-upload-container-images
+    parent: nebulous-upload-container-images
+    dependencies:
+      - name: opendev-buildset-registry
+        soft: false
+    provides:
+      - nebulous-optimiser-controller-container-images
+    description: Build and upload the container images.
+    files: *image_files
+    vars: *image_vars
+
+- job:
+    name: nebulous-optimiser-controller-promote-container-images
+    parent: nebulous-promote-container-images
+    description: Promote previously uploaded container images.
+    files: *image_files
+    vars: *image_vars
+
+- job:
+    name: nebulous-optimiser-controller-hadolint
+    parent: nebulous-hadolint
+    description: Run Hadolint on Dockerfile(s).
+    vars:
+      dockerfiles:
+        - java-spring-boot-demo/Dockerfile
+
+- job:
+    name: nebulous-optimiser-controller-helm-lint
+    parent: nebulous-helm-lint
+    description: Run helm lint on Helm charts.
+    vars:
+      helm_charts:
+        - ./charts/nebulous-optimiser-controller
+
+- job:
+    name: nebulous-optimiser-controller-apply-helm-charts
+    parent: nebulous-apply-helm-charts
+    dependencies:
+      - name: opendev-buildset-registry
+        soft: false
+      - name: nebulous-optimiser-controller-build-container-images
+        soft: true
+      - name: nebulous-optimiser-controller-upload-container-images
+        soft: true
+    requires:
+      - nebulous-optimiser-controller-container-images
+    description: Deploy a Kubernetes cluster and apply charts.
+    vars:
+      helm_charts:
+        nebulous-optimiser-controller: ./charts/nebulous-optimiser-controller

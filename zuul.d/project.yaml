@@ -1,0 +1,20 @@
+- project:
+    check:
+      jobs:
+        - opendev-buildset-registry
+        - nebulous-optimiser-controller-helm-lint
+        - nebulous-optimiser-controller-build-container-images
+        - nebulous-optimiser-controller-hadolint
+        - nebulous-platform-apply-helm-charts
+        - nox-linters
+    gate:
+      jobs:
+        - opendev-buildset-registry
+        - nebulous-optimiser-controller-helm-lint
+        - nebulous-optimiser-controller-upload-container-images
+        - nebulous-optimiser-controller-hadolint
+        - nebulous-platform-apply-helm-charts
+        - nox-linters
+    promote:
+      jobs:
+        - nebulous-optimiser-controller-promote-container-images
