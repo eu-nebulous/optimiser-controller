@@ -1,2 +1,17 @@
 __pycache__/
 .nox/
+# Gradle project-specific cache directory
+.gradle
+# Gradle build output directory
+/optimiser-controller/build/
+# generated artefact directory
+/optimiser-controller/dist/
+
+# jdtls (Java LSP server) and/or eclipse data files
+.classpath
+.project
+.settings/
+/optimiser-controller/bin/
+
+# IntelliJ IDEA configuration files
+/.idea/

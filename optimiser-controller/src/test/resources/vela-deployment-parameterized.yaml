@@ -1,0 +1,197 @@
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: surveillance-demo
+  namespace: default
+spec:
+  components:
+    - name: kafka-server
+      type: webservice
+      properties:
+        image: confluentinc/cp-kafka:7.2.1
+        hostname: kafka-server
+        ports:
+          - port: 9092
+            expose: true
+          - port: 9093
+            expose: true
+          - port: 29092
+            expose: true
+        cpu: "1"
+        memory: "2000Mi"
+        cmd: [ "/bin/bash", "/tmp/run_workaround.sh" ]
+        env:
+          - name: KAFKA_NODE_ID
+            value: "1"
+          - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+            value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+          - name: KAFKA_LISTENERS
+            value: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093"
+          - name: KAFKA_ADVERTISED_LISTENERS
+            value: "PLAINTEXT://kafka-server:9092,PLAINTEXT_HOST://212.101.173.161:29092"
+          - name: KAFKA_CONTROLLER_LISTENER_NAMES
+            value: "CONTROLLER"
+          - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+            value: "1@0.0.0.0:9093"
+          - name: KAFKA_PROCESS_ROLES
+            value: "broker,controller"
+#        volumeMounts:
+#          configMap:
+#            - name: configmap-example-1
+#              mountPath: /tmp
+#              cmName: configmap-example-1
+#              defaultMod: 777
+      traits:
+        - type: storage
+          properties:
+            configMap:
+              - name: kafka-init
+                mountPath: /tmp
+                data:
+                  run_workaround.sh: |-
+                    #!/bin/sh
+                    sed -i '/KAFKA_ZOOKEEPER_CONNECT/d' /etc/confluent/docker/configure
+                    sed -i 's/cub zk-ready/echo ignore zk-ready/' /etc/confluent/docker/ensure
+                    echo "kafka-storage format --ignore-formatted -t NqnEdODVKkiLTfJvqd1uqQ== -c /etc/kafka/kafka.properties" >> /etc/confluent/docker/ensure
+                    /etc/confluent/docker/run
+
+    - name: kafka-ui
+      type: webservice
+      properties:
+        image: provectuslabs/kafka-ui:cd9bc43d2e91ef43201494c4424c54347136d9c0
+        exposeType: NodePort
+        ports:
+          - port: 8080
+            expose: true
+            nodePort: 30001
+        cpu: "0.3"
+        memory: "512Mi"
+        env:
+          - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+            value: "kafka-server:9092"
+
+    - name: video-capture
+      type: webservice
+      properties:
+        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/video-capture:1.1.0
+        cpu: "0.2"
+        memory: "100Mi"
+        env:
+          - name: KAFKA_URL
+            value: "kafka-server:9092"
+          - name: KAFKA_DETECTION_TOPIC
+            value: "surveillance"
+          - name: CAPTURE_VIDEO
+            value: "False"
+          - name: CAPTURE_DEVICE
+            value: "/dev/video0"
+          - name: DEBUG
+            value: "True"
+          - name: HOSTNAME
+            value: "docker-capture"
+        volumeMounts:
+          hostPath:
+            - name: video
+              mountPath: "/dev/video1"
+              path: "/dev/video0"
+      traits:
+        - type: affinity
+          properties:
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: "kubernetes.io/hostname"
+                      operator: "In"
+                      values: ["nebulousk8s-worker-1"]
+
+
+#    devices:
+#      - /dev/video0:/dev/video0
+
+    - name: face-detection
+      type: webservice
+      properties:
+        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/face-detection:1.2.0
+        edge:
+          cpu: {faceDetection.edge.cpu in {1.2..3.0} }
+          memory: {faceDetection.edge.memory in {250..1000} }
+          env:
+            - name: KAFKA_URL
+              value: "kafka-server:9092"
+            - name: KAFKA_DETECTION_TOPIC
+              value: "surveillance"
+            - name: THREADS_COUNT
+              value: "1"
+            - name: STORE_METRIC
+              value: "False"
+            - name: DEBUG
+              value: "True"
+          cloud:
+            cpu: {faceDetection.cloud.cpu in {3.0..6.0} }
+            memory: {faceDetection.cloud.memory in {1000..4000} }
+            env:
+              - name: KAFKA_URL
+                value: "kafka-server:9092"
+              - name: KAFKA_DETECTION_TOPIC
+                value: "surveillance"
+              - name: THREADS_COUNT
+                value: "1"
+              - name: STORE_METRIC
+                value: "False"
+              - name: DEBUG
+                value: "True"
+      traits:
+        - type: affinity
+          properties:
+            podAntiAffinity:
+              required:
+                - labelSelector:
+                    matchExpressions:
+                      - key: "app.oam.dev/component"
+                        operator: "In"
+                        values: [ "video-capture" ]
+                  topologyKey: "test"
+        - type: nodePlacement
+          properties:
+            cloudWorkers:
+              count: {faceDetection.cloudWorkers.count in {2..10} }
+              nodeSelector:
+                - name: {faceDetection.cloudWorkers.cloud.node.label[ faceDetection.cloudWorkers.cloud.node.count ];            
+                         faceDetection.cloudWorkers.cloud.node.count in {1..3} }
+                  value: {faceDetection.cloudWorkers.cloud.node.instances[i] in {0..faceDetection.cloudWorkers.count}; 
+                          i in {1..faceDetection.cloudWorkers.cloud.node.count} }
+
+
+            edgeWorkers:
+              count: {faceDetection.edgeWorkers.count in {0..5} }
+              nodeSelector:
+                 - name: {faceDetection.edgeWorkers.edge.node.label[ faceDetection.cloudWorkers.edge.node.count ]; 
+                         i in {1..faceDetection.cloudWorkers.edge.node.count} }
+                   value: {faceDetection.edgeWorkers.edge.node.instances[i] in {0..faceDetection.edgeWorkers.count}; 
+                          i in {1..faceDetection.cloudWorkers.edge.node.count} }
+        - type: geoLocation
+          properties:
+            affinity:
+              required:
+                - labelSelector:
+                    - key: "continent"
+                      operator: "In"
+                      values: ["Europe"]
+
+    - name: video-player
+      type: webservice
+      properties:
+        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/video-player:1.1.0
+        exposeType: NodePort
+        env:
+          - name: KAFKA_URL
+            value: "kafka-server:9092"
+          - name: DEBUG
+            value: "True"
+          - name: SERVER_PORT
+            value: "8081"
+        ports:
+          - port: 8081
+            expose: true
+            nodePort: 30002

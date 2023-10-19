@@ -1,0 +1,272 @@
+#
+# Copyright (C) 2023 Institute of Communication and Computer Systems (imu.iccs.gr)
+#
+# This Source Code Form is subject to the terms of the Mozilla Public License, v2.0.
+# If a copy of the MPL was not distributed with this file, you can obtain one at
+# https://www.mozilla.org/en-US/MPL/2.0/
+#
+
+# !!!  IMPORTANT  !!!
+# Sample metric model for discussion with consortium
+# Based on surveillance app demo
+
+# Header. MUST remain as-is
+apiVersion: nebulous/v11
+kind: MetricModel
+
+# Optional. Currently, only 'metadata.name' is used (if present)
+metadata:
+  name: face-detection-deployment
+  labels:
+    app: surveillance-demo-app
+
+# Not part of metric model!!
+# The following section can include anchors to values or blocks
+# that will be reused (multiple times) in the model
+common:
+  a_constant: &A_CONST 'a_constant value' # Subsequent occurrences of '*A_CONST' will be replaced with 'a_constant value'
+  percentage_template: &prct_tpl          # Occurrences of '*prct_tpl' will be replaced with the following keys
+    id: 'prct'
+    type: double
+    range: [0, 100]
+    unit: none
+
+# THe main part of metric model. MANDATORY
+# It can only contain 'components' and 'scopes' subsections
+spec:
+  # Optional. Lists components (i.e. containers in K8S files) for whom
+  # we need to specify component-specific metric or requirements
+  components:
+    # Each item in 'components' list corresponds to a K8S container, and
+    # MUST have the SAME NAME.
+    # Each item MUST HAVE a 'name' field, which MUST BE non-blank (!=null && .trim()!='') and UNIQUE
+    # (both in components and scopes sections)
+    # Each item CAN HAVE a 'requirements', and/or a 'metrics' section
+    - name: face-detection      # MUST MATCH to a container name in K8S file
+      requirements:             # Lists requirements specific to this component
+        # Each item is the list is a component-specific requirement
+        # Currently, requirements can only be Service-Level Objectives (SLOs)
+        # Each requirement MUST HAVE a name, which MUST BE non-blank and UNIQUE
+        # Each requirement MUST HAVE a type, whose value MUST BE 'slo' (in the future more values might be added)
+        # Each requirement MIGHT have additional fields/sections, specific to 'type'
+        # For 'slo' type the 'constraint' field MUST BE provided and MUST BE non-blank
+        - name: cpu_slo
+          type: slo
+          # SLO 'constraint' can be specified in two forms (shorthand, or detailed)
+          #
+          # Detailed form requires providing a section that MUST include 'type' field
+          # which specifies the constraint type, where each type further requires its type-specific fields.
+          # Currently three constraint types are supported:
+          #  - Metric constraints, which take the form 'METRIC_EXPRESSION COMPARISON_OPERATOR THRESHOLD'
+          #  - Logical constraints, which take the form of 'CONSTRAINT [AND/OR] CONSTRAINT...'
+          #  - Conditional constraints, which take the form 'IF CONSTRAINT THEN CONSTRAINT ELSE CONSTRAINT'
+          # where METRIC_EXPRESSION can be any numeric expression following the mathXParser syntax
+          # including metrics (specified in the 'metrics' section). COMPARISON_OPERATOR can be < > <= >= = <>
+          # and THRESHOLD is a double number. CONSTRAINT can be any type of constraint.
+          constraint:
+            type: metric
+            metric: cpu_util_prct
+            operator: '>'
+            threshold: 80
+          # Alternatively the shorthand representation can be used
+          # Currently, shorthand form supports only metric constraints
+          # It requires providing a string value with a specific syntax:
+          # '<METRIC_EXPRESSION> <COMPARISON_OPERATOR> <THRESHOLD>'
+#          constraint: 'cpu_util_prct > 80'
+        - name: ram_slo
+          type: slo
+          constraint: 'ram_util_prct > 80'
+        - name: bandwidth_slo
+          type: slo
+          constraint: '100 * bandwidth / PROVIDER_BANDWIDTH > 85'
+        - name: latency_slo
+          type: slo
+          constraint: 'latency > 25'
+        - name: fps_slo
+          type: slo
+          constraint: 'fps - 30 * vc_instance_number < 0'
+      #--------------------------
+      metrics:
+        # Each item is the 'metrics' list is a component-specific metric
+        # Each metric MUST HAVE a name, which MUST BE non-blank and UNIQUE
+        # Each metric MUST HAVE a type, whose value MUST BE 'raw', 'composite', 'constant', or 'ref'
+        # Each metric MIGHT HAVE a 'template' specifying its value range and unit.
+        # If omitted the metric can have any double value
+        # Each metric has additional fields/sections, specific to its 'type'
+        #
+        # For 'composite' type the 'formula' field MUST BE provided and MUST BE non-blank
+        # 'formula' value is a metric expression and MUST follow the mathXParser syntax.
+        # Composite metrics can additionally have a 'window', an 'output' section/field,
+        # and a 'level
+        - name: cpu_util_prct
+          type: composite                       # Optional. Can be inferred from the existence of 'formula' field
+          template: *prct_tpl                   # This is a pointer to the section at '&prct_tpl anchor (see at 'commons' section)
+          formula: 'mean(cpu_util_instance)'    # Expression follows mathXParser syntax (see https://mathparser.org/)
+          level: global                         # Level specifies where the metric calculation must be executed.
+                                                # Valid values: global (at EMS server), per_cloud, per_region, per_zone,
+                                                # per_host and per_instance (at each application node (VM/device/etc))
+          # Window can be specified either in detailed or shorthand form
+          # Windows in detailed form can also include 'processing's (in shorthand form this is not possible)
+          # See 'vc_instance_number' metric for an example with processings
+          window:
+            type: sliding                       # Window type. Can be 'sliding' or 'batch'
+            # Window 'size' can be specified either in detailed or shorthand form
+            size:
+              value: 5                          # Window size value; a positive integer
+              unit: min                         # Window size unit; Can be 'event' (for length-based windows)
+                                                # or 'ms', 'sec', 'min', 'hour', 'day' (for time-based windows)
+            # Shorthand form of size MUST be a non-blank string
+            # following syntax '<SIZE> <UNIT>'
+#            size: '5 min'
+          #
+          # Shorthand form of window MUST be a non-blank string
+          # following syntax '<WINDOW_TYPE> <SIZE> <UNIT>'
+#          window: 'sliding 5 min'
+          #
+          # Output can be specified either in detailed or shorthand form
+          output:
+            type: all                           # Type specifies how many and which events will be retained
+                                                # Valid values are: 'all', 'first', 'last'
+            schedule:                           # Schedule specifies the period events are calculated and sent
+                                                # It can also be in shorthand form with syntax '<VALUE> <UNIT>'
+              value: 30                         # The period value
+              unit: sec                         # The period value unit; ms, sec, min, hour, day
+          # Shorthand representation of output MUST be a non-blank string
+          # following syntax '<TYPE> <VALUE> <UNIT>'
+#          output: 'all 30 sec'
+        #
+        # For 'raw' type the 'sensor' field/section MUST BE provided
+        # 'sensor' value is a metric expression and MUST follow the mathXParser syntax.
+        # Raw metrics can additionally also have an 'output' section/field (like in composite metrics)
+        - name: cpu_util_instance
+          type: raw                             # Optional. Can be inferred from the existence of 'sensor' field
+          template: *prct_tpl
+          # Sensor section MUST include a 'type' field that MUST HAVE a non-blank string value
+          # The 'netdata' type has special meaning and requires collecting metric values using Netdata agent.
+          # In this case only the Netdata group/chart/dimension is required, in Netdata collector's format.
+          # This value MUST BE specified in 'affinity' field
+          # Other type values refer to application specific sensors. In this case 'config' and 'install' sections
+          # can be specified for providing sensor configuration and/or installation instructions (TO BE IMPLEMENTED)
+          # Note: 'config' section can also be included for 'netdata' sensors in order to override defaults.
+          sensor:
+            type: netdata
+            affinity: netdata__system__cpu__total
+          # Shorthand representation of sensor MUST be a non-blank string
+          # following syntax '<SENSOR_TYPE> <SENSOR_SPECIFIC_CONFIG_STRING>'
+          # For 'netdata' sensors only the Netdata group/chart/dimension is required in Netdata collector's format
+#          sensor: 'netdata netdata__system__cpu__total'
+          output: 'all 30 sec'
+        - name: ram_util_prct
+          type: composite
+          template: *prct_tpl
+          formula: 'mean(ram_util_instance)'
+          window: 'sliding 5 min'
+          output: 'all 30 sec'
+        - name: ram_util_instance
+          type: raw
+          template: *prct_tpl
+          sensor: 'netdata netdata__system__cpu__total'
+          output: 'all 30 sec'
+        - name: bandwidth
+          type: composite
+          formula: 'mean(bandwidth_instance)'
+          window: 'sliding 5 min'
+          output: 'all 30 sec'
+        - name: bandwidth_instance
+          type: raw
+          sensor: 'netdata netdata__system__cpu__total'
+          output: 'all 30 sec'
+        #
+        # The 'constant' metric can be used to specify initial values to constants used
+        # in metric expressions. The values are set in 'initial' field and MUST BE of the
+        # type expected in metric expressions (i.e. double, long, int)
+        - name: PROVIDER_BANDWIDTH
+          type: constant                              # Mandatory, in case of constants.
+          initial: 1                                  # Used to set initial values to constants provided by solver
+        #---
+        - name: latency
+#          type: composite
+          formula: 'mean(latency_instance)'
+          window: 'sliding 5 min'
+          output: 'all 30 sec'
+        - name: latency_instance
+          type: raw
+          sensor:
+            type: 'my_latency_sensor'                 # Custom / Application sensor  (default is Netdata, used to collect system metrics)
+            config: { ping_address: '1.2.3.4', proto: 'icmp', schedule: '1 min' }   # Sensor specific configuration (as key-value pairs)
+          output: 'all 30 sec'
+        #---
+        - name: fps
+          type: composite
+          formula: 'mean(fps_instance)'
+          window: 'sliding 1 min'
+          output: 'all 10 sec'
+        - name: fps_instance
+          type: raw
+          sensor:
+            type: 'my_fps_sensor'                     # Custom / Application sensor, without configuration
+          output: 'all 1 sec'
+        #
+        # The 'ref' metric can be used to copy the specification of another 'raw' or 'composite' metric
+        # in this component's scope and using a different name.
+        # It is an alternative to YAML anchor/alias feature, but it allows referencing metrics that will
+        # be specified later in the file.
+        # The 'ref' field MUST BE a non-blank string with the name of the referenced metric, following
+        # syntax: '[COMPONENT_NAME or SCOPE_NAME].[METRIC_NAME]'
+        # If the referenced metric is in the same component/scope then only the METRIC_NAME part is needed.
+        - name: vc_instance_number
+          ref: '[video-capture].[vc_instance_number]' # Replicates [video-capture].[vc_instance_number] under vc_instance_number name
+      #--------------------------
+    - name: video-capture
+      metrics:
+        #---
+        - name: vc_instance_number
+          formula: 'add(vc_instance_number_raw)'
+          level: global
+          window:
+            type: sliding
+            size: '1 sec'
+            # Processings introduce extra processing tasks on the data retained in the window
+            # The 'processing' section lists all window processing. NOTE: Grouping processings
+            # are executed first, then the Sorting and Ranking processings
+            processing:
+             - type: grouping                         # A window GROUPING processing.
+                                                      # Valid values: 'grouping', 'sorting', 'ranking'
+               function: 'unique'                     # applies an EPL function (UNIQUE in this case)
+               criteria: [ PER_INSTANCE ]             # specifies the grouping criteria used
+               #  I.e., groups windows events per instance (IP address) and applies the UNIQUE function per group
+               #  Result: The latest event per group/instance are effectively retained and used in subsequent calculations
+          output: 'all 1 sec'
+        - name: vc_instance_number_raw
+          sensor:
+            type: 'my_vc_sensor'
+            config: {}
+            install:
+              script: 'wget http://..... && chmod +x ..... && ./run.sh &'
+  #--------------------------
+  # Optional. Lists scopes (i.e. groups of components) for whom
+  # we need to specify metrics or requirements in common
+  scopes:
+    # Each item in 'scopes' list specifies a new scope. Scopes a reused to specify requirements and metrics
+    # common to many or all components. These requirements and metrics apply in addition to the component-specific ones.
+    #
+    # Each item MUST HAVE a 'name' field, which MUST BE non-blank and UNIQUE (both in scopes and components sections)
+    # Each item CAN HAVE a 'components' list, naming the components participating in the scope.
+    # If omitted all components participate in the scope (i.e. it is an application-wide scope)
+    # Each item CAN HAVE a 'requirements', and/or a 'metrics' section
+    - name: app-wide-scope
+      components: [ 'face-detection', 'video-capture' ]
+      requirements:
+        - name: sample_slo_combining_data_across_components
+          type: slo
+          constraint: 'sample_metric_combining_data_across_components > 10'
+      metrics:
+        - name: sample_metric_combining_data_across_components
+          formula: 'vc_instance_number * [face-detection].[latency]'
+          level: global
+          output: 'all 1 min'
+        - name: vc_instance_number
+          ref: '[video-capture].[vc_instance_number]'
+          #---
+        - name: VideoCaptureCardinality
+          ref: '[video-capture].[instances]'
