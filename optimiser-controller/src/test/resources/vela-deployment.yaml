@@ -127,20 +127,20 @@ spec:
               value: "False"
             - name: DEBUG
               value: "True"
-          cloud:
-            cpu: "1.2"
-            memory: "512Mi"
-            env:
-              - name: KAFKA_URL
-                value: "kafka-server:9092"
-              - name: KAFKA_DETECTION_TOPIC
-                value: "surveillance"
-              - name: THREADS_COUNT
-                value: "1"
-              - name: STORE_METRIC
-                value: "False"
-              - name: DEBUG
-                value: "True"
+        cloud:
+          cpu: "1.2"
+          memory: "512Mi"
+          env:
+            - name: KAFKA_URL
+              value: "kafka-server:9092"
+            - name: KAFKA_DETECTION_TOPIC
+              value: "surveillance"
+            - name: THREADS_COUNT
+              value: "1"
+            - name: STORE_METRIC
+              value: "False"
+            - name: DEBUG
+              value: "True"
       traits:
         - type: affinity
           properties:

@@ -1,0 +1,37 @@
+nebulous_metadata:
+  optimisation_variables:
+    face_detection_edge_worker_cpu:
+      target: .spec.components[3].properties.edge.cpu
+      type: floating
+    face_detection_edge_worker_memory:
+      target: .spec.components[3].properties.edge.memory
+      type: floating
+    face_detection_edge_worker_count:
+      target: .spec.components[3].traits[1].properties.edgeWorkers.count
+    face_detection_edge_workers:
+      target: .spec.components[3].traits[1].properties.edgeWorkers.nodeSelector
+      type: array
+      entry:
+        type: kv
+        members:
+          nodename:
+            type: string
+          count:
+            type: integer
+    face_detection_cloud_worker_cpu:
+      target: .spec.components[3].properties.cloud.cpu
+    face_detection_cloud_worker_memory:
+      target: .spec.components[3].properties.cloud.memory
+      type: floating
+    face_detection_cloud_worker_count:
+      target: .spec.components[3].traits[1].properties.cloudWorkers.count
+    face_detection_cloud_workers:
+      target: .spec.components[3].traits[1].properties.cloudWorkers.nodeSelector
+      type: array
+      entry:
+        type: kv
+        members:
+          nodename:
+            type: string
+          count:
+            type: integer

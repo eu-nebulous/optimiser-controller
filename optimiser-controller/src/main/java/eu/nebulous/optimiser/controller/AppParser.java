@@ -13,49 +13,21 @@ public class AppParser {
     private static final Logger log = LogManager.getLogger(AppParser.class.getName());
 
     /**
-     * Parse a KubeVela file.  The file should be deployable as-is.
+     * Parse a KubeVela file and mapping file.
      *
-     * @param kubevela_file the file to be parsed
-     * @return true if `kubevela_file` could be parsed
+     * @param kubevela a deployable KubeVela file
+     * @param mappings parameter mappings for the KubeVela file
+     * @return a {@code NebulousApp} instance, or {@code null} if there was an
+     * error parsing the app creation message
      */
-    public boolean parseKubevela(File kubevela_file) {
+    public static NebulousApp parseAppCreationMessage(String kubevela, String mappings) {
         try {
-            YamlMapping m = Yaml.createYamlInput(kubevela_file).readYamlMapping();
+            return new NebulousApp(Yaml.createYamlInput(kubevela).readYamlMapping(),
+                                   Yaml.createYamlInput(mappings).readYamlMapping());
         } catch (IOException e) {
-            log.error("Could not parse " + kubevela_file + ": ", e);
-            return false;
+            log.error("Could not read app creation data: ", e);
+            return null;
         }
-        return true;
     }
 
-    /**
-     * Parse a parameterized KubeVela file.  Such a file is not directly
-     * deployable, since it contains ranges for various parameters.
-     *
-     * @param kubevela_param_file the file to be parsed
-     * @return true if `kubevela_param_file` could be parsed
-     */
-    public boolean parseParameterizedKubevela(File kubevela_param_file) {
-        try {
-            YamlMapping m = Yaml.createYamlInput(kubevela_param_file).readYamlMapping();
-        } catch (IOException e) {
-            log.error("Could not parse " + kubevela_param_file + ": ", e);
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Parse a metric model.  This file contains the metric model for a
-     * parameterized KubeVela file.
-     */
-    public boolean parseMetricModel(File metricmodel_file) {
-        try {
-            YamlMapping m = Yaml.createYamlInput(metricmodel_file).readYamlMapping();
-        } catch (IOException e) {
-            log.error("Could not parse " + metricmodel_file + ": ", e);
-            return false;
-        }
-        return true;
-    }
 }
