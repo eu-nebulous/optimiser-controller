@@ -4,7 +4,7 @@
 FROM docker.io/library/gradle:8-jdk17-alpine AS build
 COPY .. /home/optimiser-controller
 WORKDIR /home/optimiser-controller
-RUN gradle --no-daemon clean assemble
+RUN gradle --no-daemon clean build
 
 #
 # Package stage
