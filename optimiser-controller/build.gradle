@@ -42,6 +42,7 @@ dependencies {
     // Use JUnit Jupiter for testing.
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'org.wiremock:wiremock:3.3.1'
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

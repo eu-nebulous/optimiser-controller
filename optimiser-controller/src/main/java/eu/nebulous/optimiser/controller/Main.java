@@ -25,8 +25,23 @@ import static picocli.CommandLine.Option;
          description = "Receive app creation messages from the UI and start up the optimizer infrastructure.")
 public class Main implements Callable<Integer> {
 
+    @Option(names = {"-s", "--sal-url"},
+            description = "The URL of the SAL server (including URL scheme http:// or https://).",
+            paramLabel = "SAL_URL",
+            defaultValue = "${SAL_URL:-http://158.37.63.90:8880/}")
+    private java.net.URI sal_uri;
 
+    @Option(names = {"-u", "--sal-user"},
+            description = "The user name for the SAL server.",
+            paramLabel = "SAL_USER",
+            defaultValue = "${SAL_USER}")
+    private String sal_user;
 
+    @Option(names = {"-p", "--sal-password"},
+            description = "The password for the SAL server.",
+            paramLabel = "SAL_PASSWORD",
+            defaultValue = "${SAL_PASSWORD}")
+    private String sal_password;
 
     @Option(names = {"--kubevela-file"},
             description = "The name of a deployable KubeVela yaml file (used for testing purposes)")
@@ -62,6 +77,15 @@ public class Main implements Callable<Integer> {
                 success = 1;
             }
         }
+
+        if (sal_uri != null && sal_user != null && sal_password != null) {
+            SalConnector sal_connector = new SalConnector(sal_uri);
+            boolean connected = sal_connector.connect(sal_user, sal_password);
+            if (!connected) {
+                success = 2;
+            }
+        }
+
         return success;
     }
 
