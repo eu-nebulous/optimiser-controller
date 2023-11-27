@@ -13,6 +13,9 @@ plugins {
     // Use this to check for newer versions of dependency libraries via
     // ./gradlew dependencyUpdates
     id "com.github.ben-manes.versions" version "0.49.0"
+    // add jshell support (https://github.com/mrsarm/jshell-plugin):
+    // rlwrap ./gradlew --console plain jshell
+    id "com.github.mrsarm.jshell.plugin" version "1.2.1"
 }
 
 repositories {

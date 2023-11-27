@@ -41,3 +41,17 @@ This file is self-contained and can be executed via the following command:
 ```sh
 java -jar dist/optimiser-controller-all.jar
 ```
+
+## Running in jshell
+
+The command `./gradlew --console plain jshell` opens a REPL (read-eval-print
+loop) with the package `eu.nebulous.optimiser.controller` pre-imported.  On
+the REPL, one can write Java snippets such as:
+
+```java
+SalConnector conn = new SalConnector(new URI("http://localhost:8088"));
+conn.isConnected();
+```
+
+For command-line editing and history support, use the `rlwrap` command:
+`rlwrap ./gradlew --console plain jshell`.
