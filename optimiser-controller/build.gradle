@@ -40,6 +40,10 @@ dependencies {
     // JSON parsing: https://github.com/stleary/JSON-java
     implementation 'org.json:json:20231013'
 
+    // JSON to use data classes defined in sal-common:
+    // https://github.com/FasterXML/jackson
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
+
     // Command-line parsing: https://picocli.info
     implementation 'info.picocli:picocli:4.7.5'
 

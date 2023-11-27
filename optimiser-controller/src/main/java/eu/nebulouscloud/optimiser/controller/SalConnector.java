@@ -7,9 +7,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 
+import org.ow2.proactive.sal.model.PACloud;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+
 
 /**
  * A class that wraps communication with SAL (the Scheduling Abstraction Layer
@@ -21,8 +28,20 @@ import org.slf4j.LoggerFactory;
 public class SalConnector {
 
     private static final Logger log = LoggerFactory.getLogger(SalConnector.class);
+
+    private static final String connectStr = "sal/pagateway/connect";
+    private static final String getAllCloudsStr = "sal/cloud";
+
     private URI sal_uri;
     private String session_id = null;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // "Once built, an HttpClient is immutable, and can be used to send
+    // multiple requests."
+    // (https://docs.oracle.com/en/java/javase/11/docs/api/java.net.http/java/net/http/HttpClient.html)
+    // -- so we create an instance variable.
+    private HttpClient client = HttpClient.newBuilder().build();
 
     /**
      * Construct a SalConnector instance.
@@ -33,6 +52,11 @@ public class SalConnector {
      */
     public SalConnector(URI sal_uri) {
         this.sal_uri = sal_uri;
+        // This initialization code copied from
+        // https://gitlab.ow2.org/melodic/melodic-integration/-/blob/morphemic-rc4.0/connectors/proactive_client/src/main/java/cloud/morphemic/connectors/ProactiveClientConnectorService.java
+        objectMapper.configOverride(List.class)
+            .setSetterInfo(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY))
+            .setSetterInfo(JsonSetter.Value.forContentNulls(Nulls.AS_EMPTY));
     }
 
     /**
@@ -56,12 +80,11 @@ public class SalConnector {
      * @return true if the connection was successful, false if not
      */
     public boolean connect(String sal_username, String sal_password) {
-        URI endpoint_uri = sal_uri.resolve("sal/pagateway/connect");
+        URI endpoint_uri = sal_uri.resolve(connectStr);
         log.info("Connecting to SAL as a service at uri {}", endpoint_uri);
 
         String formData = "name=" + URLEncoder.encode(sal_username, StandardCharsets.UTF_8)
             + "&" + "password=" + URLEncoder.encode(sal_password, StandardCharsets.UTF_8);
-        HttpClient client = HttpClient.newBuilder().build();
         HttpRequest request = HttpRequest.newBuilder()
             .uri(endpoint_uri)
             .header("Content-Type", "application/x-www-form-urlencoded")
@@ -83,6 +106,29 @@ public class SalConnector {
         } else {
             log.error("Could not acquire SAL session id, server response status code: " + response.statusCode());
             return false;
+        }
+    }
+
+    public List<PACloud> getAllClouds() {
+        URI endpoint_uri = sal_uri.resolve(getAllCloudsStr);
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(endpoint_uri)
+            .header("sessionid", session_id)
+            .GET()
+            .build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                String b = response.body();
+                return Arrays.asList(objectMapper.readValue(b, PACloud[].class));
+            } else {
+                log.error("Request " + endpoint_uri
+                          + " failed, server response status code: " + response.statusCode());
+                return null;
+            }
+        } catch (IOException | InterruptedException e) {
+            log.error("Request " + endpoint_uri + "failed: ", e);
+            return null;
         }
     }
 
