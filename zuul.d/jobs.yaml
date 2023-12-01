@@ -8,15 +8,15 @@
       - nebulous-optimiser-controller-container-images
     description: Build the container images.
     files: &image_files
-      - ^java-spring-boot-demo/
+      - ^optimiser-controller/
     vars: &image_vars
       promote_container_image_job: nebulous-optimiser-controller-upload-container-images
       container_images:
-        - context: java-spring-boot-demo
+        - context: optimiser-controller
           registry: quay.io
-          repository: quay.io/nebulous/optimiser-controller-java-spring-boot-demo
+          repository: quay.io/nebulous/optimiser-controller
           namespace: nebulous
-          repo_shortname: optimiser-controller-java-spring-boot-demo
+          repo_shortname: optimiser-controller
           repo_description: ""
 
 - job:
@@ -44,7 +44,7 @@
     description: Run Hadolint on Dockerfile(s).
     vars:
       dockerfiles:
-        - java-spring-boot-demo/Dockerfile
+        - optimiser-controller/Dockerfile
 
 - job:
     name: nebulous-optimiser-controller-helm-lint
