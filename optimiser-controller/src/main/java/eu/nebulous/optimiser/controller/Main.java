@@ -7,8 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import static picocli.CommandLine.Command;
 import static picocli.CommandLine.Option;
@@ -51,7 +51,7 @@ public class Main implements Callable<Integer> {
             description = "The name of a parameter file referencing the deployable model (used for testing purposes)")
     private Path kubevela_parameters;
 
-    private static final Logger log = LogManager.getLogger(Main.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(Main.class);
 
     /**
      * The main method of the main class.

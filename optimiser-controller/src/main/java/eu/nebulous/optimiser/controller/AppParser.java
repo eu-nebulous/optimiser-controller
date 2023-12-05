@@ -5,12 +5,12 @@ import com.amihaiemil.eoyaml.YamlMapping;
 
 import java.io.File;
 import java.io.IOException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class AppParser {
 
-    private static final Logger log = LogManager.getLogger(AppParser.class.getName());
+    private static final Logger log = LoggerFactory.getLogger(AppParser.class);
 
     /**
      * Parse a KubeVela file and mapping file.

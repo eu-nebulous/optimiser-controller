@@ -8,8 +8,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A class that wraps communication with SAL (the Scheduling Abstraction Layer
@@ -19,8 +19,8 @@ import org.apache.logging.log4j.Logger;
  * https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1
  */
 public class SalConnector {
-    
-    private static final Logger log = LogManager.getLogger(SalConnector.class.getName());
+
+    private static final Logger log = LoggerFactory.getLogger(SalConnector.class);
     private URI sal_uri;
     private String session_id = null;
 
