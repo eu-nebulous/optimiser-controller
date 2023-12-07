@@ -3,11 +3,18 @@ nebulous_metadata:
     face_detection_edge_worker_cpu:
       target: .spec.components[3].properties.edge.cpu
       type: floating
+      lower_bound: 1.2
+      upper_bound: 3.0
     face_detection_edge_worker_memory:
       target: .spec.components[3].properties.edge.memory
       type: floating
+      lower_bound: 250
+      upper_bound: 1000
     face_detection_edge_worker_count:
       target: .spec.components[3].traits[1].properties.edgeWorkers.count
+      type: integer
+      lower_bound: 0
+      upper_bound: 5
     face_detection_edge_workers:
       target: .spec.components[3].traits[1].properties.edgeWorkers.nodeSelector
       type: array
@@ -20,11 +27,19 @@ nebulous_metadata:
             type: integer
     face_detection_cloud_worker_cpu:
       target: .spec.components[3].properties.cloud.cpu
+      type: floating
+      lower_bound: 3
+      upper_bound: 6
     face_detection_cloud_worker_memory:
       target: .spec.components[3].properties.cloud.memory
       type: floating
+      lower_bound: 1000
+      upper_bound: 4000
     face_detection_cloud_worker_count:
       target: .spec.components[3].traits[1].properties.cloudWorkers.count
+      type: integer
+      lower_bound: 2
+      upper_bound: 10
     face_detection_cloud_workers:
       target: .spec.components[3].traits[1].properties.cloudWorkers.nodeSelector
       type: array

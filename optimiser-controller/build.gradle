@@ -37,6 +37,9 @@ dependencies {
     // YAML parsing: https://github.com/decorators-squad/eo-yaml/tree/master
     implementation 'com.amihaiemil.web:eo-yaml:7.0.10'
 
+    // JSON parsing: https://github.com/stleary/JSON-java
+    implementation 'org.json:json:20231013'
+
     // Command-line parsing: https://picocli.info
     implementation 'info.picocli:picocli:4.7.5'
 

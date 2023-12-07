@@ -91,8 +91,7 @@ public class ExnConnector {
         // `body` is of type `Map<String, Object>` by default, so can be
         // handled by various JSON libraries directly.
         @Override
-        public void onMessage(String key, String address, Map body, Message message,
-                              AtomicReference<Context> context)
+        public void onMessage(String key, String address, Map body, Message message, Context context)
         {
             log.info("Message delivered for key {} => {} ({}) = {}",
                 key, address, body, message);

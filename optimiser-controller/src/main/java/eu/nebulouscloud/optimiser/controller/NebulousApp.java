@@ -1,42 +1,47 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import com.amihaiemil.eoyaml.*;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Internal representation of a NebulOus app.
  */
 public class NebulousApp {
     private YamlMapping original_kubevela;
-    private YamlMapping parameters;
+    private JSONArray parameters;
     
     /**
      * Creates a NebulousApp object.
      *
-     * Example KubeVela and parameter files can be found below {@code
-     * optimiser-controller/src/test/resources}
-     *
      * @param kubevela A parsed representation of the deployable KubeVela App model
-     * @param parameters A parameter mapping
+     * @param parameters A parameter mapping as a sequence of JSON objects.
      */
-    public NebulousApp(YamlMapping kubevela, YamlMapping parameters) {
+    // Note that example KubeVela and parameter files can be found at
+    // optimiser-controller/src/test/resources/
+    public NebulousApp(YamlMapping kubevela, JSONArray parameters) {
         this.original_kubevela = kubevela;
         this.parameters = parameters;
     }
 
     /**
-     * Check that the target paths of all parameters can be found in the
-     * original KubeVela file.
+     * Check that all parameters have a name, type and path, and that the
+     * target path can be found in the original KubeVela file.
      *
-     * @return true if all parameter paths match, false otherwise
+     * @return true if all requirements hold, false otherwise
      */
-    public boolean validateMapping() {
-        YamlMapping params = parameters.yamlMapping("nebulous_metadata").yamlMapping("optimisation_variables");
-        for (final YamlNode param : params.keys()) {
-            YamlMapping param_data = params.yamlMapping(param);
-            String param_name = param.asScalar().value();
-            String target_path = param_data.value("target").asScalar().value();
+    public boolean validatePaths() {
+        for (final Object p : parameters) {
+            JSONObject param = (JSONObject) p;
+            String param_name = param.optString("key");
+            if (param_name.equals("")) return false;
+            String param_type = param.optString("type");
+            if (param_type.equals("")) return false;
+            // TODO: also validate types, upper and lower bounds, etc.
+            String target_path = param.optString("path");
+            if (target_path.equals("")) return false;
             YamlNode target = findPathInKubevela(target_path);
-            if (target == null) return false;
+            if (target == null) return false; // must exist
         }
         return true;
     }
@@ -73,6 +78,54 @@ public class NebulousApp {
             }
         }
         return currentNode;
+    }
+
+    /**
+     * Print AMPL code for the app, based on the parameter definition(s).
+     */
+    public void printAMPL() {
+        for (final Object p : parameters) {
+            JSONObject param = (JSONObject) p;
+            String param_name = param.getString("key");
+            String param_type = param.getString("type");
+            JSONObject value = param.optJSONObject("value");
+            if (param_type.equals("float")) {
+                System.out.format("var %s", param_name);
+                if (value != null) {
+                    String separator = "";
+                    double lower = value.optDouble("lower_bound");
+                    double upper = value.optDouble("upper_bound");
+                    if (!Double.isNaN(lower)) {
+                        System.out.format (" >= %s", lower);
+                        separator = ", ";
+                    }
+                    if (!Double.isNaN(upper)) {
+                        System.out.format("%s<= %s", separator, upper);
+                    }
+                }
+                System.out.println(";");
+            } else if (param_type.equals("int")) {
+                System.out.format("var %s integer", param_name);
+                if (value != null) {
+                    String separator = "";
+                    Integer lower = value.optIntegerObject("lower_bound", null);
+                    Integer upper = value.optIntegerObject("upper_bound", null);
+                    if (lower != null) {
+                        System.out.format (" >= %s", lower);
+                        separator = ", ";
+                    }
+                    if (upper != null) {
+                        System.out.format("%s<= %s", separator, upper);
+                    }
+                }
+                System.out.println(";");
+            } else if (param_type.equals("string")) {
+                System.out.println("# TODO not sure how to specify a string variable");
+                System.out.format("var %s symbolic;%n");
+            } else if (param_type.equals("array")) {
+                System.out.format("# TODO generate entries for map '%s'%n", param_name);
+            }
+        }
     }
 
 }

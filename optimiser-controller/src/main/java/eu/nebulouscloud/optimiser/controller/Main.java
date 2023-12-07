@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
@@ -31,7 +32,7 @@ public class Main implements Callable<Integer> {
     @Option(names = {"-s", "--sal-url"},
             description = "The URL of the SAL server (including URL scheme http:// or https://). Can also be set via the @|bold SAL_URL|@ environment variable.",
             paramLabel = "SAL_URL",
-            defaultValue = "${SAL_URL:-http://158.37.63.90:8880/}")
+            defaultValue = "${SAL_URL:-http://localhost:8880/}")
     private java.net.URI sal_uri;
 
     @Option(names = {"--sal-user"},
@@ -70,13 +71,9 @@ public class Main implements Callable<Integer> {
             defaultValue = "${ACTIVEMQ_PASSWORD}")
     private String activemq_password;
 
-    @Option(names = {"--kubevela-file"},
-            description = "The name of a deployable KubeVela yaml file (used for testing purposes)")
-    private Path kubevela_file;
-
-    @Option(names = {"--kubevela-parameters"},
-            description = "The name of a parameter file referencing the deployable model (used for testing purposes)")
-    private Path kubevela_parameters;
+    @Option(names = {"--app-creation-message-file", "-f"},
+            description = "The name of a file containing a JSON app creation message (used for testing purposes)")
+    private Path json_app_creation_file;
 
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
@@ -97,11 +94,11 @@ public class Main implements Callable<Integer> {
             connector.connect(sal_user, sal_password);
         }
 
-        if (kubevela_file != null && kubevela_parameters!= null) {
+        if (json_app_creation_file != null) {
             try {
-                NebulousApp app
-                    = AppParser.parseAppCreationMessage(Files.readString(kubevela_file, StandardCharsets.UTF_8),
-                                                        Files.readString(kubevela_parameters, StandardCharsets.UTF_8));
+                JSONObject msg = new JSONObject(Files.readString(json_app_creation_file, StandardCharsets.UTF_8));
+                NebulousApp app = AppParser.parseAppCreationMessage(msg);
+                app.printAMPL();
             } catch (IOException e) {
                 log.error("Could not read an input file: ", e);
                 success = 1;

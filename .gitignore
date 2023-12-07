@@ -1,5 +1,7 @@
 __pycache__/
 .nox/
+.DS_Store
+
 # Gradle project-specific cache directory
 .gradle
 # Gradle build output directory
@@ -15,3 +17,7 @@ __pycache__/
 
 # IntelliJ IDEA configuration files
 /.idea/
+
+# Visual Studio Code files
+/.vscode/
+/.dir-locals.el
