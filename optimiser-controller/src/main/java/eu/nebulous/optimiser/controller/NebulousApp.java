@@ -50,6 +50,10 @@ public class NebulousApp {
      * cannot be followed
      */
     private YamlNode findPathInKubevela(String path) {
+        // rewrite ".spec.components[3].properties.edge.cpu" (yq path as
+        // delivered in the parameter file) into
+        // "spec.components.[3].properties.edge.cpu" (note we omit the leading
+        // dot) so we can follow the path just by splitting at '.'.
         String normalizedQuery = path.substring(1).replaceAll("(\\[\\d+\\])", ".$1");
         String[] keysAndIndices = normalizedQuery.split("\\.");
         YamlNode currentNode = original_kubevela;
@@ -60,17 +64,7 @@ public class NebulousApp {
                 int index = Integer.parseInt(keyOrIndex.substring(1, keyOrIndex.length() - 1));
                 YamlSequence seq = currentNode.asSequence();
                 if (index < 0 || index > seq.size()) return null;
-                //  Sadly, YamlSequence has no method `yamlNode` that returns
-                // a bare YamlNode instance; this is how its methods for
-                // `YamlMapping` etc. are implemented..
-                int count = 0;
-                for (final YamlNode node : seq.values()) {
-                    if (count == index) {
-                        currentNode = node;
-                        break;
-                    }
-                    count = count + 1;
-                }
+                currentNode = seq.yamlNode(index);
             } else {
                 if (currentNode.type() != Node.MAPPING) return null;
                 YamlMapping map = currentNode.asMapping();
