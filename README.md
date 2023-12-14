@@ -40,7 +40,7 @@ A successful build creates the jar file `dist/optimiser-controller-all.jar`.
 This file is self-contained and can be executed via the following command:
 
 ```sh
-java -jar dist/optimiser-controller-all.jar
+java -jar optimiser-controller/dist/optimiser-controller-all.jar
 ```
 
 ## Running in jshell
