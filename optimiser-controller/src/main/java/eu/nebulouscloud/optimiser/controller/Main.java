@@ -1,6 +1,5 @@
-package eu.nebulous.optimiser.controller;
+package eu.nebulouscloud.optimiser.controller;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

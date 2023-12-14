@@ -1,4 +1,4 @@
-package eu.nebulous.optimiser.controller;
+package eu.nebulouscloud.optimiser.controller;
 
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
@@ -8,7 +8,8 @@ import org.junit.jupiter.api.Test;
 import java.net.URI;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @WireMockTest
 public class SALConnectorTests {

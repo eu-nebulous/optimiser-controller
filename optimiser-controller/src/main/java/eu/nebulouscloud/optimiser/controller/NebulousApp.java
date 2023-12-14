@@ -1,4 +1,4 @@
-package eu.nebulous.optimiser.controller;
+package eu.nebulouscloud.optimiser.controller;
 
 import com.amihaiemil.eoyaml.*;
 
@@ -12,7 +12,7 @@ public class NebulousApp {
     /**
      * Creates a NebulousApp object.
      *
-     * Example KubeVela and parameter files can be found below {@link
+     * Example KubeVela and parameter files can be found below {@code
      * optimiser-controller/src/test/resources}
      *
      * @param kubevela A parsed representation of the deployable KubeVela App model
@@ -44,8 +44,8 @@ public class NebulousApp {
     /**
      * Return the location of a path in the application's KubeVela model.
      *
-     * @param path the path to the requested node, in {@link
-     * https://mikefarah.gitbook.io/yq/ yq} notation
+     * @param path the path to the requested node, in yq notation (see <a
+     *  href="https://mikefarah.gitbook.io/yq/">https://mikefarah.gitbook.io/yq/</a>)
      * @return the node identified by the given path, or null if the path
      * cannot be followed
      */

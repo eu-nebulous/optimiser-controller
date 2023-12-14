@@ -1,4 +1,4 @@
-package eu.nebulous.optimiser.controller;
+package eu.nebulouscloud.optimiser.controller;
 
 import java.io.IOException;
 import java.net.URI;
