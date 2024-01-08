@@ -97,7 +97,7 @@ public class Main implements Callable<Integer> {
         if (json_app_creation_file != null) {
             try {
                 JSONObject msg = new JSONObject(Files.readString(json_app_creation_file, StandardCharsets.UTF_8));
-                NebulousApp app = AppParser.parseAppCreationMessage(msg);
+                NebulousApp app = NebulousApp.newFromAppMessage(msg);
                 app.printAMPL();
             } catch (IOException e) {
                 log.error("Could not read an input file: ", e);

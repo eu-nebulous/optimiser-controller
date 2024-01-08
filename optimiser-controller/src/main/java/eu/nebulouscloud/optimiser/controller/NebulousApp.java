@@ -1,16 +1,93 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import com.amihaiemil.eoyaml.*;
+
+import java.util.Collection;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+import org.json.JSONPointer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Internal representation of a NebulOus app.
  */
 public class NebulousApp {
+    private static final Logger log = LoggerFactory.getLogger(NebulousApp.class);
+
+    /**
+     * Location of the kubevela yaml file in the app creation message.  Should
+     * point to a string.
+     */
+    private static final JSONPointer kubevela_path = new JSONPointer("/kubevela/original");
+
+    /**
+     * Location of the modifiable locations of the kubevela file in the app
+     * creation message.  Should point to an array of objects.
+     */
+    private static final JSONPointer variables_path = new JSONPointer("/kubevela/variables");
+
+    private static final JSONPointer uuid_path = new JSONPointer("/application/uuid");
+
+    /** The global app registry. */
+    // (Putting this here until we find a better place.)
+    private static final Map<String, NebulousApp> apps = new ConcurrentHashMap<String, NebulousApp>();
+
+    /**
+     * Add a new application object to the registry.
+     *
+     * @param app a fresh NebulousApp instance.  It is an error if the
+     *  registry already contains an app with the same uuid.
+     */
+    public static synchronized void add(NebulousApp app) {
+        String uuid = app.getUUID();
+        apps.put(uuid, app);
+        log.info("Added app {}", uuid);
+    }
+
+    /**
+     * Lookup the application object with the given uuid.
+     *
+     * @param uuid the app's UUID
+     * @return the application object, or null if not found
+     */
+    public static synchronized NebulousApp get(String uuid) {
+        return apps.get(uuid);
+    }
+
+    /**
+     * Remove the application object with the given uuid.
+     *
+     * @param uuid the app object's UUID
+     * @return the removed app object
+     */
+    public static synchronized NebulousApp remove(String uuid) {
+        NebulousApp app = apps.remove(uuid);
+        if (app != null) {
+            log.info("Removed app {}", uuid);
+        } else {
+            log.error("Trying to remove unknown app with uuid {}", uuid);
+        }
+        return app;
+    }
+
+    /**
+     * Return all currently registered apps.
+     *
+     * @return a collection of all apps
+     */
+    public static synchronized Collection<NebulousApp> values() {
+        return apps.values();
+    }
+
+    private String uuid;
+    private JSONObject original_app_message;
     private YamlMapping original_kubevela;
     private JSONArray parameters;
-    
+
     /**
      * Creates a NebulousApp object.
      *
@@ -19,9 +96,40 @@ public class NebulousApp {
      */
     // Note that example KubeVela and parameter files can be found at
     // optimiser-controller/src/test/resources/
-    public NebulousApp(YamlMapping kubevela, JSONArray parameters) {
+    public NebulousApp(JSONObject app_message, YamlMapping kubevela, JSONArray parameters) {
+        this.original_app_message = app_message;
         this.original_kubevela = kubevela;
         this.parameters = parameters;
+        this.uuid = (String)uuid_path.queryFrom(app_message);
+    }
+
+    /**
+     * Create a NebulousApp object given an app creation message parsed into JSON.
+     *
+     * @param app_message the app creation message, including valid KubeVela YAML et al
+     * @return a NebulousApp object, or null if `app_message` could not be parsed
+     */
+    public static NebulousApp newFromAppMessage(JSONObject app_message) {
+        try {
+            String kubevela_string = (String)kubevela_path.queryFrom(app_message);
+            JSONArray parameters = (JSONArray)variables_path.queryFrom(app_message);
+            return new NebulousApp(app_message,
+                Yaml.createYamlInput(kubevela_string).readYamlMapping(),
+                parameters);
+        } catch (Exception e) {
+            log.error("Could not read app creation message: ", e);
+            return null;
+        }
+    }
+
+    /**
+     * The UUID of the app.  This is the UUID that identifies a specific
+     * application's ActiveMQ messages.
+     *
+     * @return the UUID of the app
+     */
+    public String getUUID() {
+        return uuid;
     }
 
     /**

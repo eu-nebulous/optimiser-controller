@@ -1,0 +1,221 @@
+{
+  "application": {
+    "name": "This is the application name",
+    "uuid": "XXXXXf81ee-b42a8-a13d56-e28ec9-2f5578"
+  },
+  "kubevela": {
+    "original": "apiVersion: core.oam.dev/v1beta1\nkind: Application\nmetadata:\n  name: surveillance-demo\n  namespace: default\nspec:\n  components:\n    - name: kafka-server\n      type: webservice\n      properties:\n        image: confluentinc/cp-kafka:7.2.1\n        hostname: kafka-server\n        ports:\n          - port: 9092\n            expose: true\n          - port: 9093\n            expose: true\n          - port: 29092\n            expose: true\n        cpu: \"1\"\n        memory: \"2000Mi\"\n        cmd: [ \"/bin/bash\", \"/tmp/run_workaround.sh\" ]\n        env:\n          - name: KAFKA_NODE_ID\n            value: \"1\"\n          - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP\n            value: \"CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT\"\n          - name: KAFKA_LISTENERS\n            value: \"PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093\"\n          - name: KAFKA_ADVERTISED_LISTENERS\n            value: \"PLAINTEXT://kafka-server:9092,PLAINTEXT_HOST://212.101.173.161:29092\"\n          - name: KAFKA_CONTROLLER_LISTENER_NAMES\n            value: \"CONTROLLER\"\n          - name: KAFKA_CONTROLLER_QUORUM_VOTERS\n            value: \"1@0.0.0.0:9093\"\n          - name: KAFKA_PROCESS_ROLES\n            value: \"broker,controller\"\n#        volumeMounts:\n#          configMap:\n#            - name: configmap-example-1\n#              mountPath: /tmp\n#              cmName: configmap-example-1\n#              defaultMod: 777\n      traits:\n        - type: storage\n          properties:\n            configMap:\n              - name: kafka-init\n                mountPath: /tmp\n                data:\n                  run_workaround.sh: |-\n                    #!/bin/sh\n                    sed -i '/KAFKA_ZOOKEEPER_CONNECT/d' /etc/confluent/docker/configure\n                    sed -i 's/cub zk-ready/echo ignore zk-ready/' /etc/confluent/docker/ensure\n                    echo \"kafka-storage format --ignore-formatted -t NqnEdODVKkiLTfJvqd1uqQ== -c /etc/kafka/kafka.properties\" >> /etc/confluent/docker/ensure\n                    /etc/confluent/docker/run\n\n    - name: kafka-ui\n      type: webservice\n      properties:\n        image: provectuslabs/kafka-ui:cd9bc43d2e91ef43201494c4424c54347136d9c0\n        exposeType: NodePort\n        ports:\n          - port: 8080\n            expose: true\n            nodePort: 30001\n        cpu: \"0.3\"\n        memory: \"512Mi\"\n        env:\n          - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS\n            value: \"kafka-server:9092\"\n\n    - name: video-capture\n      type: webservice\n      properties:\n        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/video-capture:1.1.0\n        cpu: \"0.2\"\n        memory: \"100Mi\"\n        env:\n          - name: KAFKA_URL\n            value: \"kafka-server:9092\"\n          - name: KAFKA_DETECTION_TOPIC\n            value: \"surveillance\"\n          - name: CAPTURE_VIDEO\n            value: \"False\"\n          - name: CAPTURE_DEVICE\n            value: \"/dev/video0\"\n          - name: DEBUG\n            value: \"True\"\n          - name: HOSTNAME\n            value: \"docker-capture\"\n        volumeMounts:\n          hostPath:\n            - name: video\n              mountPath: \"/dev/video1\"\n              path: \"/dev/video0\"\n      traits:\n        - type: affinity\n          properties:\n            nodeAffinity:\n              required:\n                nodeSelectorTerms:\n                  - matchExpressions:\n                    - key: \"kubernetes.io/hostname\"\n                      operator: \"In\"\n                      values: [\"nebulousk8s-worker-1\"]\n\n\n#    devices:\n#      - /dev/video0:/dev/video0\n\n    - name: face-detection\n      type: webservice\n      properties:\n        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/face-detection:1.2.0\n        edge:\n          cpu: \"1.2\"\n          memory: \"512Mi\"\n          env:\n            - name: KAFKA_URL\n              value: \"kafka-server:9092\"\n            - name: KAFKA_DETECTION_TOPIC\n              value: \"surveillance\"\n            - name: THREADS_COUNT\n              value: \"1\"\n            - name: STORE_METRIC\n              value: \"False\"\n            - name: DEBUG\n              value: \"True\"\n        cloud:\n          cpu: \"1.2\"\n          memory: \"512Mi\"\n          env:\n            - name: KAFKA_URL\n              value: \"kafka-server:9092\"\n            - name: KAFKA_DETECTION_TOPIC\n              value: \"surveillance\"\n            - name: THREADS_COUNT\n              value: \"1\"\n            - name: STORE_METRIC\n              value: \"False\"\n            - name: DEBUG\n              value: \"True\"\n      traits:\n        - type: affinity\n          properties:\n            podAntiAffinity:\n              required:\n                - labelSelector:\n                    matchExpressions:\n                      - key: \"app.oam.dev/component\"\n                        operator: \"In\"\n                        values: [ \"video-capture\" ]\n                  topologyKey: \"test\"\n        - type: nodePlacement\n          properties:\n            cloudWorkers:\n              count: 6\n              nodeSelector:\n                - name: node1\n                  value: 2\n                - name: node2\n                  value: 1\n                - name: node3\n                  value: 3\n            edgeWorkers:\n              count: 3\n              nodeSelector:\n                - name: node4\n                  value: 2\n                - name: node5\n                  value: 1\n        - type: geoLocation\n          properties:\n            affinity:\n              required:\n                - labelSelector:\n                    - key: \"continent\"\n                      operator: \"In\"\n                      values: [\"Europe\"]\n\n    - name: video-player\n      type: webservice\n      properties:\n        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/video-player:1.1.0\n        exposeType: NodePort\n        env:\n          - name: KAFKA_URL\n            value: \"kafka-server:9092\"\n          - name: DEBUG\n            value: \"True\"\n          - name: SERVER_PORT\n            value: \"8081\"\n        ports:\n          - port: 8081\n            expose: true\n            nodePort: 30002\n",
+    "variables": [
+      {
+        "key": "face_detection_edge_worker_cpu",
+        "path": ".spec.components[3].properties.edge.cpu",
+        "meaning": "cpu",
+        "type": "float",
+        "value": {
+          "lower_bound": 1.2,
+          "upper_bound": 3.0
+        },
+        "is_constant": false
+      },
+      {
+        "key": "face_detection_edge_worker_memory",
+        "path": ".spec.components[3].properties.edge.memory",
+        "meaning": "memory",
+        "type": "float",
+        "value": {
+          "lower_bound": 250,
+          "upper_bound": 1000
+        },
+        "is_constant": false
+      },
+      {
+        "key": "face_detection_edge_worker_count",
+        "path": ".spec.components[3].traits[1].properties.edgeWorkers.count",
+        "type": "int",
+        "value": {
+          "lower_bound": 0,
+          "upper_bound": 5
+        }
+      },
+      {
+        "key": "face_detection_edge_workers",
+        "path": ".spec.components[3].traits[1].properties.edgeWorkers.nodeSelector",
+        "type": "array",
+        "entry": {
+          "type": "kv",
+          "members": [
+            {
+              "key": "nodename",
+              "type": "string"
+            },
+            {
+              "key": "count",
+              "type": "int"
+            }
+          ]
+        }
+      },
+      {
+        "key": "face_detection_cloud_worker_cpu",
+        "path": ".spec.components[3].properties.cloud.cpu",
+        "meaning": "cpu",
+        "type": "float",
+        "value": {
+          "lower_bound": 3.0,
+          "upper_bound": 6.0
+        },
+        "is_constant": false
+      },
+      {
+        "key": "face_detection_cloud_worker_memory",
+        "path": ".spec.components[3].properties.cloud.memory",
+        "meaning": "memory",
+        "type": "float",
+        "value": {
+          "lower_bound": 1000,
+          "upper_bound": 4000
+        },
+        "is_constant": false
+      },
+      {
+        "key": "face_detection_cloud_worker_count",
+        "path": ".spec.components[3].traits[1].properties.cloudWorkers.count",
+        "type": "int",
+        "value": {
+          "lower_bound": 2,
+          "upper_bound": 10
+        }
+      },
+      {
+        "key": "face_detection_cloud_workers",
+        "path": ".spec.components[3].traits[1].properties.cloudWorkers.nodeSelector",
+        "type": "array",
+        "entry": {
+          "type": "kv",
+          "members": [
+            {
+              "key": "nodename",
+              "type": "string"
+            },
+            {
+              "key": "count",
+              "type": "int"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "cloud_providers": [
+    {
+      "type": "aws",
+      "sal_key": "2342342342asdfsadf"
+    },
+    {
+      "type": "gce",
+      "sal_key": "fseae2$@$@#aAfadadsf"
+    }
+  ],
+  "metrics": [
+    {
+      "type": "composite",
+      "@comment": "// composite | raw",
+      "key": "some_composite_metric_name",
+      "name": "Some composite metric name",
+      "formula": "A * B * C - E",
+      "window": {
+        "@comment": "// this can be empty"
+      }
+    },
+    {
+      "type": "composite",
+      "@comment": "// composite | raw",
+      "key": "cpu_util_prtc",
+      "name": "cpu_util_prtc",
+      "formula": "A * B * C - E",
+      "window": {
+        "input": {
+          "type": "all",
+          "interval": 30,
+          "unit": "sec",
+          "@comment": "// this can ms / sec / min / hour"
+        },
+        "output": {
+          "type": "all",
+          "interval": 30,
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "type": "raw",
+      "@comment": "// composite | raw",
+      "name": "cpu_util_prtc #2",
+      "key": "cpu_util_prtc_2",
+      "sensor": "sensor_camery",
+      "config": {
+        "ipAddres": "0.0.0.0",
+        "location": "europe",
+        "timezone": "Europe/Athens"
+      }
+    }
+  ],
+  "slo": {
+    "operator": "and",
+    "children": [
+      {
+        "operator": "or",
+        "type": "composite",
+        "children": [
+          {
+            "condition": {
+              "not": true,
+              "key": "cpu_util_prtc_2",
+              "operand": ">",
+              "value": 2
+            }
+          },
+          {
+            "condition": {
+              "key": "cpu_util_prtc",
+              "operand": "<",
+              "value": 100
+            }
+          }
+        ]
+      },
+      {
+        "type": "simple",
+        "condition": {
+          "key": "cpu_util_prtc_2",
+          "operand": ">",
+          "value": 2,
+          "type": "float"
+        }
+      }
+    ]
+  },
+  "utility_functions": [
+    {
+      "key": "utility_function_1",
+      "name": "Utility Function 1",
+      "type": "maximize",
+      "@comment": "// maximize | minimize",
+      "formula": "A * B * C - E",
+      "mapping": {
+        "A": "cpu_util_prtc",
+        "B": "component_facedetection_1_cpu_2"
+      }
+    },
+    {
+      "key": "utility_function_2",
+      "name": "Utility Function 2",
+      "type": "minimize",
+      "@comment": "// maximize | minimize",
+      "formula": "A",
+      "mapping": {
+        "A": "bacdafd"
+      }
+    }
+  ]
+}

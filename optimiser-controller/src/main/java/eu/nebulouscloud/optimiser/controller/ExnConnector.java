@@ -4,17 +4,16 @@ import eu.nebulouscloud.exn.Connector;
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
-import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import org.apache.qpid.protonj2.client.Message;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A class that connects to the EXN middleware and starts listening to
@@ -28,10 +27,13 @@ public class ExnConnector {
 
     private static final Logger log = LoggerFactory.getLogger(ExnConnector.class);
 
-    /// The Connector used to talk with ActiveMQ
+    /** The Connector used to talk with ActiveMQ */
     private final Connector conn;
-    /// if non-null, signals after the connector is stopped
+    /** if non-null, signals after the connector is stopped */
     private CountDownLatch synchronizer = null;
+
+    /** The channel where we listen for app creation messages */
+    public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic.>";
 
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
@@ -47,15 +49,15 @@ public class ExnConnector {
      */
     public ExnConnector(String host, int port, String name, String password, ConnectorHandler callback) {
         conn = new Connector("optimiser_controller",
-                             callback,
-                             List.of(new Publisher("config", "config", true)),
-                             List.of(new Consumer("ui_all", "eu.nebulouscloud.ui.preferences.>",
-                                                  new MyConsumerHandler(), true, true),
-                                     new Consumer("ui_all", "eu.nebulouscloud.ui.config.>",
-                                                  new MyConsumerHandler(), true, true)),
-                             false,
-                             false,
-                             new StaticExnConfig(host, port, name, password, 15, "eu.nebulouscloud"));
+            callback,
+            // List.of(new Publisher("config", "config", true)),
+            List.of(),
+            List.of(
+                new Consumer("ui_all", app_creation_channel,
+                    new AppCreationMessageHandler(), true, true)),
+            false,
+            false,
+            new StaticExnConfig(host, port, name, password, 15, "eu.nebulouscloud"));
     }
 
     /**
@@ -69,32 +71,47 @@ public class ExnConnector {
     public synchronized void start(CountDownLatch synchronizer) {
         this.synchronizer = synchronizer;
         conn.start();
+        log.info("ExnConnector started.");
     }
 
     /**
      * Disconnect from ActiveMQ and stop all Consumer processes.  Also count
-     * down the countdown latch passed in the {@link start} method if
-     * applicable.
+     * down the countdown latch passed in the {@link
+     * ExnConnector#start(CountDownLatch)} method if applicable.
      */
     public synchronized void stop() {
         conn.stop();
         if (synchronizer != null) {
             synchronizer.countDown();
         }
+        log.info("ExnConnector stopped.");
     }
 
     /**
-     * Sample message handler; we might have different handlers for each topic
-     * we listen to instead.
+     * A message handler that processes app creation messages coming in via
+     * `eu.nebulouscloud.ui.dsl.generic`.  Such messages contain, among
+     * others, the KubeVela YAML definition and mapping from KubeVela
+     * locations to AMPL variables.
+     *
+     * When receiving a message, the handler tries to instantiate a
+     * `NebulousApp` object.
      */
-    private class MyConsumerHandler extends Handler {
-        // `body` is of type `Map<String, Object>` by default, so can be
-        // handled by various JSON libraries directly.
+    // Note that there is another, earlier app creation message sent via the
+    // channel `eu.nebulouscloud.ui.application.new`, but its format is not
+    // yet defined as of 2024-01-08.
+    public class AppCreationMessageHandler extends Handler {
         @Override
-        public void onMessage(String key, String address, Map body, Message message, Context context)
-        {
-            log.info("Message delivered for key {} => {} ({}) = {}",
-                key, address, body, message);
+        public void onMessage(String key, String address, Map body, Message message, Context context) {
+            try {
+                String app_id = message.subject();
+                log.info("App creation message received for app {}", app_id);
+                NebulousApp app = NebulousApp.newFromAppMessage(new JSONObject(body));
+                NebulousApp.add(app);
+                // TODO: do more applicaton initialization work here
+            } catch (Exception e) {
+                log.error("Error while receiving app creation message over {}: {}",
+                    app_creation_channel, e);
+            }
         }
     }
 }
