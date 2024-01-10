@@ -7,9 +7,11 @@ import eu.nebulouscloud.exn.core.Handler;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import org.apache.qpid.protonj2.client.Message;
-import org.json.JSONObject;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -31,6 +33,8 @@ public class ExnConnector {
     private final Connector conn;
     /** if non-null, signals after the connector is stopped */
     private CountDownLatch synchronizer = null;
+
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     /** The channel where we listen for app creation messages */
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic.>";
@@ -105,9 +109,9 @@ public class ExnConnector {
             try {
                 String app_id = message.subject();
                 log.info("App creation message received for app {}", app_id);
-                NebulousApp app = NebulousApp.newFromAppMessage(new JSONObject(body));
+                NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body));
                 NebulousApp.add(app);
-                // TODO: do more applicaton initialization work here
+                // TODO: do more applicaton initialization work here: set up channels, calculate AMPL, etc.
             } catch (Exception e) {
                 log.error("Error while receiving app creation message over {}: {}",
                     app_creation_channel, e);

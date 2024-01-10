@@ -1,14 +1,16 @@
 package eu.nebulouscloud.optimiser.controller;
 
-import com.amihaiemil.eoyaml.*;
+import com.fasterxml.jackson.core.JsonPointer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-import org.json.JSONPointer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,23 +20,23 @@ import org.slf4j.LoggerFactory;
 public class NebulousApp {
     private static final Logger log = LoggerFactory.getLogger(NebulousApp.class);
 
-    /**
-     * Location of the kubevela yaml file in the app creation message.  Should
-     * point to a string.
-     */
-    private static final JSONPointer kubevela_path = new JSONPointer("/kubevela/original");
+    /** Location of the kubevela yaml file in the app creation message (String) */
+    private static final JsonPointer kubevela_path = JsonPointer.compile("/kubevela/original");
 
-    /**
-     * Location of the modifiable locations of the kubevela file in the app
-     * creation message.  Should point to an array of objects.
-     */
-    private static final JSONPointer variables_path = new JSONPointer("/kubevela/variables");
+    /** Location of the variables (optimizable locations) of the kubevela file
+     * in the app creation message. (Array of objects) */
+    private static final JsonPointer variables_path = JsonPointer.compile("/kubevela/variables");
 
-    private static final JSONPointer uuid_path = new JSONPointer("/application/uuid");
+    /** Location of the UUID in the app creation message (String) */
+    private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
 
     /** The global app registry. */
     // (Putting this here until we find a better place.)
     private static final Map<String, NebulousApp> apps = new ConcurrentHashMap<String, NebulousApp>();
+
+    /** The YAML converter */
+    // Note that instantiating this is apparently expensive, so we do it only once
+    private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
 
     /**
      * Add a new application object to the registry.
@@ -84,23 +86,24 @@ public class NebulousApp {
     }
 
     private String uuid;
-    private JSONObject original_app_message;
-    private YamlMapping original_kubevela;
-    private JSONArray parameters;
+    private JsonNode original_app_message;
+    private ObjectNode original_kubevela;
+    private ArrayNode parameters;
 
     /**
      * Creates a NebulousApp object.
      *
-     * @param kubevela A parsed representation of the deployable KubeVela App model
-     * @param parameters A parameter mapping as a sequence of JSON objects.
+     * @param app_message The whole app creation message (JSON)
+     * @param kubevela A parsed representation of the deployable KubeVela App model (YAML)
+     * @param parameters A parameter mapping as a sequence of JSON objects (JSON)
      */
     // Note that example KubeVela and parameter files can be found at
     // optimiser-controller/src/test/resources/
-    public NebulousApp(JSONObject app_message, YamlMapping kubevela, JSONArray parameters) {
+    public NebulousApp(JsonNode app_message, ObjectNode kubevela, ArrayNode parameters) {
         this.original_app_message = app_message;
         this.original_kubevela = kubevela;
         this.parameters = parameters;
-        this.uuid = (String)uuid_path.queryFrom(app_message);
+        this.uuid = app_message.at(uuid_path).textValue();
     }
 
     /**
@@ -109,13 +112,18 @@ public class NebulousApp {
      * @param app_message the app creation message, including valid KubeVela YAML et al
      * @return a NebulousApp object, or null if `app_message` could not be parsed
      */
-    public static NebulousApp newFromAppMessage(JSONObject app_message) {
+    public static NebulousApp newFromAppMessage(JsonNode app_message) {
         try {
-            String kubevela_string = (String)kubevela_path.queryFrom(app_message);
-            JSONArray parameters = (JSONArray)variables_path.queryFrom(app_message);
-            return new NebulousApp(app_message,
-                Yaml.createYamlInput(kubevela_string).readYamlMapping(),
-                parameters);
+            String kubevela_string = app_message.at(kubevela_path).textValue();
+            JsonNode parameters = app_message.at(variables_path);
+            if (kubevela_string == null || !parameters.isArray()) {
+                log.error("Could not find kubevela or parameters in app creation message.");
+                return null;
+            } else {
+                return new NebulousApp(app_message,
+                    (ObjectNode)yaml_mapper.readTree(kubevela_string),
+                    (ArrayNode)parameters);
+            }
         } catch (Exception e) {
             log.error("Could not read app creation message: ", e);
             return null;
@@ -140,15 +148,15 @@ public class NebulousApp {
      */
     public boolean validatePaths() {
         for (final Object p : parameters) {
-            JSONObject param = (JSONObject) p;
-            String param_name = param.optString("key");
-            if (param_name.equals("")) return false;
-            String param_type = param.optString("type");
-            if (param_type.equals("")) return false;
+            ObjectNode param = (ObjectNode) p;
+            String param_name = param.get("key").textValue();
+            if (param_name == null || param_name.equals("")) return false;
+            String param_type = param.get("type").textValue();
+            if (param_type == null || param_type.equals("")) return false;
             // TODO: also validate types, upper and lower bounds, etc.
-            String target_path = param.optString("path");
-            if (target_path.equals("")) return false;
-            YamlNode target = findPathInKubevela(target_path);
+            String target_path = param.get("path").textValue();
+            if (target_path == null || target_path.equals("")) return false;
+            JsonNode target = findPathInKubevela(target_path);
             if (target == null) return false; // must exist
         }
         return true;
@@ -162,53 +170,53 @@ public class NebulousApp {
      * @return the node identified by the given path, or null if the path
      * cannot be followed
      */
-    private YamlNode findPathInKubevela(String path) {
+    private JsonNode findPathInKubevela(String path) {
         // rewrite ".spec.components[3].properties.edge.cpu" (yq path as
         // delivered in the parameter file) into
         // "spec.components.[3].properties.edge.cpu" (note we omit the leading
         // dot) so we can follow the path just by splitting at '.'.
         String normalizedQuery = path.substring(1).replaceAll("(\\[\\d+\\])", ".$1");
         String[] keysAndIndices = normalizedQuery.split("\\.");
-        YamlNode currentNode = original_kubevela;
+        JsonNode currentNode = original_kubevela;
         for (String keyOrIndex : keysAndIndices) {
             boolean isIndex = keyOrIndex.matches("^\\[(\\d+)\\]$");
             if (isIndex) {
-                if (currentNode.type() != Node.SEQUENCE) return null;
+                if (!currentNode.isArray()) return null;
                 int index = Integer.parseInt(keyOrIndex.substring(1, keyOrIndex.length() - 1));
-                YamlSequence seq = currentNode.asSequence();
-                if (index < 0 || index > seq.size()) return null;
-                currentNode = seq.yamlNode(index);
+                currentNode = currentNode.get(index);
+                if (currentNode == null) return null;
             } else {
-                if (currentNode.type() != Node.MAPPING) return null;
-                YamlMapping map = currentNode.asMapping();
-                currentNode = map.value(keyOrIndex);
+                if (!currentNode.isObject()) return null;
+                currentNode = currentNode.get(keyOrIndex);
                 if (currentNode == null) return null;
             }
         }
         return currentNode;
     }
 
+    
+
     /**
      * Print AMPL code for the app, based on the parameter definition(s).
      */
     public void printAMPL() {
-        for (final Object p : parameters) {
-            JSONObject param = (JSONObject) p;
-            String param_name = param.getString("key");
-            String param_type = param.getString("type");
-            JSONObject value = param.optJSONObject("value");
+        for (final JsonNode p : parameters) {
+            ObjectNode param = (ObjectNode) p;
+            String param_name = param.get("key").textValue();
+            String param_type = param.get("type").textValue();
+            ObjectNode value = (ObjectNode)param.get("value");
             if (param_type.equals("float")) {
                 System.out.format("var %s", param_name);
                 if (value != null) {
                     String separator = "";
-                    double lower = value.optDouble("lower_bound");
-                    double upper = value.optDouble("upper_bound");
-                    if (!Double.isNaN(lower)) {
-                        System.out.format (" >= %s", lower);
+                    JsonNode lower = value.get("lower_bound");
+                    JsonNode upper = value.get("upper_bound");
+                    if (lower.isDouble()) {
+                        System.out.format (" >= %s", lower.doubleValue());
                         separator = ", ";
                     }
-                    if (!Double.isNaN(upper)) {
-                        System.out.format("%s<= %s", separator, upper);
+                    if (upper.isDouble()) {
+                        System.out.format("%s<= %s", separator, upper.doubleValue());
                     }
                 }
                 System.out.println(";");
@@ -216,14 +224,14 @@ public class NebulousApp {
                 System.out.format("var %s integer", param_name);
                 if (value != null) {
                     String separator = "";
-                    Integer lower = value.optIntegerObject("lower_bound", null);
-                    Integer upper = value.optIntegerObject("upper_bound", null);
-                    if (lower != null) {
-                        System.out.format (" >= %s", lower);
+                    JsonNode lower = value.get("lower_bound");
+                    JsonNode upper = value.get("upper_bound");
+                    if (lower.isLong()) {
+                        System.out.format (" >= %s", lower.longValue());
                         separator = ", ";
                     }
-                    if (upper != null) {
-                        System.out.format("%s<= %s", separator, upper);
+                    if (upper.isLong()) {
+                        System.out.format("%s<= %s", separator, upper.longValue());
                     }
                 }
                 System.out.println(";");

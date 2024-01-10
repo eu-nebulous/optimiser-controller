@@ -34,15 +34,11 @@ repositories {
 }
 
 dependencies {
-    // YAML parsing: https://github.com/decorators-squad/eo-yaml/tree/master
-    implementation 'com.amihaiemil.web:eo-yaml:7.0.10'
-
-    // JSON parsing: https://github.com/stleary/JSON-java
-    implementation 'org.json:json:20231013'
-
-    // JSON to use data classes defined in sal-common:
+    // JSON parsing, also used by the data classes defined in sal-common:
     // https://github.com/FasterXML/jackson
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
+    // YAML parsing: https://github.com/FasterXML/jackson-dataformats-text
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.16.1'
 
     // Command-line parsing: https://picocli.info
     implementation 'info.picocli:picocli:4.7.5'

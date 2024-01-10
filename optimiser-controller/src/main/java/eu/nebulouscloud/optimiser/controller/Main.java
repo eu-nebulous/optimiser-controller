@@ -10,9 +10,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import picocli.CommandLine;
 import static picocli.CommandLine.Command;
 import static picocli.CommandLine.Option;
@@ -96,7 +99,8 @@ public class Main implements Callable<Integer> {
 
         if (json_app_creation_file != null) {
             try {
-                JSONObject msg = new JSONObject(Files.readString(json_app_creation_file, StandardCharsets.UTF_8));
+                ObjectMapper mapper = new ObjectMapper();
+                JsonNode msg = mapper.readTree(Files.readString(json_app_creation_file, StandardCharsets.UTF_8));
                 NebulousApp app = NebulousApp.newFromAppMessage(msg);
                 app.printAMPL();
             } catch (IOException e) {
