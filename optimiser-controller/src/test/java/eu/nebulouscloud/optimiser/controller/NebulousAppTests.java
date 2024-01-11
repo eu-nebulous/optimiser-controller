@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -20,7 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class NebulousAppTests {
 
-    private ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
 
     private Path getResourcePath(String name) throws URISyntaxException {
         URL resourceUrl = getClass().getClassLoader().getResource(name);
@@ -64,7 +66,8 @@ public class NebulousAppTests {
             StandardCharsets.UTF_8);
         JsonNode solutions = mapper.readTree(solution_string);
         ObjectNode replacements = solutions.withObject("VariableValues");
-        ObjectNode kubevela = app.rewriteKubevela(replacements);
+        String kubevela_str = app.rewriteKubevela(replacements);
+        JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
         assertTrue(kubevela.at("/spec/components/3/properties/edge/cpu").asText().equals("2.7"));
         assertTrue(kubevela.at("/spec/components/3/properties/edge/memory").asText().equals("1024Mi"));
     }

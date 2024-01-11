@@ -1,6 +1,7 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import com.fasterxml.jackson.core.JsonPointer;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -153,15 +154,15 @@ public class NebulousApp {
      *
      * @param variable_values A JSON object with keys being variable names and
      *  their values the replacement value, e.g., `{ 'P1': 50, 'P2': 2.5 }`.
-     * @return a fresh KubeVela representation, ready to be deserialized into
-     *  YAML.
+     * @return the modified KubeVela YAML, deserialized into a string, or
+     *  null if no KubeVela could be generated.
      */
-    public ObjectNode rewriteKubevela(ObjectNode variable_values) {
-        ObjectNode result = original_kubevela.deepCopy();
+    public String rewriteKubevela(ObjectNode variable_values) {
+        ObjectNode fresh_kubevela = original_kubevela.deepCopy();
         for (Map.Entry<String, JsonNode> entry : variable_values.properties()) {
             // look up the prepared path in the variable |-> location map
             JsonPointer path = kubevela_variable_paths.get(entry.getKey());
-            JsonNode node = result.at(path);
+            JsonNode node = fresh_kubevela.at(path);
             if (node == null) {
                 log.error("Location {} not found in KubeVela, cannot replace value", entry.getKey());
             } else if (!node.getNodeType().equals(entry.getValue().getNodeType())) {
@@ -170,11 +171,18 @@ public class NebulousApp {
             } else {
                 // get the parent object and the property name; replace with
                 // what we got
-                ObjectNode parent = (ObjectNode)result.at(path.head());
+                ObjectNode parent = (ObjectNode)fresh_kubevela.at(path.head());
                 String property = path.last().getMatchingProperty();
                 parent.replace(property, entry.getValue());
             }
         }
+        String result;
+	try {
+	    result = yaml_mapper.writeValueAsString(fresh_kubevela);
+	} catch (JsonProcessingException e) {
+            log.error("Could not generate KubeVela file: ", e);
+            return null;
+	}
         return result;
     }
 
