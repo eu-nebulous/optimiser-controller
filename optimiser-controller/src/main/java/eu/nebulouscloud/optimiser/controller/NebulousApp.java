@@ -7,10 +7,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
-import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,65 +28,16 @@ public class NebulousApp {
     /** Location of the UUID in the app creation message (String) */
     private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
 
-    /** The global app registry. */
-    // (Putting this here until we find a better place.)
-    private static final Map<String, NebulousApp> apps = new ConcurrentHashMap<String, NebulousApp>();
-
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
     private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
 
-    /**
-     * Add a new application object to the registry.
-     *
-     * @param app a fresh NebulousApp instance.  It is an error if the
-     *  registry already contains an app with the same uuid.
-     */
-    public static synchronized void add(NebulousApp app) {
-        String uuid = app.getUUID();
-        apps.put(uuid, app);
-        log.info("Added app {}", uuid);
-    }
-
-    /**
-     * Lookup the application object with the given uuid.
-     *
-     * @param uuid the app's UUID
-     * @return the application object, or null if not found
-     */
-    public static synchronized NebulousApp get(String uuid) {
-        return apps.get(uuid);
-    }
-
-    /**
-     * Remove the application object with the given uuid.
-     *
-     * @param uuid the app object's UUID
-     * @return the removed app object
-     */
-    public static synchronized NebulousApp remove(String uuid) {
-        NebulousApp app = apps.remove(uuid);
-        if (app != null) {
-            log.info("Removed app {}", uuid);
-        } else {
-            log.error("Trying to remove unknown app with uuid {}", uuid);
-        }
-        return app;
-    }
-
-    /**
-     * Return all currently registered apps.
-     *
-     * @return a collection of all apps
-     */
-    public static synchronized Collection<NebulousApp> values() {
-        return apps.values();
-    }
-
     private String uuid;
     private JsonNode original_app_message;
     private ObjectNode original_kubevela;
-    private ArrayNode parameters;
+    private ArrayNode kubevela_variables;
+    /** Map from AMPL variable name to location in KubeVela. */
+    private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
 
     /**
      * Creates a NebulousApp object.
@@ -102,7 +51,11 @@ public class NebulousApp {
     public NebulousApp(JsonNode app_message, ObjectNode kubevela, ArrayNode parameters) {
         this.original_app_message = app_message;
         this.original_kubevela = kubevela;
-        this.parameters = parameters;
+        this.kubevela_variables = parameters;
+        for (JsonNode p : parameters) {
+            kubevela_variable_paths.put(p.get("key").asText(),
+                yqPathToJsonPointer(p.get("path").asText()));
+        }
         this.uuid = app_message.at(uuid_path).textValue();
     }
 
@@ -147,7 +100,7 @@ public class NebulousApp {
      * @return true if all requirements hold, false otherwise
      */
     public boolean validatePaths() {
-        for (final Object p : parameters) {
+        for (final Object p : kubevela_variables) {
             ObjectNode param = (ObjectNode) p;
             String param_name = param.get("key").textValue();
             if (param_name == null || param_name.equals("")) return false;
@@ -163,6 +116,20 @@ public class NebulousApp {
     }
 
     /**
+     * Rewrite ".spec.components[3].properties.edge.cpu" (yq path as
+     * delivered in the parameter file) into
+     * "/spec/components/3/properties/edge/cpu" (JSON Pointer notation,
+     * https://datatracker.ietf.org/doc/html/rfc6901)
+     *
+     * @param yq_path the path in yq notation.
+     * @return the path as JsonPointer.
+     */
+    private static JsonPointer yqPathToJsonPointer(String yq_path) {
+        String normalizedQuery = yq_path.replaceAll("\\[(\\d+)\\]", ".$1").replaceAll("\\.", "/");
+        return JsonPointer.compile(normalizedQuery);
+    }
+
+    /**
      * Return the location of a path in the application's KubeVela model.
      *
      * @param path the path to the requested node, in yq notation (see <a
@@ -173,34 +140,49 @@ public class NebulousApp {
     private JsonNode findPathInKubevela(String path) {
         // rewrite ".spec.components[3].properties.edge.cpu" (yq path as
         // delivered in the parameter file) into
-        // "spec.components.[3].properties.edge.cpu" (note we omit the leading
-        // dot) so we can follow the path just by splitting at '.'.
-        String normalizedQuery = path.substring(1).replaceAll("(\\[\\d+\\])", ".$1");
-        String[] keysAndIndices = normalizedQuery.split("\\.");
-        JsonNode currentNode = original_kubevela;
-        for (String keyOrIndex : keysAndIndices) {
-            boolean isIndex = keyOrIndex.matches("^\\[(\\d+)\\]$");
-            if (isIndex) {
-                if (!currentNode.isArray()) return null;
-                int index = Integer.parseInt(keyOrIndex.substring(1, keyOrIndex.length() - 1));
-                currentNode = currentNode.get(index);
-                if (currentNode == null) return null;
-            } else {
-                if (!currentNode.isObject()) return null;
-                currentNode = currentNode.get(keyOrIndex);
-                if (currentNode == null) return null;
-            }
-        }
-        return currentNode;
+        // "/spec/components/3/properties/edge/cpu" (JSON Pointer notation,
+        // https://datatracker.ietf.org/doc/html/rfc6901)
+        JsonNode result = original_kubevela.at(yqPathToJsonPointer(path));
+        return result.isMissingNode() ? null : result;
     }
 
-    
+    /**
+     * Replace variables in the original KubeVela with values calculated by
+     * the solver.  We look up the paths of the variables in the `parameters`
+     * field.
+     *
+     * @param variable_values A JSON object with keys being variable names and
+     *  their values the replacement value, e.g., `{ 'P1': 50, 'P2': 2.5 }`.
+     * @return a fresh KubeVela representation, ready to be deserialized into
+     *  YAML.
+     */
+    public ObjectNode rewriteKubevela(ObjectNode variable_values) {
+        ObjectNode result = original_kubevela.deepCopy();
+        for (Map.Entry<String, JsonNode> entry : variable_values.properties()) {
+            // look up the prepared path in the variable |-> location map
+            JsonPointer path = kubevela_variable_paths.get(entry.getKey());
+            JsonNode node = result.at(path);
+            if (node == null) {
+                log.error("Location {} not found in KubeVela, cannot replace value", entry.getKey());
+            } else if (!node.getNodeType().equals(entry.getValue().getNodeType())) {
+                // Let's assume this is necessary
+                log.error("Trying to replace value with a value of a different type");
+            } else {
+                // get the parent object and the property name; replace with
+                // what we got
+                ObjectNode parent = (ObjectNode)result.at(path.head());
+                String property = path.last().getMatchingProperty();
+                parent.replace(property, entry.getValue());
+            }
+        }
+        return result;
+    }
 
     /**
      * Print AMPL code for the app, based on the parameter definition(s).
      */
     public void printAMPL() {
-        for (final JsonNode p : parameters) {
+        for (final JsonNode p : kubevela_variables) {
             ObjectNode param = (ObjectNode) p;
             String param_name = param.get("key").textValue();
             String param_type = param.get("type").textValue();

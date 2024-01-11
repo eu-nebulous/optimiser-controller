@@ -1,0 +1,8 @@
+{
+    "VariableValues": {
+        "face_detection_edge_worker_cpu": "2.7",
+        "face_detection_edge_worker_memory": "1024Mi"
+    },
+    "ObjectiveValues": {
+    }
+}

@@ -110,7 +110,7 @@ public class ExnConnector {
                 String app_id = message.subject();
                 log.info("App creation message received for app {}", app_id);
                 NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body));
-                NebulousApp.add(app);
+                NebulousApps.add(app);
                 // TODO: do more applicaton initialization work here: set up channels, calculate AMPL, etc.
             } catch (Exception e) {
                 log.error("Error while receiving app creation message over {}: {}",
