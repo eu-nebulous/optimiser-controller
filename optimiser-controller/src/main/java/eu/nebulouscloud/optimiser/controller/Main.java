@@ -101,8 +101,8 @@ public class Main implements Callable<Integer> {
             try {
                 ObjectMapper mapper = new ObjectMapper();
                 JsonNode msg = mapper.readTree(Files.readString(json_app_creation_file, StandardCharsets.UTF_8));
-                NebulousApp app = NebulousApp.newFromAppMessage(msg);
-                app.printAMPL();
+                NebulousApp app = NebulousApp.newFromAppMessage(msg, null);
+                System.out.println(app.generateAMPL());
             } catch (IOException e) {
                 log.error("Could not read an input file: ", e);
                 success = 1;

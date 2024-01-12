@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
+import eu.nebulouscloud.exn.core.Publisher;
+
 import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -33,12 +35,17 @@ public class NebulousApp {
     // Note that instantiating this is apparently expensive, so we do it only once
     private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
 
+    /** General-purpose object mapper */
+    private static final ObjectMapper mapper = new ObjectMapper();
+
     private String uuid;
     private JsonNode original_app_message;
     private ObjectNode original_kubevela;
     private ArrayNode kubevela_variables;
     /** Map from AMPL variable name to location in KubeVela. */
     private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
+    /** When an app gets deployed or redeployed, this is where we send the AMPL file */
+    private Publisher ampl_message_channel;
 
     /**
      * Creates a NebulousApp object.
@@ -49,10 +56,11 @@ public class NebulousApp {
      */
     // Note that example KubeVela and parameter files can be found at
     // optimiser-controller/src/test/resources/
-    public NebulousApp(JsonNode app_message, ObjectNode kubevela, ArrayNode parameters) {
+    public NebulousApp(JsonNode app_message, ObjectNode kubevela, ArrayNode parameters, Publisher ampl_message_channel) {
         this.original_app_message = app_message;
         this.original_kubevela = kubevela;
         this.kubevela_variables = parameters;
+        this.ampl_message_channel = ampl_message_channel;
         for (JsonNode p : parameters) {
             kubevela_variable_paths.put(p.get("key").asText(),
                 yqPathToJsonPointer(p.get("path").asText()));
@@ -64,9 +72,10 @@ public class NebulousApp {
      * Create a NebulousApp object given an app creation message parsed into JSON.
      *
      * @param app_message the app creation message, including valid KubeVela YAML et al
+     * @param ampl_message_channel conduit to broadcast the current AMPL file
      * @return a NebulousApp object, or null if `app_message` could not be parsed
      */
-    public static NebulousApp newFromAppMessage(JsonNode app_message) {
+    public static NebulousApp newFromAppMessage(JsonNode app_message, Publisher ampl_message_channel) {
         try {
             String kubevela_string = app_message.at(kubevela_path).textValue();
             JsonNode parameters = app_message.at(variables_path);
@@ -76,7 +85,8 @@ public class NebulousApp {
             } else {
                 return new NebulousApp(app_message,
                     (ObjectNode)yaml_mapper.readTree(kubevela_string),
-                    (ArrayNode)parameters);
+                    (ArrayNode)parameters,
+                    ampl_message_channel);
             }
         } catch (Exception e) {
             log.error("Could not read app creation message: ", e);
@@ -187,51 +197,65 @@ public class NebulousApp {
     }
 
     /**
-     * Print AMPL code for the app, based on the parameter definition(s).
+     * Calculate AMPL file and send it off to the right channel.
      */
-    public void printAMPL() {
+    public void sendAMPL() {
+        String ampl = generateAMPL();
+        ObjectNode msg = mapper.createObjectNode();
+        msg.put(getUUID() + ".ampl", ampl);
+        ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID());
+    }
+
+    /**
+     * Generate AMPL code for the app, based on the parameter definition(s).
+     * Public for testability, not because we'll be calling it outside of its
+     * class.
+     */
+    public String generateAMPL() {
+        StringBuilder result = new StringBuilder();
         for (final JsonNode p : kubevela_variables) {
             ObjectNode param = (ObjectNode) p;
             String param_name = param.get("key").textValue();
             String param_type = param.get("type").textValue();
             ObjectNode value = (ObjectNode)param.get("value");
             if (param_type.equals("float")) {
-                System.out.format("var %s", param_name);
+                result.append(String.format("var %s", param_name));
                 if (value != null) {
                     String separator = "";
                     JsonNode lower = value.get("lower_bound");
                     JsonNode upper = value.get("upper_bound");
                     if (lower.isDouble()) {
-                        System.out.format (" >= %s", lower.doubleValue());
+                        result.append(String.format(" >= %s", lower.doubleValue()));
                         separator = ", ";
                     }
                     if (upper.isDouble()) {
-                        System.out.format("%s<= %s", separator, upper.doubleValue());
+                        result.append(String.format("%s<= %s", separator, upper.doubleValue()));
                     }
                 }
-                System.out.println(";");
+                result.append(";");
             } else if (param_type.equals("int")) {
-                System.out.format("var %s integer", param_name);
+                result.append(String.format("var %s integer", param_name));
                 if (value != null) {
                     String separator = "";
                     JsonNode lower = value.get("lower_bound");
                     JsonNode upper = value.get("upper_bound");
                     if (lower.isLong()) {
-                        System.out.format (" >= %s", lower.longValue());
+                        result.append(String.format(" >= %s", lower.longValue()));
                         separator = ", ";
                     }
                     if (upper.isLong()) {
-                        System.out.format("%s<= %s", separator, upper.longValue());
+                        result.append(String.format("%s<= %s", separator, upper.longValue()));
                     }
                 }
-                System.out.println(";");
+                result.append(";");
             } else if (param_type.equals("string")) {
-                System.out.println("# TODO not sure how to specify a string variable");
-                System.out.format("var %s symbolic;%n");
+                result.append("# TODO not sure how to specify a string variable");
+                result.append(String.format("var %s symbolic;%n", param_name));
             } else if (param_type.equals("array")) {
-                System.out.format("# TODO generate entries for map '%s'%n", param_name);
+                result.append(String.format("# TODO generate entries for map '%s'%n", param_name));
             }
         }
+        return result.toString();
     }
 
 }

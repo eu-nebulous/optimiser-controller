@@ -4,6 +4,7 @@ import eu.nebulouscloud.exn.Connector;
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
+import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import org.apache.qpid.protonj2.client.Message;
@@ -36,8 +37,13 @@ public class ExnConnector {
 
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    /** The channel where we listen for app creation messages */
+    /** The topic where we listen for app creation messages */
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic.>";
+    /** The topic where we send AMPL messages */
+    // 1 object with key: filename, value: AMPL file (serialized)
+    public static final String ampl_message_channel = "eu.nebulouscloud.optimiser.ampl";
+
+    private final Publisher ampl_message_producer;
 
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
@@ -52,13 +58,13 @@ public class ExnConnector {
      *  Connector#start} method has connected and set up all handlers.
      */
     public ExnConnector(String host, int port, String name, String password, ConnectorHandler callback) {
+        ampl_message_producer = new Publisher("controller_ampl", ampl_message_channel, true, true);
+
         conn = new Connector("optimiser_controller",
             callback,
             // List.of(new Publisher("config", "config", true)),
-            List.of(),
-            List.of(
-                new Consumer("ui_all", app_creation_channel,
-                    new AppCreationMessageHandler(), true, true)),
+            List.of(ampl_message_producer),
+            List.of(new Consumer("ui_app_messages", app_creation_channel, new AppCreationMessageHandler(), true, true)),
             false,
             false,
             new StaticExnConfig(host, port, name, password, 15, "eu.nebulouscloud"));
@@ -109,9 +115,9 @@ public class ExnConnector {
             try {
                 String app_id = message.subject();
                 log.info("App creation message received for app {}", app_id);
-                NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body));
+                NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ampl_message_producer);
                 NebulousApps.add(app);
-                // TODO: do more applicaton initialization work here: set up channels, calculate AMPL, etc.
+                app.sendAMPL();
             } catch (Exception e) {
                 log.error("Error while receiving app creation message over {}: {}",
                     app_creation_channel, e);
