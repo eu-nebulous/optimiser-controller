@@ -46,6 +46,9 @@ public class NebulousApp {
     private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
     /** When an app gets deployed or redeployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
+    /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
+     * already nodes running for us? */
+    private boolean deployed = false;
 
     /**
      * Creates a NebulousApp object.
@@ -102,6 +105,25 @@ public class NebulousApp {
      */
     public String getUUID() {
         return uuid;
+    }
+
+    /**
+     * Set "deployed" status. Will typically be set to true once, and then
+     * never to false again.
+     *
+     * @param deployed the new status.
+     */
+    public void setDeployed(boolean deployed) {
+        this.deployed = deployed;
+    }
+    /**
+     * Check if the app has been deployed, i.e., if there are already VMs
+     * allocated from SAL for us.
+     *
+     * @return false if we never asked for nodes, true otherwise.
+     */
+    public boolean isDeployed() {
+        return deployed;
     }
 
     /**
@@ -256,6 +278,25 @@ public class NebulousApp {
             }
         }
         return result.toString();
+    }
+
+    /**
+     * Handle incoming solver message.
+     *
+     * @param solution The message from the solver, containing a field
+     *  "VariableValues" that can be processed by {@link
+     *  NebulousApp#rewriteKubevela}.
+     */
+    public void processSolution(ObjectNode solution) {
+        ObjectNode variables = solution.withObjectProperty("VariableValues");
+        String kubevela = rewriteKubevela(variables);
+        if (isDeployed()) {
+            // Recalculate node sets, tell SAL to start/stop nodes, send
+            // KubeVela for redeployment
+        } else {
+            // Calculate node needs, tell SAL to start nodes, send KubeVela
+            // for initial deployment
+        }
     }
 
 }

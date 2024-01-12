@@ -122,8 +122,8 @@ public class SalConnector {
                 String b = response.body();
                 return Arrays.asList(objectMapper.readValue(b, PACloud[].class));
             } else {
-                log.error("Request " + endpoint_uri
-                          + " failed, server response status code: " + response.statusCode());
+                log.error("Request {} failed, server response status code: {}",
+                    endpoint_uri, response.statusCode());
                 return null;
             }
         } catch (IOException | InterruptedException e) {

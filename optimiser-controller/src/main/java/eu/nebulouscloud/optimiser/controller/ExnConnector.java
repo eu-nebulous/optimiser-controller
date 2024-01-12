@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.List;
 import java.util.Map;
@@ -119,8 +120,34 @@ public class ExnConnector {
                 NebulousApps.add(app);
                 app.sendAMPL();
             } catch (Exception e) {
-                log.error("Error while receiving app creation message over {}: {}",
-                    app_creation_channel, e);
+                log.error("Error while receiving app creation message", e);
+            }
+        }
+    }
+
+    /**
+     * A message handler for incoming messages from the solver, containing
+     * mappings from variable names to new values.  This is used to produce an
+     * updated KubeVela YAML file.
+     */
+    public class SolverSolutionMessageHandler extends Handler {
+        @Override
+        public void onMessage(String key, String address, Map body, Message message, Context context) {
+            // We'll talk a lot with SAL etc, so we should maybe fire up a
+            // thread so as not to block here.
+            try {
+                String app_id = message.subject();
+                NebulousApp app = NebulousApps.get(app_id);
+                if (app == null) {
+                    log.error("Received solver solutions for non-existant app " + app_id);
+                    return;
+                } else {
+                    log.info("Received solver solutions for app {}", app_id);
+                    ObjectNode json_body = mapper.convertValue(body, ObjectNode.class);
+                    app.processSolution(json_body);
+                }
+            } catch (Exception e) {
+                log.error("Error while processing solver solutions message", e);
             }
         }
     }

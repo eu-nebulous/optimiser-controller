@@ -41,6 +41,9 @@ public class NebulousAppTests {
         NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
         assertNotNull(app);
         assertTrue(app.validatePaths());
+        app = appFromTestFile("app-creation-message-uio.json");
+        assertNotNull(app);
+        assertTrue(app.validatePaths());
     }
 
     @Test
