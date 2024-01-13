@@ -237,7 +237,7 @@
       "name": "Utility Function 1",
       "type": "maximize",
       "@comment": "// maximize | minimize",
-      "formula": "A * B * C - E",
+      "formula": "A * B * C - D/E",
       "mapping": {
         "A": "cpu_second_component",
         "B": "average_cpu",
