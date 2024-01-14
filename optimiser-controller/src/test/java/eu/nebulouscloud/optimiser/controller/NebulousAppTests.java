@@ -1,6 +1,7 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import org.junit.jupiter.api.Test;
+import org.ow2.proactive.sal.model.Requirement;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +15,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -69,9 +72,26 @@ public class NebulousAppTests {
             StandardCharsets.UTF_8);
         JsonNode solutions = mapper.readTree(solution_string);
         ObjectNode replacements = solutions.withObject("VariableValues");
-        String kubevela_str = app.rewriteKubevela(replacements);
+        ObjectNode kubevela1 = app.rewriteKubevela(replacements);
+        // We deserialize and serialize, just for good measure
+        String kubevela_str = yaml_mapper.writeValueAsString(kubevela1);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
         assertTrue(kubevela.at("/spec/components/3/properties/edge/cpu").asText().equals("2.7"));
         assertTrue(kubevela.at("/spec/components/3/properties/edge/memory").asText().equals("1024Mi"));
     }
+
+    @Test
+    void calculateNodeRequirements() throws IOException, URISyntaxException {
+        String kubevela_str = Files.readString(getResourcePath("vela-deployment-v2.yml"),
+            StandardCharsets.UTF_8);
+        JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
+        Map<String, List<Requirement>> requirements = NebulousApp.getSalRequirementsFromKubevela(kubevela);
+        // We could compare the requirements with what is contained in
+        // KubeVela, or compare keys with component names, but this would
+        // essentially duplicate the method code--so we just make sure the
+        // method runs without error for well-formed KubeVela and returns
+        // one requirement for each component.
+        assertTrue(requirements.size() == kubevela.withArray("/spec/components").size());
+    }
+
 }

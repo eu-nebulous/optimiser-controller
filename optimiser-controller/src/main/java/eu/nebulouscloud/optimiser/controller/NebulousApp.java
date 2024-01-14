@@ -10,12 +10,12 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
 
-import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
@@ -25,6 +25,9 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+import org.ow2.proactive.sal.model.AttributeRequirement;
+import org.ow2.proactive.sal.model.Requirement;
+import org.ow2.proactive.sal.model.RequirementOperator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -242,7 +245,7 @@ public class NebulousApp {
      * @return the modified KubeVela YAML, deserialized into a string, or
      *  null if no KubeVela could be generated.
      */
-    public String rewriteKubevela(ObjectNode variable_values) {
+    public ObjectNode rewriteKubevela(ObjectNode variable_values) {
         ObjectNode fresh_kubevela = original_kubevela.deepCopy();
         for (Map.Entry<String, JsonNode> entry : variable_values.properties()) {
             // look up the prepared path in the variable |-> location map
@@ -261,14 +264,14 @@ public class NebulousApp {
                 parent.replace(property, entry.getValue());
             }
         }
-        String result;
-	try {
-	    result = yaml_mapper.writeValueAsString(fresh_kubevela);
-	} catch (JsonProcessingException e) {
-            log.error("Could not generate KubeVela file: ", e);
-            return null;
-	}
-        return result;
+        // String result;
+	// try {
+	//     result = yaml_mapper.writeValueAsString(fresh_kubevela);
+	// } catch (JsonProcessingException e) {
+        //     log.error("Could not generate KubeVela file: ", e);
+        //     return null;
+	// }
+        return fresh_kubevela;
     }
 
     /**
@@ -375,7 +378,6 @@ public class NebulousApp {
 
         out.println("# Default utility function: tbd");
         out.println();
-
         out.println("# Constraints. For constraints we don't have name from GUI, must be created");
         out.println("# TODO: generate from 'slo' hierarchical entry");
         return result.toString();
@@ -420,7 +422,7 @@ public class NebulousApp {
      */
     public void processSolution(ObjectNode solution) {
         ObjectNode variables = solution.withObjectProperty("VariableValues");
-        String kubevela = rewriteKubevela(variables);
+        ObjectNode kubevela = rewriteKubevela(variables);
         if (isDeployed()) {
             // Recalculate node sets, tell SAL to start/stop nodes, send
             // KubeVela for redeployment
@@ -428,6 +430,68 @@ public class NebulousApp {
             // Calculate node needs, tell SAL to start nodes, send KubeVela
             // for initial deployment
         }
+    }
+
+    /**
+     * Given a KubeVela file, extract its VM requirements in a form we can
+     * send to the SAL `findNodeCandidates` endpoint.
+     *
+     * Notes:
+     *
+     * - For the first version, we specify all requirements as "equal", i.e.,
+     *   we might not find node candidates that are strictly better than what
+     *   is asked for.
+     *
+     * - Related, KubeVela specifies "cpu" as a fractional value, while SAL
+     *   wants the number of cores as a whole number.  We round up to the
+     *   nearest integer and ask for "this or more" cores.  Otherwise we might
+     *   end up asking for instances with 3 cores, which might not exist.
+     *
+     * @param kubevela the parsed KubeVela file.
+     * @return a map of component name to (potentially empty) list of
+     *  requirements for that component.
+     */
+    public static Map<String, List<Requirement>> getSalRequirementsFromKubevela(JsonNode kubevela) {
+        Map<String, List<Requirement>> result = new HashMap<>();
+        ArrayNode components = kubevela.withArray("/spec/components");
+        for (final JsonNode c : components) {
+            ArrayList<Requirement> reqs = new ArrayList<>();
+            result.put(c.get("name").asText(), reqs);
+            JsonNode properties = c.path("properties");
+            if (properties.has("cpu")) {
+                // KubeVela has fractional core /cpu requirements
+                float kubevela_cpu = properties.get("cpu").floatValue();
+                long sal_cores = Math.round(Math.ceil(kubevela_cpu));
+                if (sal_cores > 0) {
+                    reqs.add(new AttributeRequirement("hardware", "cores",
+                        RequirementOperator.GEQ, Long.toString(sal_cores)));
+                } else {
+                    // floatValue returns 0.0 if node is not numeric
+                    log.error("CPU of component {} is 0 or not a number", c.get("name").asText());
+                }
+            }
+            if (properties.has("memory")) {
+                // KubeVela has fractional core /cpu requirements
+                String kubevela_memory = properties.get("memory").asText();
+                if (kubevela_memory.endsWith("Mi")
+                    || kubevela_memory.endsWith("Gi")) {
+                    String sal_memory = kubevela_memory.substring(0, kubevela_memory.length() - 2);
+                    if (kubevela_memory.endsWith("Gi")) {
+                        sal_memory = String.valueOf(Integer.parseInt(sal_memory) * 1024);
+                    }
+                    reqs.add(new AttributeRequirement("hardware", "memory",
+                        RequirementOperator.GEQ, sal_memory));
+                } else {
+                    log.error("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
+                        c.get("name").asText(), kubevela_memory);
+                }
+            }
+            for (final JsonNode t : c.withArray("traits")) {
+                // Check for node affinity / geoLocation / country
+            }
+        }
+        
+        return result;
     }
 
 }
