@@ -90,11 +90,13 @@ public class NebulousApp {
             kubevela_variable_paths.put(p.get("key").asText(),
                 yqPathToJsonPointer(p.get("path").asText()));
         }
+
+        // We need to know which metrics are raw, composite, and which ones
+        // are performance indicators in disguise.
+        boolean done = false;
         Set<JsonNode> metrics = StreamSupport.stream(
             Spliterators.spliteratorUnknownSize(app_message.withArray("/metrics").elements(), Spliterator.ORDERED), false)
             .collect(Collectors.toSet());
-
-        boolean done = false;
         while (!done) {
             // Pick out all raw metrics.  Then pick out all composite metrics
             // that only depend on raw metrics and composite metrics that only
@@ -254,7 +256,15 @@ public class NebulousApp {
             if (node == null) {
                 log.error("Location {} not found in KubeVela, cannot replace value", entry.getKey());
             } else if (!node.getNodeType().equals(entry.getValue().getNodeType())) {
-                // Let's assume this is necessary
+                // This could be a legitimate code path for, e.g., replacing
+                // KubeVela "memory: 512Mi" with "memory: 1024" (i.e., if the
+                // solution delivers a number where we had a string--note that
+                // suffix-less memory specs are handled in
+                // getSalRequirementsFromKubevela).  Adapt as necessary during
+                // integration test.
+                //
+                // TODO: add the "Mi" suffix if the "meaning" field of that
+                // variable entry in the app creation message is "memory".
                 log.error("Trying to replace value with a value of a different type");
             } else {
                 // get the parent object and the property name; replace with
@@ -264,13 +274,6 @@ public class NebulousApp {
                 parent.replace(property, entry.getValue());
             }
         }
-        // String result;
-	// try {
-	//     result = yaml_mapper.writeValueAsString(fresh_kubevela);
-	// } catch (JsonProcessingException e) {
-        //     log.error("Could not generate KubeVela file: ", e);
-        //     return null;
-	// }
         return fresh_kubevela;
     }
 
@@ -470,20 +473,19 @@ public class NebulousApp {
                     log.error("CPU of component {} is 0 or not a number", c.get("name").asText());
                 }
             }
-            if (properties.has("memory")) {
-                // KubeVela has fractional core /cpu requirements
-                String kubevela_memory = properties.get("memory").asText();
-                if (kubevela_memory.endsWith("Mi")
-                    || kubevela_memory.endsWith("Gi")) {
-                    String sal_memory = kubevela_memory.substring(0, kubevela_memory.length() - 2);
-                    if (kubevela_memory.endsWith("Gi")) {
-                        sal_memory = String.valueOf(Integer.parseInt(sal_memory) * 1024);
-                    }
+            if (properties.has("memory")) {;
+                String sal_memory = properties.get("memory").asText();
+                if (sal_memory.endsWith("Mi")) {
+                    sal_memory = sal_memory.substring(0, sal_memory.length() - 2);
+                } else if (sal_memory.endsWith("Gi")) {
+                    sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
+                } else if (!properties.get("memory").isNumber()) {
+                    log.error("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
+                        properties.get("name").asText(),
+                        properties.get("memory").asText());
+                } else {
                     reqs.add(new AttributeRequirement("hardware", "memory",
                         RequirementOperator.GEQ, sal_memory));
-                } else {
-                    log.error("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
-                        c.get("name").asText(), kubevela_memory);
                 }
             }
             for (final JsonNode t : c.withArray("traits")) {

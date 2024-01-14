@@ -1,21 +1,27 @@
 package eu.nebulouscloud.optimiser.controller;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
-
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.logging.LogLevel;
 import org.ow2.proactive.sal.model.PACloud;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.annotation.JsonSetter;
-import com.fasterxml.jackson.annotation.Nulls;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import reactor.core.publisher.Mono;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.transport.logging.AdvancedByteBufFormat;
+
+import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 
 /**
@@ -33,30 +39,35 @@ public class SalConnector {
     private static final String getAllCloudsStr = "sal/cloud";
 
     private URI sal_uri;
+    private final HttpClient httpClient;
     private String session_id = null;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    // "Once built, an HttpClient is immutable, and can be used to send
-    // multiple requests."
-    // (https://docs.oracle.com/en/java/javase/11/docs/api/java.net.http/java/net/http/HttpClient.html)
-    // -- so we create an instance variable.
-    private HttpClient client = HttpClient.newBuilder().build();
 
     /**
      * Construct a SalConnector instance.
      *
      * @param sal_uri the URI of the SAL server.  Should only contain schema,
-     * host, port but no path component, since relative paths will be resolved
-     * against this URI.
+     *  host, port but no path component, since relative paths will be
+     *  resolved against this URI.
+     * @param login the login name for SAL.
+     * @param password the login password for SAL.
      */
-    public SalConnector(URI sal_uri) {
+    public SalConnector(URI sal_uri, String login, String password) {
         this.sal_uri = sal_uri;
         // This initialization code copied from
         // https://gitlab.ow2.org/melodic/melodic-integration/-/blob/morphemic-rc4.0/connectors/proactive_client/src/main/java/cloud/morphemic/connectors/ProactiveClientConnectorService.java
         objectMapper.configOverride(List.class)
             .setSetterInfo(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY))
             .setSetterInfo(JsonSetter.Value.forContentNulls(Nulls.AS_EMPTY));
+        this.connect(login, password);
+        this.httpClient = HttpClient.create()
+            .baseUrl(sal_uri.toString())
+            .headers(headers -> headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE))
+            .headers(headers -> headers.add("sessionid", session_id))
+            .responseTimeout(Duration.of(80, ChronoUnit.SECONDS))
+            .wiretap("reactor.netty.http.client.HttpClient", LogLevel.DEBUG, AdvancedByteBufFormat.TEXTUAL, StandardCharsets.UTF_8);
+        this.httpClient.warmup().block();
     }
 
     /**
@@ -79,57 +90,45 @@ public class SalConnector {
      * @param sal_password the password to log in to SAL
      * @return true if the connection was successful, false if not
      */
-    public boolean connect(String sal_username, String sal_password) {
+    private void connect(String sal_username, String sal_password) {
         URI endpoint_uri = sal_uri.resolve(connectStr);
         log.info("Connecting to SAL as a service at uri {}", endpoint_uri);
 
-        String formData = "name=" + URLEncoder.encode(sal_username, StandardCharsets.UTF_8)
-            + "&" + "password=" + URLEncoder.encode(sal_password, StandardCharsets.UTF_8);
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(endpoint_uri)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .POST(HttpRequest.BodyPublishers.ofString(formData))
-            .build();
-
-        HttpResponse<String> response = null;
-        try {
-            response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (IOException | InterruptedException e) {
-            log.error("Could not acquire SAL session id: ", e);
-            return false;
-        }
-
-        if (response.statusCode() == 200) {
-            session_id = response.body();
-            log.info("Connected to SAL at {}", sal_uri);
-            return true;
-        } else {
-            log.error("Could not acquire SAL session id, server response status code: " + response.statusCode());
-            return false;
-        }
+        this.session_id = HttpClient.create()
+            .headers(headers -> headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED))
+                .post()
+                .uri(endpoint_uri)
+                .sendForm((req, form) -> form
+                          .attr("username", sal_username)
+                        .attr("password", sal_password))
+                .responseContent()
+                .aggregate()
+                .asString()
+                .retry(20)
+                .block();
+        log.info("Connected to SAL.");
     }
 
     public List<PACloud> getAllClouds() {
-        URI endpoint_uri = sal_uri.resolve(getAllCloudsStr);
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(endpoint_uri)
-            .header("sessionid", session_id)
-            .GET()
-            .build();
-        try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                String b = response.body();
-                return Arrays.asList(objectMapper.readValue(b, PACloud[].class));
-            } else {
-                log.error("Request {} failed, server response status code: {}",
-                    endpoint_uri, response.statusCode());
-                return null;
-            }
-        } catch (IOException | InterruptedException e) {
-            log.error("Request " + endpoint_uri + "failed: ", e);
-            return null;
-        }
+        return httpClient.get()
+            .uri("/cloud")
+            .responseSingle((resp, bytes) -> {
+                if (!resp.status().equals(HttpResponseStatus.OK)) {
+                    return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
+                } else {
+                    return bytes.asString().mapNotNull(s -> {
+                            try {
+                                return objectMapper.readValue(s, PACloud[].class);
+                            } catch (IOException e) {
+                                log.error(e.getMessage(), e);;
+                                return null;
+                            }
+                        });
+                }
+            })
+            .doOnError(Throwable::printStackTrace)
+            .blockOptional()
+            .map(Arrays::asList)
+            .orElseGet(Collections::emptyList);
     }
-
 }

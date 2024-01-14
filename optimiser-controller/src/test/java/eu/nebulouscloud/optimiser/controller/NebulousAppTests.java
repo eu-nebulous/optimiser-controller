@@ -76,8 +76,10 @@ public class NebulousAppTests {
         // We deserialize and serialize, just for good measure
         String kubevela_str = yaml_mapper.writeValueAsString(kubevela1);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
-        assertTrue(kubevela.at("/spec/components/3/properties/edge/cpu").asText().equals("2.7"));
-        assertTrue(kubevela.at("/spec/components/3/properties/edge/memory").asText().equals("1024Mi"));
+        JsonNode cpu = kubevela.at("/spec/components/3/properties/edge/cpu");
+        JsonNode memory = kubevela.at("/spec/components/3/properties/edge/memory");
+        assertTrue(cpu.asText().equals("2.7"));
+        assertTrue(memory.asText().equals("1024"));
     }
 
     @Test
@@ -92,6 +94,24 @@ public class NebulousAppTests {
         // method runs without error for well-formed KubeVela and returns
         // one requirement for each component.
         assertTrue(requirements.size() == kubevela.withArray("/spec/components").size());
+    }
+
+    @Test
+    void calculateRewrittenNodeRequirements() throws IOException, URISyntaxException {
+        NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
+        String solution_string = Files.readString(getResourcePath("vela-deployment-sample-solution.json"),
+            StandardCharsets.UTF_8);
+        JsonNode solutions = mapper.readTree(solution_string);
+        ObjectNode replacements = solutions.withObject("VariableValues");
+        ObjectNode kubevela1 = app.rewriteKubevela(replacements);
+
+        Map<String, List<Requirement>> requirements = NebulousApp.getSalRequirementsFromKubevela(kubevela1);
+        // We could compare the requirements with what is contained in
+        // KubeVela, or compare keys with component names, but this would
+        // essentially duplicate the method code--so we just make sure the
+        // method runs without error for well-formed KubeVela and returns
+        // one requirement for each component.
+        assertTrue(requirements.size() == kubevela1.withArray("/spec/components").size());
     }
 
 }

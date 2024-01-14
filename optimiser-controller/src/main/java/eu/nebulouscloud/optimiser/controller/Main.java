@@ -93,8 +93,7 @@ public class Main implements Callable<Integer> {
 
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
         if (sal_user != null && sal_password != null) {
-            SalConnector connector = new SalConnector(sal_uri);
-            connector.connect(sal_user, sal_password);
+            SalConnector connector = new SalConnector(sal_uri, sal_user, sal_password);
         }
 
         if (json_app_creation_file != null) {
@@ -110,9 +109,8 @@ public class Main implements Callable<Integer> {
         }
 
         if (sal_uri != null && sal_user != null && sal_password != null) {
-            sal_connector = new SalConnector(sal_uri);
-            boolean connected = sal_connector.connect(sal_user, sal_password);
-            if (!connected) {
+            sal_connector = new SalConnector(sal_uri, sal_user, sal_password);
+            if (!sal_connector.isConnected()) {
                 success = 2;
             }
         }
