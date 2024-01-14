@@ -463,7 +463,9 @@ public class NebulousApp {
             JsonNode properties = c.path("properties");
             if (properties.has("cpu")) {
                 // KubeVela has fractional core /cpu requirements
-                float kubevela_cpu = properties.get("cpu").floatValue();
+                String kubevela_cpu_str = properties.get("cpu").asText();
+                // TODO: catch NumberFormatException
+                double kubevela_cpu = Double.parseDouble(kubevela_cpu_str);
                 long sal_cores = Math.round(Math.ceil(kubevela_cpu));
                 if (sal_cores > 0) {
                     reqs.add(new AttributeRequirement("hardware", "cores",
@@ -483,7 +485,9 @@ public class NebulousApp {
                     log.error("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
                         properties.get("name").asText(),
                         properties.get("memory").asText());
-                } else {
+                    sal_memory = null;
+                }
+                if (sal_memory != null) {
                     reqs.add(new AttributeRequirement("hardware", "memory",
                         RequirementOperator.GEQ, sal_memory));
                 }
