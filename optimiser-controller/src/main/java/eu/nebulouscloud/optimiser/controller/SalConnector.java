@@ -106,12 +106,12 @@ public class SalConnector {
                 .asString()
                 .retry(20)
                 .block();
-        log.info("Connected to SAL.");
+        log.info("Connected to SAL, sessionid {}...", session_id.substring(0, 10));
     }
 
     public List<PACloud> getAllClouds() {
         return httpClient.get()
-            .uri("/cloud")
+            .uri(sal_uri.resolve(getAllCloudsStr))
             .responseSingle((resp, bytes) -> {
                 if (!resp.status().equals(HttpResponseStatus.OK)) {
                     return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
