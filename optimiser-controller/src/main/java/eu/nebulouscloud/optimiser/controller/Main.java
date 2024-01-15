@@ -91,10 +91,9 @@ public class Main implements Callable<Integer> {
         SalConnector sal_connector = null;
         ExnConnector activemq_connector = null;
 
+        log.info("Beginning startup of optimiser-controller");
+
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
-        if (sal_user != null && sal_password != null) {
-            SalConnector connector = new SalConnector(sal_uri, sal_user, sal_password);
-        }
 
         if (json_app_creation_file != null) {
             try {
@@ -111,11 +110,18 @@ public class Main implements Callable<Integer> {
         if (sal_uri != null && sal_user != null && sal_password != null) {
             sal_connector = new SalConnector(sal_uri, sal_user, sal_password);
             if (!sal_connector.isConnected()) {
+                log.error("Connection to SAL unsuccessful");
                 success = 2;
+            } else {
+                log.info("Established connection to SAL");
             }
+        } else {
+            log.info("SAL login information not specified, skipping");
         }
 
         if (activemq_user != null && activemq_password != null) {
+            log.info("Connecting to ActiveMQ: host={} port={}",
+                activemq_host, activemq_port);
             activemq_connector
                 = new ExnConnector(activemq_host, activemq_port,
                     activemq_user, activemq_password,
@@ -126,11 +132,17 @@ public class Main implements Callable<Integer> {
                     }
             );
             activemq_connector.start(exn_synchronizer);
-            try {
-                exn_synchronizer.await();
-            } catch (InterruptedException e) {
-                // ignore
-            }
+        } else {
+            log.error("ActiveMQ login info not set, skipping connection attempt to ActiveMQ");
+        }
+
+        // Note that we try to synchronize, even if we didn't connect to
+        // ActiveMQ.  This is so that the container can be deployed.  (If the
+        // container terminates, the build registers as unsuccessful.)
+        try {
+            exn_synchronizer.await();
+        } catch (InterruptedException e) {
+            // ignore
         }
 
         return success;
