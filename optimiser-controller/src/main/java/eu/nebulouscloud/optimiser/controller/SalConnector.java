@@ -9,6 +9,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.logging.LogLevel;
 
+import org.ow2.proactive.sal.model.IaasDefinition;
+import org.ow2.proactive.sal.model.JobDefinition;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.PACloud;
 import org.ow2.proactive.sal.model.Requirement;
@@ -45,6 +47,9 @@ public class SalConnector {
     private static final String connectStr = "sal/pagateway/connect";
     private static final String getAllCloudsStr = "sal/cloud";
     private static final String findNodeCandidatesStr = "sal/nodecandidates";
+    private static final String createJobStr = "sal/job";
+    private static final String addNodesFormatStr = "sal/node/%s";
+    private static final String submitJobFormatStr = "sal/job/%s/submit";
 
     private URI sal_uri;
     private final HttpClient httpClient;
@@ -171,6 +176,62 @@ public class SalConnector {
                 .blockOptional()
                 .map(Arrays::asList)
                 .orElseGet(Collections::emptyList);
+    }
+
+    /**
+     * Create job.  See
+     * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/5-job-endpoints.md#51--createjob-endpoint
+     */
+    public Boolean createJob(JobDefinition job) {
+        return httpClient.post()
+            .uri(sal_uri.resolve(createJobStr))
+                .send(bodyMonoPublisher(job))
+                .responseSingle((resp, bytes) -> {
+                    if (!resp.status().equals(HttpResponseStatus.OK)) {
+                        return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
+                    } else {
+                        return bytes.asString().map(Boolean::parseBoolean);
+                    }
+                })
+                .doOnError(Throwable::printStackTrace)
+                .block();
+    }
+
+    /**
+     * documentation
+     */
+    public Boolean addNodes(List<IaasDefinition> nodes, String jobId) {
+        return httpClient.post()
+            .uri(sal_uri.resolve(addNodesFormatStr.formatted(jobId)))
+            .send(bodyMonoPublisher(nodes))
+            .responseSingle((resp, bytes) -> {
+                if (!resp.status().equals(HttpResponseStatus.OK)) {
+                    return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
+                } else {
+                    // NOTE: was Boolean::new in Morphemic
+                    return bytes.asString().map(Boolean::parseBoolean);
+                }
+            })
+            .doOnError(Throwable::printStackTrace)
+            .block();
+    }
+
+    /**
+     * Submit job.  See
+     * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/5-job-endpoints.md#55--submitjob-endpoint
+     */
+    public Long submitJob(String jobId) {
+        return httpClient.post()
+            .uri(sal_uri.resolve(submitJobFormatStr.formatted(jobId)))
+            .responseSingle((resp, bytes) -> {
+                if (!resp.status().equals(HttpResponseStatus.OK)) {
+                    return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
+                } else {
+                    return bytes.asString().map(Long::parseLong);
+                }
+            })
+            .doOnError(Throwable::printStackTrace)
+            .block();
     }
 
     private Mono<ByteBuf> bodyMonoPublisher(Object body) {
