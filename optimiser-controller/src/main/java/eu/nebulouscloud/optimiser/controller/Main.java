@@ -114,6 +114,8 @@ public class Main implements Callable<Integer> {
                 success = 2;
             } else {
                 log.info("Established connection to SAL");
+                // FIXME: remove this once we have the exn connector
+                NebulousApp.sal_connector = sal_connector;
             }
         } else {
             log.info("SAL login information not specified, skipping");
