@@ -37,6 +37,27 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          env: 
+            - name: ACTIVEMQ_HOST
+              value: "{{ .Values.activemq.ACTIVEMQ_HOST }}"
+            - name: ACTIVEMQ_PORT
+              value: "{{ .Values.activemq.ACTIVEMQ_PORT }}"
+            - name: ACTIVEMQ_USER
+              value: "{{ .Values.activemq.ACTIVEMQ_USER }}"
+            - name: SAL_USER
+              value: "{{ .Values.sal.SAL_USER }}"
+            - name: SAL_URL
+              value: "{{ .Values.sal.SAL_URL }}"
+            - name: SAL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nebulous-optimiser-controller.fullname" . }}-secrets
+                  key: SAL_PASSWORD
+            - name: ACTIVEMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nebulous-optimiser-controller.fullname" . }}-secrets
+                  key: ACTIVEMQ_PASSWORD
           livenessProbe:
             httpGet:
               path: /

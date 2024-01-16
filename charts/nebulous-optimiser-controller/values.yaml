@@ -80,3 +80,16 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+sal:
+  SAL_URL: sal
+  SAL_USER: admin
+
+activemq:
+  ACTIVEMQ_HOST: activemq
+  ACTIVEMQ_PORT: 5672
+  ACTIVEMQ_USER: admin
+  
+secrets:
+  ACTIVEMQ_PASSWORD: nebulous
+  SAL_PASSWORD: admin
