@@ -17,6 +17,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import picocli.CommandLine;
+import picocli.CommandLine.ParseResult;
+import picocli.CommandLine.ScopeType;
+
 import static picocli.CommandLine.Command;
 import static picocli.CommandLine.Option;
 
@@ -24,12 +27,16 @@ import static picocli.CommandLine.Option;
  * The main class of the optimizer controller.
  */
 @Command(name = "nebulous-optimizer-controller",
-         version = "0.1",       // TODO read this from Bundle-Version in the jar MANIFEST.MF
-         mixinStandardHelpOptions = true,
-         sortOptions = false,
-         separator = " ",
-         showAtFileInUsageHelp = true,
-         description = "Receive app creation messages from the UI and start up the optimizer infrastructure.")
+    version = "0.1",       // TODO read this from Bundle-Version in the jar MANIFEST.MF
+    mixinStandardHelpOptions = true,
+    sortOptions = false,
+    separator = " ",
+    showAtFileInUsageHelp = true,
+    description = "Receive app creation messages from the UI and start up the optimizer infrastructure.",
+    subcommands = {
+        LocalExecution.class
+    }
+)
 public class Main implements Callable<Integer> {
 
     @Option(names = {"-s", "--sal-url"},
@@ -74,44 +81,44 @@ public class Main implements Callable<Integer> {
             defaultValue = "${ACTIVEMQ_PASSWORD}")
     private String activemq_password;
 
-    @Option(names = {"--app-creation-message-file", "-f"},
-            description = "The name of a file containing a JSON app creation message (used for testing purposes)")
-    private Path json_app_creation_file;
-
     private static final Logger log = LoggerFactory.getLogger(Main.class);
 
-    /**
-     * The main method of the main class.
-     *
-     * @return 0 if no error during execution, otherwise greater than 0
-     */
-    @Override
-    public Integer call() {
-        int success = 0;
-        SalConnector sal_connector = null;
-        ExnConnector activemq_connector = null;
-
-        log.info("Beginning startup of optimiser-controller");
-
-        CountDownLatch exn_synchronizer = new CountDownLatch(1);
-
-        if (json_app_creation_file != null) {
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode msg = mapper.readTree(Files.readString(json_app_creation_file, StandardCharsets.UTF_8));
-                NebulousApp app = NebulousApp.newFromAppMessage(msg, null);
-                System.out.println(app.generateAMPL());
-            } catch (IOException e) {
-                log.error("Could not read an input file: ", e);
-                success = 1;
-            }
+    @Option(names = {"--verbose", "-v"},
+        description = "Turn on more verbose logging output.",
+        scope = ScopeType.INHERIT)
+    public void setVerbose(boolean[] verbose) {
+        // java.util.logging wants to be configured with a configuration file.
+        // Convince it otherwise.
+        java.util.logging.Logger rootLogger = java.util.logging.Logger.getLogger("");
+        rootLogger.setLevel(java.util.logging.Level.FINER);
+        for (java.util.logging.Handler handler : rootLogger.getHandlers()) {
+            handler.setLevel(rootLogger.getLevel());
         }
+    }
+
+    /** Reference to SAL connector, used by Main and subcommands. */
+    public SalConnector sal_connector = null;
+    /** Reference to ActiveMQ connector, used by Main and subcommands. */
+    public ExnConnector activemq_connector = null;
+
+    /**
+     * PicoCLI execution strategy that uses common initialization.
+     */
+    private int executionStrategy(ParseResult parseResult) {
+        init();
+        return new CommandLine.RunLast().execute(parseResult);
+    }
+
+    /**
+     * Initialization code shared between main and subcommands.
+     */
+    private void init() {
+        log.info("Beginning common startup of optimiser-controller");
 
         if (sal_uri != null && sal_user != null && sal_password != null) {
             sal_connector = new SalConnector(sal_uri, sal_user, sal_password);
             if (!sal_connector.isConnected()) {
                 log.error("Connection to SAL unsuccessful");
-                success = 2;
             } else {
                 log.info("Established connection to SAL");
             }
@@ -120,7 +127,7 @@ public class Main implements Callable<Integer> {
         }
 
         if (activemq_user != null && activemq_password != null) {
-            log.info("Connecting to ActiveMQ: host={} port={}",
+            log.info("Preparing ActiveMQ connection: host={} port={}",
                 activemq_host, activemq_port);
             activemq_connector
                 = new ExnConnector(activemq_host, activemq_port,
@@ -131,11 +138,25 @@ public class Main implements Callable<Integer> {
                         }
                     }
             );
+        } else {
+            log.info("ActiveMQ login info not set, only operating locally.");
+        }
+    }
+
+    /**
+     * The main method of the main class.
+     *
+     * @return 0 if no error during execution, otherwise greater than 0
+     */
+    @Override
+    public Integer call() {
+        CountDownLatch exn_synchronizer = new CountDownLatch(1);
+        if (activemq_connector != null) {
+            log.info("Starting connection to ActiveMQ");
             activemq_connector.start(exn_synchronizer);
         } else {
-            log.error("ActiveMQ login info not set, skipping connection attempt to ActiveMQ");
+            log.error("ActiveMQ connector not initialized so we're unresponsive. Will keep running to keep CI/CD happy but don't expect anything more from me.");
         }
-
         // Note that we try to synchronize, even if we didn't connect to
         // ActiveMQ.  This is so that the container can be deployed.  (If the
         // container terminates, the build registers as unsuccessful.)
@@ -144,8 +165,7 @@ public class Main implements Callable<Integer> {
         } catch (InterruptedException e) {
             // ignore
         }
-
-        return success;
+        return 0;
     }
 
     /**
@@ -155,7 +175,10 @@ public class Main implements Callable<Integer> {
      * @param args the command-line parameters as passed by the user
      */
     public static void main(String[] args) {
-        int exitCode = new CommandLine(new Main()).execute(args);
+        Main main = new Main();
+        int exitCode = new CommandLine(main)
+            .setExecutionStrategy(main::executionStrategy) // perform common initialization
+            .execute(args);
         System.exit(exitCode);
     }
 }
