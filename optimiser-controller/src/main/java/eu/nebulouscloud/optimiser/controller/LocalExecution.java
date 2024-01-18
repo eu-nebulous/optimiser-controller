@@ -13,7 +13,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import picocli.CommandLine.Command;
-import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
@@ -36,18 +35,18 @@ public class LocalExecution implements Callable<Integer> {
     private Path app_creation_msg;
 
     @Override public Integer call() {
-        int success = 0;
-        if (app_creation_msg != null) {
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode msg = mapper.readTree(Files.readString(app_creation_msg, StandardCharsets.UTF_8));
-                NebulousApp app = NebulousApp.newFromAppMessage(msg, null);
-                System.out.println(app.generateAMPL());
-            } catch (IOException e) {
-                log.error("Could not read an input file: ", e);
-                success = 1;
-            }
-        }
-        return success;
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode msg;
+	try {
+	    msg = mapper.readTree(Files.readString(app_creation_msg, StandardCharsets.UTF_8));
+	} catch (IOException e) {
+            log.error("Could not read an input file: ", e);
+            return 1;
+	}
+        NebulousApp app = NebulousApp.newFromAppMessage(msg,
+            main.activemq_connector == null ? null : main.activemq_connector.getAmplPublisher());
+        System.out.println(app.generateAMPL());
+
+        return 0;
     }
 }
