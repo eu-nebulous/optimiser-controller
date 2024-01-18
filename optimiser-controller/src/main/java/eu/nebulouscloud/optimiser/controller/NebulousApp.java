@@ -26,8 +26,15 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import org.ow2.proactive.sal.model.AttributeRequirement;
+import org.ow2.proactive.sal.model.CommandsInstallation;
+import org.ow2.proactive.sal.model.Communication;
+import org.ow2.proactive.sal.model.IaasDefinition;
+import org.ow2.proactive.sal.model.JobDefinition;
+import org.ow2.proactive.sal.model.JobInformation;
+import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
+import org.ow2.proactive.sal.model.TaskDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,8 +51,9 @@ public class NebulousApp {
      * in the app creation message. (Array of objects) */
     private static final JsonPointer variables_path = JsonPointer.compile("/kubevela/variables");
 
-    /** Location of the UUID in the app creation message (String) */
+    /** Locations of the UUID and name in the app creation message (String) */
     private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
+    private static final JsonPointer name_path = JsonPointer.compile("/application/name");
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
@@ -54,7 +62,18 @@ public class NebulousApp {
     /** General-purpose object mapper */
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    private String uuid;
+    // FIXME: we use this until we talk to SAL via the exn middleware.
+    public static SalConnector sal_connector;
+
+    private static final List<Requirement> controller_requirements
+        = List.of(
+            new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "2048"),
+            new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "2"));
+
+    /** The app UUID; used as SAL job id as well */
+    private String app_uuid;
+    /** The app name; used as SAL job name as well */
+    private String app_name;
     private JsonNode original_app_message;
     private ObjectNode original_kubevela;
     private ArrayNode kubevela_variables;
@@ -126,7 +145,8 @@ public class NebulousApp {
             // What's left is neither a raw nor composite metric.
             performance_indicators.put(m.get("key").asText(), m);
         }
-        this.uuid = app_message.at(uuid_path).textValue();
+        this.app_uuid = app_message.at(uuid_path).textValue();
+        this.app_name = app_message.at(name_path).textValue();
     }
 
     /**
@@ -162,7 +182,7 @@ public class NebulousApp {
      * @return the UUID of the app
      */
     public String getUUID() {
-        return uuid;
+        return app_uuid;
     }
 
     /**
@@ -441,9 +461,9 @@ public class NebulousApp {
      *
      * Notes:
      *
-     * - For the first version, we specify all requirements as "equal", i.e.,
-     *   we might not find node candidates that are strictly better than what
-     *   is asked for.
+     * - For the first version, we specify all requirements as "greater or
+     *   equal", i.e., we might not find precisely the node candidates that
+     *   are asked for.
      *
      * - Related, KubeVela specifies "cpu" as a fractional value, while SAL
      *   wants the number of cores as a whole number.  We round up to the
@@ -496,8 +516,138 @@ public class NebulousApp {
                 // Check for node affinity / geoLocation / country
             }
         }
-        
         return result;
+    }
+
+    /**
+     * Start application with default (not rewritten) KubeVela.
+     */
+    public void startApplication() {
+        log.info("Starting application {} with original KubeVela", app_uuid);
+        startApplication(original_kubevela);
+    }
+
+    /**
+     * Given a KubeVela job, extract node requirements, create the job, start its
+     * nodes and submit KubeVela.
+     */
+    public void startApplication(JsonNode kubevela) {
+        log.info("Starting application {} with KubeVela", app_uuid);
+        if (sal_connector == null) {
+            log.error("Tried to submit job, but do not have a connection to SAL");
+            return;
+        }
+        // The overall flow:
+        // 1. Create a SAL job, with the uuid and name of the NebulOuS app
+        // 2. Extract node requirements from the KubeVela definition
+        // 3. Create a coordinator node; this will run the Kubernetes
+        //    controller.  This node is in addition to the nodes required by
+        //    KubeVela
+        // 4. Submit the job, thereby starting the coordinator node
+        // 5. Extract information (IP address, ...) from the coordinator node
+        // 6. Add the worker nodes, as specified by KubeVela, to the job
+        // 7. Rewrite the KubeVela file to add node affinities, etc.
+        // 8. Send the KubeVela file to the coordinator node
+
+        // ------------------------------------------------------------
+        // 1. Create SAL job
+        log.info("Creating job info");
+        JobInformation jobinfo = new JobInformation(app_uuid, app_name);
+        // TODO: figure out what ports to specify here
+        List<Communication> communications = List.of();
+        // This task is deployed on the controller node (the one not specified
+        // in the app KubeVela file)
+        // TODO: find out the commands to initialize the controller
+        // TODO: specify ubuntu in CommandsInstallation operatingSystem
+        //       argument (class OperatingSystemType)
+        CommandsInstallation nebulous_controller_init = new CommandsInstallation();
+        TaskDefinition nebulous_controller_task = new TaskDefinition(
+            "nebulous-controller", nebulous_controller_init, List.of());
+        // This task is deployed on all worker nodes (the ones specified by
+        // the app KubeVela file and optimized by NebulOuS)
+        // TODO: find out the commands to initialize the workers
+        // TODO: find out how to modify `nebulous_worker_task` to pass in
+        //       information about the controller
+        CommandsInstallation nebulous_worker_init = new CommandsInstallation();
+        TaskDefinition nebulous_worker_task = new TaskDefinition(
+            "nebulous-worker", nebulous_worker_init, List.of());
+        List<TaskDefinition> tasks = List.of(nebulous_controller_task, nebulous_worker_task);
+        JobDefinition job = new JobDefinition(communications, jobinfo, tasks);
+        Boolean success = sal_connector.createJob(job);
+        if (!success) {
+            // This can happen if the job has already been submitted
+            log.error("Error trying to create the job; SAL createJob returned {}", success);
+            log.info("Check if a job with id {} already exists, run stopJobs if yes", app_uuid);
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // 2. Extract node requirements
+        Map<String, List<Requirement>> requirements = getSalRequirementsFromKubevela(kubevela);
+
+        // ------------------------------------------------------------
+        // 3. Create coordinator node
+        log.info("Creating app coordinator node");
+        List<NodeCandidate> controller_candidates = sal_connector.findNodeCandidates(controller_requirements);
+        if (controller_candidates.isEmpty()) {
+            log.error("Could not find node candidates for controller node; requirements: {}", controller_requirements);
+            return;
+        }
+        NodeCandidate controller_candidate = controller_candidates.get(0);
+        
+        IaasDefinition controller_def = new IaasDefinition(
+            "nebulous-controller-node", "nebulous-controller",
+            controller_candidate.getId(), controller_candidate.getCloud().getId());
+        success = sal_connector.addNodes(List.of(controller_def), app_uuid);
+        if (!success) {
+            log.error("Failed to add controller node: {}", controller_candidate);
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // 4. Submit job
+        log.info("Starting job");
+        String return_job_id = sal_connector.submitJob(app_uuid);
+        if (return_job_id.equals("-1")) {
+            log.error("Failed to add start job {}, SAL returned {}",
+                app_uuid, return_job_id);
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // 5. Extract coordinator node information
+
+        // TODO
+
+        // ------------------------------------------------------------
+        // 6. Create worker nodes from requirements
+        log.info("Starting worker nodes");
+        for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
+            List<NodeCandidate> candidates = sal_connector.findNodeCandidates(e.getValue());
+            if (candidates.isEmpty()) {
+                log.error("Could not find node candidates for requirements: {}", e.getValue());
+                return;
+            }
+            NodeCandidate candidate = candidates.get(0);
+            IaasDefinition def = new IaasDefinition(
+                e.getKey(), "nebulous-worker", candidate.getId(), candidate.getCloud().getId()
+            );
+            // TODO: can we collect all nodes app-wide and submit them at once?
+            success = sal_connector.addNodes(List.of(def), app_uuid);
+            if (!success) {
+                log.error("Failed to add node: {}", candidate);
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 7. Rewrite KubeVela file, based on running node names
+
+        // TODO
+
+        // ------------------------------------------------------------
+        // 8. Submit KubeVela file to coordinator node
+
+        // TODO
     }
 
 }

@@ -10,6 +10,7 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.logging.LogLevel;
 
 import org.ow2.proactive.sal.model.IaasDefinition;
+import org.ow2.proactive.sal.model.Job;
 import org.ow2.proactive.sal.model.JobDefinition;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.PACloud;
@@ -48,8 +49,10 @@ public class SalConnector {
     private static final String getAllCloudsStr = "sal/cloud";
     private static final String findNodeCandidatesStr = "sal/nodecandidates";
     private static final String createJobStr = "sal/job";
+    private static final String getJobsStr = "sal/job"; // same, but different method/body
     private static final String addNodesFormatStr = "sal/node/%s";
     private static final String submitJobFormatStr = "sal/job/%s/submit";
+    private static final String stopJobsStr = "sal/job/stop";
 
     private URI sal_uri;
     private final HttpClient httpClient;
@@ -197,6 +200,53 @@ public class SalConnector {
                 .block();
     }
 
+/**
+ * Get list of jobs.  See
+ * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/5-job-endpoints.md#52--getjobs-endpoint
+ */
+    public List<Job> fetchJobs() {
+        return httpClient.get()
+            .uri(sal_uri.resolve(getJobsStr))
+            .responseSingle((resp, bytes) -> {
+                if (!resp.status().equals(HttpResponseStatus.OK)) {
+                    return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
+                } else {
+                    return bytes.asString().mapNotNull(s -> {
+                            try {
+                                return objectMapper.readValue(s, Job[].class);
+                            } catch (IOException e) {
+                                log.error(e.getMessage(), e);
+                                return null;
+                            }
+                        });
+                }
+            })
+            .doOnError(Throwable::printStackTrace)
+            .blockOptional()
+            .map(Arrays::asList)
+            .orElseGet(Collections::emptyList);
+    }
+
+
+    /**
+     * Stop SAL jobs.  See
+     * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/5-job-endpoints.md#54--stopjobs-endpoint
+     */
+     public Long stopJobs(List<String> jobIds) {
+        return httpClient.put()
+            .uri(sal_uri.resolve(stopJobsStr))
+            .send(bodyMonoPublisher(jobIds))
+            .responseSingle((resp, bytes) -> {
+                if (!resp.status().equals(HttpResponseStatus.OK)) {
+                    return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
+                } else {
+                    return bytes.asString().map(Long::parseLong);
+                }
+            })
+            .doOnError(Throwable::printStackTrace)
+            .block();
+    }
+
     /**
      * documentation
      */
@@ -220,14 +270,17 @@ public class SalConnector {
      * Submit job.  See
      * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/5-job-endpoints.md#55--submitjob-endpoint
      */
-    public Long submitJob(String jobId) {
+    public String submitJob(String jobId) {
         return httpClient.post()
             .uri(sal_uri.resolve(submitJobFormatStr.formatted(jobId)))
             .responseSingle((resp, bytes) -> {
                 if (!resp.status().equals(HttpResponseStatus.OK)) {
                     return bytes.asString().flatMap(body -> Mono.error(new RuntimeException(body)));
                 } else {
-                    return bytes.asString().map(Long::parseLong);
+                    // Note: Morphemic parsed this as a long, but we don't,
+                    // since the end point specifies that it returns the
+                    // submitted job id or -1
+                    return bytes.asString();
                 }
             })
             .doOnError(Throwable::printStackTrace)
