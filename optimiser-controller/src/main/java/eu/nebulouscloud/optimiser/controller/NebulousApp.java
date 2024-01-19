@@ -336,11 +336,12 @@ public class NebulousApp {
                     String separator = "";
                     JsonNode lower = value.get("lower_bound");
                     JsonNode upper = value.get("upper_bound");
-                    if (lower.isDouble()) {
+                    // `isNumber` because the constraint might be given as integer
+                    if (lower.isNumber()) {
                         out.format(" >= %s", lower.doubleValue());
                         separator = ", ";
                     }
-                    if (upper.isDouble()) {
+                    if (upper.isNumber()) {
                         out.format("%s<= %s", separator, upper.doubleValue());
                     }
                 }
@@ -351,11 +352,11 @@ public class NebulousApp {
                     String separator = "";
                     JsonNode lower = value.get("lower_bound");
                     JsonNode upper = value.get("upper_bound");
-                    if (lower.isLong()) {
+                    if (lower.isIntegralNumber()) {
                         out.format(" >= %s", lower.longValue());
                         separator = ", ";
                     }
-                    if (upper.isLong()) {
+                    if (upper.isIntegralNumber()) {
                         out.format("%s<= %s", separator, upper.longValue());
                     }
                 }
