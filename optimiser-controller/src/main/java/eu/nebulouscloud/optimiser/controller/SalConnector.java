@@ -74,14 +74,16 @@ public class SalConnector {
         objectMapper.configOverride(List.class)
             .setSetterInfo(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY))
             .setSetterInfo(JsonSetter.Value.forContentNulls(Nulls.AS_EMPTY));
-        this.connect(login, password);
-        this.httpClient = HttpClient.create()
+        connect(login, password);
+        httpClient = HttpClient.create()
             .baseUrl(sal_uri.toString())
             .headers(headers -> headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE))
-            .headers(headers -> headers.add("sessionid", session_id))
             .responseTimeout(Duration.of(80, ChronoUnit.SECONDS))
             .wiretap("reactor.netty.http.client.HttpClient", LogLevel.DEBUG, AdvancedByteBufFormat.TEXTUAL, StandardCharsets.UTF_8);
-        this.httpClient.warmup().block();
+        if (isConnected()) {
+            httpClient.headers(headers -> headers.add("sessionid", session_id));
+        }
+        httpClient.warmup().block();
     }
 
     /**
@@ -104,23 +106,29 @@ public class SalConnector {
      * @param sal_password the password to log in to SAL
      * @return true if the connection was successful, false if not
      */
-    private void connect(String sal_username, String sal_password) {
+    private boolean connect(String sal_username, String sal_password) {
         URI endpoint_uri = sal_uri.resolve(connectStr);
         log.info("Connecting to SAL as a service at uri {}", endpoint_uri);
 
-        this.session_id = HttpClient.create()
-            .headers(headers -> headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED))
+        try {
+            this.session_id = HttpClient.create()
+                .headers(headers -> headers.add(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED))
                 .post()
                 .uri(endpoint_uri)
                 .sendForm((req, form) -> form
                           .attr("username", sal_username)
-                        .attr("password", sal_password))
+                          .attr("password", sal_password))
                 .responseContent()
                 .aggregate()
                 .asString()
                 .retry(20)
                 .block();
+        } catch (Exception e) {
+            log.error("Error while connecting to SAL", e);
+            return false;
+        }
         log.info("Connected to SAL, sessionid {}...", session_id.substring(0, 10));
+        return true;
     }
 
     /**
