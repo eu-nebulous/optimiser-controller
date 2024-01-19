@@ -1,20 +1,13 @@
 package eu.nebulouscloud.optimiser.controller;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 import picocli.CommandLine;
 import picocli.CommandLine.ParseResult;
@@ -26,6 +19,7 @@ import static picocli.CommandLine.Option;
 /**
  * The main class of the optimizer controller.
  */
+@Slf4j
 @Command(name = "nebulous-optimizer-controller",
     version = "0.1",       // TODO read this from Bundle-Version in the jar MANIFEST.MF
     mixinStandardHelpOptions = true,
@@ -81,8 +75,6 @@ public class Main implements Callable<Integer> {
             defaultValue = "${ACTIVEMQ_PASSWORD}")
     private String activemq_password;
 
-    private static final Logger log = LoggerFactory.getLogger(Main.class);
-
     @Option(names = {"--verbose", "-v"},
         description = "Turn on more verbose logging output.",
         scope = ScopeType.INHERIT)
@@ -96,10 +88,20 @@ public class Main implements Callable<Integer> {
         }
     }
 
-    /** Reference to SAL connector, used by Main and subcommands. */
-    public SalConnector sal_connector = null;
-    /** Reference to ActiveMQ connector, used by Main and subcommands. */
-    public ExnConnector activemq_connector = null;
+    /**
+     * The connector to the SAL library.
+     *
+     * @return the SAL connector, or null if running offline.
+     */
+    @Getter
+    private SalConnector salConnector = null;
+    /**
+     * The ActiveMQ connector.
+     *
+     * @return the ActiveMQ connector wrapper, or null if running offline.
+     */
+    @Getter
+    private ExnConnector activeMQConnector = null;
 
     /**
      * PicoCLI execution strategy that uses common initialization.
@@ -116,13 +118,13 @@ public class Main implements Callable<Integer> {
         log.info("Beginning common startup of optimiser-controller");
 
         if (sal_uri != null && sal_user != null && sal_password != null) {
-            sal_connector = new SalConnector(sal_uri, sal_user, sal_password);
-            if (!sal_connector.isConnected()) {
+            salConnector = new SalConnector(sal_uri, sal_user, sal_password);
+            if (!salConnector.isConnected()) {
                 log.error("Connection to SAL unsuccessful");
             } else {
                 log.info("Established connection to SAL");
                 // FIXME: remove this once we have the exn connector
-                NebulousApp.sal_connector = sal_connector;
+                NebulousApp.setSalConnector(salConnector);
             }
         } else {
             log.info("SAL login information not specified, skipping");
@@ -131,7 +133,7 @@ public class Main implements Callable<Integer> {
         if (activemq_user != null && activemq_password != null) {
             log.info("Preparing ActiveMQ connection: host={} port={}",
                 activemq_host, activemq_port);
-            activemq_connector
+            activeMQConnector
                 = new ExnConnector(activemq_host, activemq_port,
                     activemq_user, activemq_password,
                     new ConnectorHandler() {
@@ -153,9 +155,9 @@ public class Main implements Callable<Integer> {
     @Override
     public Integer call() {
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
-        if (activemq_connector != null) {
+        if (activeMQConnector != null) {
             log.info("Starting connection to ActiveMQ");
-            activemq_connector.start(exn_synchronizer);
+            activeMQConnector.start(exn_synchronizer);
         } else {
             log.error("ActiveMQ connector not initialized so we're unresponsive. Will keep running to keep CI/CD happy but don't expect anything more from me.");
         }

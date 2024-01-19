@@ -1,7 +1,6 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import com.fasterxml.jackson.core.JsonPointer;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -9,6 +8,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -35,15 +37,13 @@ import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import org.ow2.proactive.sal.model.TaskDefinition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Internal representation of a NebulOus app.
  */
+@Slf4j
 public class NebulousApp {
-    private static final Logger log = LoggerFactory.getLogger(NebulousApp.class);
-
+    
     /** Location of the kubevela yaml file in the app creation message (String) */
     private static final JsonPointer kubevela_path = JsonPointer.compile("/kubevela/original");
 
@@ -62,16 +62,31 @@ public class NebulousApp {
     /** General-purpose object mapper */
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    // FIXME: we use this until we talk to SAL via the exn middleware.
-    public static SalConnector sal_connector;
+    /**
+     * The active SAL connector, or null if we operate offline.
+     *
+     * NOTE: this might only be used until we switch to the exn-sal
+     * middleware, or maybe we keep the SalConnector class and send to exn
+     * from there.
+     *
+     * @param salConnector the SAL connector.
+     */
+    @Setter
+    private static SalConnector salConnector;
 
     private static final List<Requirement> controller_requirements
         = List.of(
             new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "2048"),
             new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "2"));
 
-    /** The app UUID; used as SAL job id as well */
-    private String app_uuid;
+    /**
+     * The UUID of the app.  This is the UUID that identifies a specific
+     * application's ActiveMQ messages.
+     *
+     * @return the UUID of the app
+     */
+    @Getter
+    private String UUID;
     /** The app name; used as SAL job name as well */
     private String app_name;
     private JsonNode original_app_message;
@@ -145,7 +160,7 @@ public class NebulousApp {
             // What's left is neither a raw nor composite metric.
             performance_indicators.put(m.get("key").asText(), m);
         }
-        this.app_uuid = app_message.at(uuid_path).textValue();
+        this.UUID = app_message.at(uuid_path).textValue();
         this.app_name = app_message.at(name_path).textValue();
     }
 
@@ -173,16 +188,6 @@ public class NebulousApp {
             log.error("Could not read app creation message: ", e);
             return null;
         }
-    }
-
-    /**
-     * The UUID of the app.  This is the UUID that identifies a specific
-     * application's ActiveMQ messages.
-     *
-     * @return the UUID of the app
-     */
-    public String getUUID() {
-        return app_uuid;
     }
 
     /**
@@ -523,7 +528,7 @@ public class NebulousApp {
      * Start application with default (not rewritten) KubeVela.
      */
     public void startApplication() {
-        log.info("Starting application {} with original KubeVela", app_uuid);
+        log.info("Starting application {} with original KubeVela", UUID);
         startApplication(original_kubevela);
     }
 
@@ -532,8 +537,8 @@ public class NebulousApp {
      * nodes and submit KubeVela.
      */
     public void startApplication(JsonNode kubevela) {
-        log.info("Starting application {} with KubeVela", app_uuid);
-        if (sal_connector == null) {
+        log.info("Starting application {} with KubeVela", UUID);
+        if (salConnector == null) {
             log.error("Tried to submit job, but do not have a connection to SAL");
             return;
         }
@@ -552,7 +557,7 @@ public class NebulousApp {
         // ------------------------------------------------------------
         // 1. Create SAL job
         log.info("Creating job info");
-        JobInformation jobinfo = new JobInformation(app_uuid, app_name);
+        JobInformation jobinfo = new JobInformation(UUID, app_name);
         // TODO: figure out what ports to specify here
         List<Communication> communications = List.of();
         // This task is deployed on the controller node (the one not specified
@@ -573,11 +578,11 @@ public class NebulousApp {
             "nebulous-worker", nebulous_worker_init, List.of());
         List<TaskDefinition> tasks = List.of(nebulous_controller_task, nebulous_worker_task);
         JobDefinition job = new JobDefinition(communications, jobinfo, tasks);
-        Boolean success = sal_connector.createJob(job);
+        Boolean success = salConnector.createJob(job);
         if (!success) {
             // This can happen if the job has already been submitted
             log.error("Error trying to create the job; SAL createJob returned {}", success);
-            log.info("Check if a job with id {} already exists, run stopJobs if yes", app_uuid);
+            log.info("Check if a job with id {} already exists, run stopJobs if yes", UUID);
             return;
         }
 
@@ -588,7 +593,7 @@ public class NebulousApp {
         // ------------------------------------------------------------
         // 3. Create coordinator node
         log.info("Creating app coordinator node");
-        List<NodeCandidate> controller_candidates = sal_connector.findNodeCandidates(controller_requirements);
+        List<NodeCandidate> controller_candidates = salConnector.findNodeCandidates(controller_requirements);
         if (controller_candidates.isEmpty()) {
             log.error("Could not find node candidates for controller node; requirements: {}", controller_requirements);
             return;
@@ -598,7 +603,7 @@ public class NebulousApp {
         IaasDefinition controller_def = new IaasDefinition(
             "nebulous-controller-node", "nebulous-controller",
             controller_candidate.getId(), controller_candidate.getCloud().getId());
-        success = sal_connector.addNodes(List.of(controller_def), app_uuid);
+        success = salConnector.addNodes(List.of(controller_def), UUID);
         if (!success) {
             log.error("Failed to add controller node: {}", controller_candidate);
             return;
@@ -607,10 +612,10 @@ public class NebulousApp {
         // ------------------------------------------------------------
         // 4. Submit job
         log.info("Starting job");
-        String return_job_id = sal_connector.submitJob(app_uuid);
+        String return_job_id = salConnector.submitJob(UUID);
         if (return_job_id.equals("-1")) {
             log.error("Failed to add start job {}, SAL returned {}",
-                app_uuid, return_job_id);
+                UUID, return_job_id);
             return;
         }
 
@@ -623,7 +628,7 @@ public class NebulousApp {
         // 6. Create worker nodes from requirements
         log.info("Starting worker nodes");
         for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
-            List<NodeCandidate> candidates = sal_connector.findNodeCandidates(e.getValue());
+            List<NodeCandidate> candidates = salConnector.findNodeCandidates(e.getValue());
             if (candidates.isEmpty()) {
                 log.error("Could not find node candidates for requirements: {}", e.getValue());
                 return;
@@ -633,7 +638,7 @@ public class NebulousApp {
                 e.getKey(), "nebulous-worker", candidate.getId(), candidate.getCloud().getId()
             );
             // TODO: can we collect all nodes app-wide and submit them at once?
-            success = sal_connector.addNodes(List.of(def), app_uuid);
+            success = salConnector.addNodes(List.of(def), UUID);
             if (!success) {
                 log.error("Failed to add node: {}", candidate);
             }

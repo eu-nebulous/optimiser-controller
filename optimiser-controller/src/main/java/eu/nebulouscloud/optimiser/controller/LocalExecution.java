@@ -6,28 +6,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import lombok.extern.slf4j.Slf4j;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
+@Slf4j
 @Command(name = "local",
     aliases = {"l"},
     description = "Handle a single app creation message from the command line, printing its AMPL.  If an ActiveMQ connection is specified, additionally send a message to the solver.",
-    mixinStandardHelpOptions = true
-)
+    mixinStandardHelpOptions = true)
 public class LocalExecution implements Callable<Integer> {
 
-    private static final Logger log = LoggerFactory.getLogger(LocalExecution.class);
-
-    /**
-     * Reference to Main, to access activemq_connector, sal_connector etc.
-     */
+    /** Reference to Main set up by PicoCLI.  This lets us ask for the SAL and
+      * ActiveMQ connectors. */
     @ParentCommand
     private Main main;
 
@@ -44,7 +39,7 @@ public class LocalExecution implements Callable<Integer> {
             return 1;
 	}
         NebulousApp app = NebulousApp.newFromAppMessage(msg,
-            main.activemq_connector == null ? null : main.activemq_connector.getAmplPublisher());
+            main.getActiveMQConnector() == null ? null : main.getActiveMQConnector().getAmplMessagePublisher());
         System.out.println(app.generateAMPL());
 
         return 0;

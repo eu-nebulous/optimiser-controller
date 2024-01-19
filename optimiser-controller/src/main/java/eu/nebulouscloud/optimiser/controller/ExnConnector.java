@@ -7,10 +7,10 @@ import eu.nebulouscloud.exn.core.Handler;
 import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
-import org.apache.qpid.protonj2.client.Message;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.qpid.protonj2.client.Message;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -27,9 +27,8 @@ import java.util.concurrent.CountDownLatch;
  * `Consumer` objects created in {@link ExnConnector#ExnConnector} receive
  * incoming messages and react to them, sending out messages in turn.
  */
+@Slf4j
 public class ExnConnector {
-
-    private static final Logger log = LoggerFactory.getLogger(ExnConnector.class);
 
     /** The Connector used to talk with ActiveMQ */
     private final Connector conn;
@@ -43,9 +42,15 @@ public class ExnConnector {
     /** The topic where we send AMPL messages */
     // 1 object with key: filename, value: AMPL file (serialized)
     public static final String ampl_message_channel = "eu.nebulouscloud.optimiser.ampl";
-    /** Message producer for sending AMPL files, shared between all
-      * NebulousApp instances. */
-    private final Publisher ampl_message_publisher;
+
+    /**
+      * The Message producer for sending AMPL files, shared between all
+      * NebulousApp instances.
+      *
+      * @return the publisher configured to send AMPL files to the solver.
+      */
+    @Getter
+    private final Publisher amplMessagePublisher;
 
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
@@ -60,20 +65,16 @@ public class ExnConnector {
      *  Connector#start} method has connected and set up all handlers.
      */
     public ExnConnector(String host, int port, String name, String password, ConnectorHandler callback) {
-        ampl_message_publisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
+        amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
 
         conn = new Connector("optimiser_controller",
             callback,
             // List.of(new Publisher("config", "config", true)),
-            List.of(ampl_message_publisher),
+            List.of(amplMessagePublisher),
             List.of(new Consumer("ui_app_messages", app_creation_channel, new AppCreationMessageHandler(), true, true)),
             false,
             false,
             new StaticExnConfig(host, port, name, password, 15, "eu.nebulouscloud"));
-    }
-
-    public Publisher getAmplPublisher() {
-        return ampl_message_publisher;
     }
 
     /**
@@ -121,7 +122,7 @@ public class ExnConnector {
             try {
                 String app_id = message.subject();
                 log.info("App creation message received for app {}", app_id);
-                NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ampl_message_publisher);
+                NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), amplMessagePublisher);
                 NebulousApps.add(app);
                 app.sendAMPL();
             } catch (Exception e) {

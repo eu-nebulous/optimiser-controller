@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.logging.LogLevel;
+import lombok.extern.slf4j.Slf4j;
 
 import org.ow2.proactive.sal.model.IaasDefinition;
 import org.ow2.proactive.sal.model.Job;
@@ -15,8 +16,6 @@ import org.ow2.proactive.sal.model.JobDefinition;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.PACloud;
 import org.ow2.proactive.sal.model.Requirement;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import reactor.core.publisher.Mono;
@@ -41,9 +40,8 @@ import java.util.List;
  * Documentation of the SAL REST API is here:
  * https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1
  */
+@Slf4j
 public class SalConnector {
-
-    private static final Logger log = LoggerFactory.getLogger(SalConnector.class);
 
     private static final String connectStr = "sal/pagateway/connect";
     private static final String getAllCloudsStr = "sal/cloud";
