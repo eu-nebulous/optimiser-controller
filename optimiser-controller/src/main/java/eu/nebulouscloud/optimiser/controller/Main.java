@@ -112,7 +112,10 @@ public class Main implements Callable<Integer> {
     }
 
     /**
-     * Initialization code shared between main and subcommands.
+     * Initialization code shared between main and subcommands.  Note that
+     * here we connect to SAL if possible, but (for now) do not start the EXN
+     * ActiveMQ middleware. Each main method needs to call
+     * `activeMQConnector.start`.
      */
     private void init() {
         log.info("Beginning common startup of optimiser-controller");
@@ -123,7 +126,6 @@ public class Main implements Callable<Integer> {
                 log.error("Connection to SAL unsuccessful");
             } else {
                 log.info("Established connection to SAL");
-                // FIXME: remove this once we have the exn connector
                 NebulousApp.setSalConnector(salConnector);
             }
         } else {
@@ -134,14 +136,13 @@ public class Main implements Callable<Integer> {
             log.info("Preparing ActiveMQ connection: host={} port={}",
                 activemq_host, activemq_port);
             activeMQConnector
-                = new ExnConnector(activemq_host, activemq_port,
-                    activemq_user, activemq_password,
-                    new ConnectorHandler() {
-                        public void onReady(AtomicReference<Context> context) {
-                            log.info("Optimiser-controller connected to ActiveMQ");
-                        }
+              = new ExnConnector(activemq_host, activemq_port,
+                  activemq_user, activemq_password,
+                  new ConnectorHandler() {
+                    public void onReady(AtomicReference<Context> context) {
+                      log.info("Optimiser-controller connected to ActiveMQ");
                     }
-            );
+                  });
         } else {
             log.info("ActiveMQ login info not set, only operating locally.");
         }

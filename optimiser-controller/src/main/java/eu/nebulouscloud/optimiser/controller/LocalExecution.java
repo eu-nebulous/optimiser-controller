@@ -5,10 +5,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import eu.nebulouscloud.exn.core.Publisher;
 import lombok.extern.slf4j.Slf4j;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -31,17 +33,27 @@ public class LocalExecution implements Callable<Integer> {
 
     @Override public Integer call() {
         ObjectMapper mapper = new ObjectMapper();
+        CountDownLatch exn_synchronizer = new CountDownLatch(1);
+        ExnConnector connector = main.getActiveMQConnector();
+        Publisher publisher = null;
+        if (connector != null) {
+            publisher = connector.getAmplMessagePublisher();
+            connector.start(exn_synchronizer);
+        }
         JsonNode msg;
 	try {
 	    msg = mapper.readTree(Files.readString(app_creation_msg, StandardCharsets.UTF_8));
 	} catch (IOException e) {
             log.error("Could not read an input file: ", e);
             return 1;
-	}
-        NebulousApp app = NebulousApp.newFromAppMessage(msg,
-            main.getActiveMQConnector() == null ? null : main.getActiveMQConnector().getAmplMessagePublisher());
+        }
+        NebulousApp app = NebulousApp.newFromAppMessage(msg, publisher);
+        if (connector != null) {
+            log.info("Sending AMPL to channel {}", publisher);
+            app.sendAMPL();
+        }
         System.out.println(app.generateAMPL());
-
+        // TODO: wait for solver reply here?
         return 0;
     }
 }

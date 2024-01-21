@@ -162,6 +162,7 @@ public class NebulousApp {
         }
         this.UUID = app_message.at(uuid_path).textValue();
         this.app_name = app_message.at(name_path).textValue();
+        log.info("New App instantiated: Name='{}', UUID='{}'", app_name, UUID);
     }
 
     /**
@@ -306,6 +307,10 @@ public class NebulousApp {
      * Calculate AMPL file and send it off to the right channel.
      */
     public void sendAMPL() {
+        if (ampl_message_channel == null) {
+            log.error("AMPL publisher not set, cannot send AMPL file");
+            return;
+        }
         String ampl = generateAMPL();
         ObjectNode msg = mapper.createObjectNode();
         msg.put(getUUID() + ".ampl", ampl);
