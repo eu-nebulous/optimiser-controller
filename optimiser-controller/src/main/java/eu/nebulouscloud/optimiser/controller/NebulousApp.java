@@ -51,6 +51,7 @@ public class NebulousApp {
     private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
     private static final JsonPointer name_path = JsonPointer.compile("/application/name");
     public static final JsonPointer utility_function_path = JsonPointer.compile("/utility_functions");
+    public static final JsonPointer constraints_path = JsonPointer.compile("/slo");
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
