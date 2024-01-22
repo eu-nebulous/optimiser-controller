@@ -52,7 +52,7 @@ public class LocalExecution implements Callable<Integer> {
             log.info("Sending AMPL to channel {}", publisher);
             app.sendAMPL();
         }
-        System.out.println(app.generateAMPL());
+        System.out.println(AMPLGenerator.generateAMPL(app));
         // TODO: wait for solver reply here?
         return 0;
     }

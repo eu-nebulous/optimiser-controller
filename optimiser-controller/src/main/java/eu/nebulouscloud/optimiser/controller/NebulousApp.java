@@ -12,8 +12,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -22,8 +20,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -54,6 +50,7 @@ public class NebulousApp {
     /** Locations of the UUID and name in the app creation message (String) */
     private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
     private static final JsonPointer name_path = JsonPointer.compile("/application/name");
+    public static final JsonPointer utility_function_path = JsonPointer.compile("/utility_functions");
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
@@ -87,18 +84,23 @@ public class NebulousApp {
      */
     @Getter
     private String UUID;
-    /** The app name; used as SAL job name as well */
-    private String app_name;
-    private JsonNode original_app_message;
+    /** The app name, a user-defined string.  Not safe to assume that this is
+      * a unique value. */
+    @Getter private String name;
+    /** The original app message. */
+    @Getter private JsonNode originalAppMessage;
     private ObjectNode original_kubevela;
-    private ArrayNode kubevela_variables;
+    /** The array of KubeVela variables in the app message. */
+    @Getter private ArrayNode kubevelaVariables;
 
     /** Map from AMPL variable name to location in KubeVela. */
     private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
-    /** Raw metrics. */
-    private Map<String, JsonNode> raw_metrics = new HashMap<>();
-    private Map<String, JsonNode> composite_metrics = new HashMap<>();
-    private Map<String, JsonNode> performance_indicators = new HashMap<>();
+    /** The app's raw metrics, a map from key to the defining JSON node. */
+    @Getter private Map<String, JsonNode> rawMetrics = new HashMap<>();
+    /** The app's composite metrics, a map from key to the defining JSON node. */
+    @Getter private  Map<String, JsonNode> compositeMetrics = new HashMap<>();
+    /** The app's performance indicators, a map from key to the defining JSON node. */
+    @Getter private Map<String, JsonNode> performanceIndicators = new HashMap<>();
 
     /** When an app gets deployed or redeployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
@@ -111,16 +113,24 @@ public class NebulousApp {
      *
      * @param app_message The whole app creation message (JSON)
      * @param kubevela A parsed representation of the deployable KubeVela App model (YAML)
-     * @param parameters A parameter mapping as a sequence of JSON objects (JSON)
+     * @param ampl_message_channel A publisher for sending the generated AMPL file, or null
      */
     // Note that example KubeVela and parameter files can be found at
     // optimiser-controller/src/test/resources/
-    public NebulousApp(JsonNode app_message, ObjectNode kubevela, ArrayNode parameters, Publisher ampl_message_channel) {
-        this.original_app_message = app_message;
+    public NebulousApp(JsonNode app_message, ObjectNode kubevela, Publisher ampl_message_channel) {
+        this.UUID = app_message.at(uuid_path).textValue();
+        this.name = app_message.at(name_path).textValue();
+        this.originalAppMessage = app_message;
         this.original_kubevela = kubevela;
-        this.kubevela_variables = parameters;
+        JsonNode parameters = app_message.at(variables_path);
+        if (parameters.isArray()) {
+            this.kubevelaVariables = (ArrayNode)app_message.at(variables_path);
+        } else {
+            log.error("Cannot read parameters from app message '{}', continuing without parameters", UUID);
+            this.kubevelaVariables = mapper.createArrayNode();
+        }
         this.ampl_message_channel = ampl_message_channel;
-        for (final JsonNode p : parameters) {
+        for (final JsonNode p : kubevelaVariables) {
             kubevela_variable_paths.put(p.get("key").asText(),
                 yqPathToJsonPointer(p.get("path").asText()));
         }
@@ -140,16 +150,16 @@ public class NebulousApp {
             while (it.hasNext()) {
                 JsonNode m = it.next();
                 if (m.get("type").asText().equals("raw")) {
-                    raw_metrics.put(m.get("key").asText(), m);
+                    rawMetrics.put(m.get("key").asText(), m);
                     it.remove();
                     done = false;
                 } else {
                     ObjectNode mappings = m.withObject("mapping");
                     boolean is_composite_metric = StreamSupport.stream(
                         Spliterators.spliteratorUnknownSize(mappings.elements(), Spliterator.ORDERED), false)
-                        .allMatch(o -> raw_metrics.containsKey(o.asText()) || composite_metrics.containsKey(o.asText()));
+                        .allMatch(o -> rawMetrics.containsKey(o.asText()) || compositeMetrics.containsKey(o.asText()));
                     if (is_composite_metric) {
-                        composite_metrics.put(m.get("key").asText(), m);
+                        compositeMetrics.put(m.get("key").asText(), m);
                         it.remove();
                         done = false;
                     }
@@ -158,11 +168,9 @@ public class NebulousApp {
         }
         for (JsonNode m : metrics) {
             // What's left is neither a raw nor composite metric.
-            performance_indicators.put(m.get("key").asText(), m);
+            performanceIndicators.put(m.get("key").asText(), m);
         }
-        this.UUID = app_message.at(uuid_path).textValue();
-        this.app_name = app_message.at(name_path).textValue();
-        log.info("New App instantiated: Name='{}', UUID='{}'", app_name, UUID);
+        log.info("New App instantiated: Name='{}', UUID='{}'", name, UUID);
     }
 
     /**
@@ -182,7 +190,6 @@ public class NebulousApp {
             } else {
                 return new NebulousApp(app_message,
                     (ObjectNode)yaml_mapper.readTree(kubevela_string),
-                    (ArrayNode)parameters,
                     ampl_message_channel);
             }
         } catch (Exception e) {
@@ -217,7 +224,7 @@ public class NebulousApp {
      * @return true if all requirements hold, false otherwise
      */
     public boolean validatePaths() {
-        for (final Object p : kubevela_variables) {
+        for (final Object p : kubevelaVariables) {
             ObjectNode param = (ObjectNode) p;
             String param_name = param.get("key").textValue();
             if (param_name == null || param_name.equals("")) return false;
@@ -311,141 +318,13 @@ public class NebulousApp {
             log.error("AMPL publisher not set, cannot send AMPL file");
             return;
         }
-        String ampl = generateAMPL();
+        String ampl = AMPLGenerator.generateAMPL(this);
         ObjectNode msg = mapper.createObjectNode();
         msg.put(getUUID() + ".ampl", ampl);
         ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID());
     }
 
-    /**
-     * Generate AMPL code for the app, based on the parameter definition(s).
-     * Public for testability, not because we'll be calling it outside of its
-     * class.
-     */
-    public String generateAMPL() {
-        final StringWriter result = new StringWriter();
-        final PrintWriter out = new PrintWriter(result);
-        out.println("# AMPL file for application with id " + getUUID());
-        out.println();
 
-        out.println("# Variables");
-        for (final JsonNode p : kubevela_variables) {
-            ObjectNode param = (ObjectNode) p;
-            String param_name = param.get("key").textValue();
-            String param_path = param.get("path").textValue();
-            String param_type = param.get("type").textValue();
-            ObjectNode value = (ObjectNode)param.get("value");
-            if (param_type.equals("float")) {
-                out.format("var %s", param_name);
-                if (value != null) {
-                    String separator = "";
-                    JsonNode lower = value.get("lower_bound");
-                    JsonNode upper = value.get("upper_bound");
-                    // `isNumber` because the constraint might be given as integer
-                    if (lower.isNumber()) {
-                        out.format(" >= %s", lower.doubleValue());
-                        separator = ", ";
-                    }
-                    if (upper.isNumber()) {
-                        out.format("%s<= %s", separator, upper.doubleValue());
-                    }
-                }
-                out.format(";	# %s%n", param_path);
-            } else if (param_type.equals("int")) {
-                out.format("var %s integer", param_name);
-                if (value != null) {
-                    String separator = "";
-                    JsonNode lower = value.get("lower_bound");
-                    JsonNode upper = value.get("upper_bound");
-                    if (lower.isIntegralNumber()) {
-                        out.format(" >= %s", lower.longValue());
-                        separator = ", ";
-                    }
-                    if (upper.isIntegralNumber()) {
-                        out.format("%s<= %s", separator, upper.longValue());
-                    }
-                }
-                out.format(";	# %s%n", param_path);
-            } else if (param_type.equals("string")) {
-                out.println("# TODO not sure how to specify a string variable");
-                out.format("var %s symbolic;	# %s%n", param_name, param_path);
-            } else if (param_type.equals("array")) {
-                out.format("# TODO generate entries for map '%s' at %s%n", param_name, param_path);
-            }
-        }
-        out.println();
-
-        out.println("# Raw metrics");
-        out.println("# TODO: here we should also have initial values!");
-        for (final JsonNode m : raw_metrics.values()) {
-            out.format("param %s;	# %s%n", m.get("key").asText(), m.get("name").asText());
-        }
-        out.println();
-
-        out.println("# Composite metrics");
-        out.println("# TODO: here we should also have initial values!");
-        for (final JsonNode m : composite_metrics.values()) {
-            out.format("param %s;	# %s%n", m.get("key").asText(), m.get("name").asText());
-        }
-        out.println();
-
-        out.println("# Performance indicators = composite metrics that have at least one variable in their formula");
-        for (final JsonNode m : performance_indicators.values()) {
-            String formula = replaceVariables(m.get("formula").asText(), m.withObject("mapping"));
-            out.format("# %s : %s%n", m.get("name").asText(), m.get("formula").asText());
-            out.format("param %s = %s;%n", m.get("key").asText(), formula);
-        }
-        out.println();
-
-        out.println("# TBD: cost parameters - for all components! and use of node-candidates tensor");
-        out.println();
-
-        out.println("# Utility functions");
-        for (JsonNode f : original_app_message.withArray("/utility_functions")) {
-            String formula = replaceVariables(f.get("formula").asText(), f.withObject("mapping"));
-            out.format("# %s : %s%n", f.get("name").asText(), f.get("formula").asText());
-            out.format("%s %s :%n	%s;%n",
-                f.get("type").asText(), f.get("key").asText(),
-                formula);
-        }
-        out.println();
-
-        out.println("# Default utility function: tbd");
-        out.println();
-        out.println("# Constraints. For constraints we don't have name from GUI, must be created");
-        out.println("# TODO: generate from 'slo' hierarchical entry");
-        return result.toString();
-    }
-
-    /**
-     * Replace variables in formulas.
-     *
-     * @param formula a string like "A + B".
-     * @param mappings an object with mapping from variables to their
-     *  replacements.
-     * @return the formula, with all variables replaced.
-     */
-    private String replaceVariables(String formula, ObjectNode mappings) {
-        // If AMPL needs more rewriting of the formula than just variable name
-        // replacement, we should parse the formula here.  For now, since
-        // variables are word-shaped, we can hopefully get by with regular
-        // expressions on the string representation of the formula.
-        StringBuilder result = new StringBuilder(formula);
-        Pattern id = Pattern.compile("\\b(\\w+)\\b");
-        Matcher matcher = id.matcher(formula);
-        int lengthDiff = 0;
-        while (matcher.find()) {
-            String var = matcher.group(1);
-            JsonNode re = mappings.get(var);
-            if (re != null) {
-                int start = matcher.start(1) + lengthDiff;
-                int end = matcher.end(1) + lengthDiff;
-                result.replace(start, end, re.asText());
-                lengthDiff += re.asText().length() - var.length();
-            }
-        }
-        return result.toString();
-    }
 
     /**
      * Handle incoming solver message.
@@ -563,7 +442,7 @@ public class NebulousApp {
         // ------------------------------------------------------------
         // 1. Create SAL job
         log.info("Creating job info");
-        JobInformation jobinfo = new JobInformation(UUID, app_name);
+        JobInformation jobinfo = new JobInformation(UUID, name);
         // TODO: figure out what ports to specify here
         List<Communication> communications = List.of();
         // This task is deployed on the controller node (the one not specified
