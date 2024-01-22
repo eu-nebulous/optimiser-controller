@@ -41,7 +41,7 @@ public class ExnConnector {
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic.>";
     /** The topic where we send AMPL messages */
     // 1 object with key: filename, value: AMPL file (serialized)
-    public static final String ampl_message_channel = "eu.nebulouscloud.optimiser.ampl";
+    public static final String ampl_message_channel = "eu.nebulouscloud.optimiser.solver.model";
 
     /**
       * The Message producer for sending AMPL files, shared between all
