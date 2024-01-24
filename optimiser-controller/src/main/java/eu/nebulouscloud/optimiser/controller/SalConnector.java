@@ -108,7 +108,7 @@ public class SalConnector {
      */
     private boolean connect(String sal_username, String sal_password) {
         URI endpoint_uri = sal_uri.resolve(connectStr);
-        log.info("Connecting to SAL as a service at uri {}", endpoint_uri);
+        log.trace("Connecting to SAL as a service at uri {}", endpoint_uri);
 
         try {
             this.session_id = HttpClient.create()
@@ -127,7 +127,7 @@ public class SalConnector {
             log.error("Error while connecting to SAL", e);
             return false;
         }
-        log.info("Connected to SAL, sessionid {}...", session_id.substring(0, 10));
+        log.debug("Connected to SAL, sessionid {}...", session_id.substring(0, 10));
         return true;
     }
 
@@ -172,10 +172,10 @@ public class SalConnector {
                     } else {
                         return bytes.asString().mapNotNull(s -> {
                             try {
-                                log.info("Received message: {}", s);
+                                log.trace("Received message: {}", s);
                                 return objectMapper.readValue(s, NodeCandidate[].class);
                             } catch (IOException e) {
-                                log.error(e.getMessage(), e);;
+                                log.error(e.getMessage(), e);
                                 return null;
                             }
                         });
@@ -303,7 +303,7 @@ public class SalConnector {
         } catch (JsonProcessingException e) {
             log.error(e.getMessage(), e);;
         }
-        log.info("Sending body json: {}", json);
+        log.trace("Sending body json: {}", json);
         return ByteBufMono.fromString(Mono.just(json));
     }
 

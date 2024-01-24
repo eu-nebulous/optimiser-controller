@@ -171,7 +171,7 @@ public class NebulousApp {
             // What's left is neither a raw nor composite metric.
             performanceIndicators.put(m.get("key").asText(), m);
         }
-        log.info("New App instantiated: Name='{}', UUID='{}'", name, UUID);
+        log.debug("New App instantiated: Name='{}', UUID='{}'", name, UUID);
     }
 
     /**
@@ -316,13 +316,14 @@ public class NebulousApp {
      */
     public void sendAMPL() {
         if (ampl_message_channel == null) {
-            log.error("AMPL publisher not set, cannot send AMPL file");
+            log.warn("AMPL publisher not set, cannot send AMPL file");
             return;
         }
         String ampl = AMPLGenerator.generateAMPL(this);
         ObjectNode msg = mapper.createObjectNode();
         msg.put(getUUID() + ".ampl", ampl);
         ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID());
+        Main.logFile(getUUID() + ".ampl", ampl);
     }
 
 
@@ -383,7 +384,7 @@ public class NebulousApp {
                         RequirementOperator.GEQ, Long.toString(sal_cores)));
                 } else {
                     // floatValue returns 0.0 if node is not numeric
-                    log.error("CPU of component {} is 0 or not a number", c.get("name").asText());
+                    log.warn("CPU of component {} is 0 or not a number", c.get("name").asText());
                 }
             }
             if (properties.has("memory")) {;
@@ -393,7 +394,7 @@ public class NebulousApp {
                 } else if (sal_memory.endsWith("Gi")) {
                     sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
                 } else if (!properties.get("memory").isNumber()) {
-                    log.error("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
+                    log.warn("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
                         properties.get("name").asText(),
                         properties.get("memory").asText());
                     sal_memory = null;
@@ -425,7 +426,7 @@ public class NebulousApp {
     public void startApplication(JsonNode kubevela) {
         log.info("Starting application {} with KubeVela", UUID);
         if (salConnector == null) {
-            log.error("Tried to submit job, but do not have a connection to SAL");
+            log.warn("Tried to submit job, but do not have a connection to SAL");
             return;
         }
         // The overall flow:
@@ -442,7 +443,7 @@ public class NebulousApp {
 
         // ------------------------------------------------------------
         // 1. Create SAL job
-        log.info("Creating job info");
+        log.debug("Creating job info");
         JobInformation jobinfo = new JobInformation(UUID, name);
         // TODO: figure out what ports to specify here
         List<Communication> communications = List.of();
@@ -468,7 +469,7 @@ public class NebulousApp {
         if (!success) {
             // This can happen if the job has already been submitted
             log.error("Error trying to create the job; SAL createJob returned {}", success);
-            log.info("Check if a job with id {} already exists, run stopJobs if yes", UUID);
+            log.debug("Check if a job with id {} already exists, run stopJobs if yes", UUID);
             return;
         }
 
@@ -478,7 +479,7 @@ public class NebulousApp {
 
         // ------------------------------------------------------------
         // 3. Create coordinator node
-        log.info("Creating app coordinator node");
+        log.debug("Creating app coordinator node");
         List<NodeCandidate> controller_candidates = salConnector.findNodeCandidates(controller_requirements);
         if (controller_candidates.isEmpty()) {
             log.error("Could not find node candidates for controller node; requirements: {}", controller_requirements);
@@ -497,7 +498,7 @@ public class NebulousApp {
 
         // ------------------------------------------------------------
         // 4. Submit job
-        log.info("Starting job");
+        log.debug("Starting job");
         String return_job_id = salConnector.submitJob(UUID);
         if (return_job_id.equals("-1")) {
             log.error("Failed to add start job {}, SAL returned {}",
@@ -512,7 +513,7 @@ public class NebulousApp {
 
         // ------------------------------------------------------------
         // 6. Create worker nodes from requirements
-        log.info("Starting worker nodes");
+        log.debug("Starting worker nodes");
         for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
             List<NodeCandidate> candidates = salConnector.findNodeCandidates(e.getValue());
             if (candidates.isEmpty()) {

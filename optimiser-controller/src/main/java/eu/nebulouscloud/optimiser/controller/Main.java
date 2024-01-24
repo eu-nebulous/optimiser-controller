@@ -1,8 +1,14 @@
 package eu.nebulouscloud.optimiser.controller;
 
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
 
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
@@ -75,18 +81,17 @@ public class Main implements Callable<Integer> {
             defaultValue = "${ACTIVEMQ_PASSWORD}")
     private String activemq_password;
 
+    @Option(names = {"--log-dir"},
+            description = "Directory where to log incoming and outgoing messages as files. Can also be set via the @|bold LOGDIR|@ variable.",
+            paramLabel = "LOGDIR",
+            defaultValue = "${LOGDIR}")
+    @Getter
+    private static Path logDirectory;
+
     @Option(names = {"--verbose", "-v"},
-        description = "Turn on more verbose logging output.",
+            description = "Turn on more verbose logging output. Can be given multiple times. When not given, print only warnings and error messages. With @|underline -v|@, print status messages. With @|underline -vvv|@, print everything.",
         scope = ScopeType.INHERIT)
-    public void setVerbose(boolean[] verbose) {
-        // java.util.logging wants to be configured with a configuration file.
-        // Convince it otherwise.
-        java.util.logging.Logger rootLogger = java.util.logging.Logger.getLogger("");
-        rootLogger.setLevel(java.util.logging.Level.FINER);
-        for (java.util.logging.Handler handler : rootLogger.getHandlers()) {
-            handler.setLevel(rootLogger.getLevel());
-        }
-    }
+    private boolean[] verbosity;
 
     /**
      * The connector to the SAL library.
@@ -118,22 +123,55 @@ public class Main implements Callable<Integer> {
      * `activeMQConnector.start`.
      */
     private void init() {
-        log.info("Beginning common startup of optimiser-controller");
-
+        log.debug("Beginning common startup of optimiser-controller");
+        // Set log level.  java.util.logging wants to be configured with a
+        // configuration file, convince it otherwise.
+        java.util.logging.Logger rootLogger = java.util.logging.Logger.getLogger("");
+        Level level;
+        if (verbosity == null) level = Level.SEVERE;
+        else
+            switch (verbosity.length) {
+            case 0: level = Level.SEVERE; break; // can't happen
+            case 1: level = Level.INFO; break;   // Skip warning, since I (rudi) want INFO with just `-v`
+            case 2: level = Level.FINE; break;
+            default: level = Level.ALL; break;
+            }
+        rootLogger.setLevel(level);
+        for (java.util.logging.Handler handler : rootLogger.getHandlers()) {
+            handler.setLevel(rootLogger.getLevel());
+        }
+        // Set up directory for file logs (dumps of contents of incoming or
+        // outgoing messages).
+        if (logDirectory != null) {
+            if (!Files.exists(logDirectory)) {
+                try {
+                    Files.createDirectories(logDirectory);
+                } catch (IOException e) {
+                    log.warn("Could not create log directory {}. Continuing without file logging.");
+                    logDirectory = null;
+                }
+            } else if (!Files.isDirectory(logDirectory) || !Files.isWritable(logDirectory)) {
+                log.warn("Trying to use a file as log directory, or directory not writable: {}. Continuing without file logging.", logDirectory);
+                logDirectory = null;
+            } else {
+                log.debug("Logging all messages to directory {}", logDirectory);
+            }
+        }
+        // Start connection to SAL if possible.
         if (sal_uri != null && sal_user != null && sal_password != null) {
             salConnector = new SalConnector(sal_uri, sal_user, sal_password);
             if (!salConnector.isConnected()) {
-                log.error("Connection to SAL unsuccessful");
+                log.warn("Connection to SAL unsuccessful, continuing without SAL");
             } else {
                 log.info("Established connection to SAL");
                 NebulousApp.setSalConnector(salConnector);
             }
         } else {
-            log.info("SAL login information not specified, skipping");
+            log.debug("SAL login information not specified, skipping");
         }
-
+        // Start connection to ActiveMQ if possible.
         if (activemq_user != null && activemq_password != null) {
-            log.info("Preparing ActiveMQ connection: host={} port={}",
+            log.debug("Preparing ActiveMQ connection: host={} port={}",
                 activemq_host, activemq_port);
             activeMQConnector
               = new ExnConnector(activemq_host, activemq_port,
@@ -144,7 +182,7 @@ public class Main implements Callable<Integer> {
                     }
                   });
         } else {
-            log.info("ActiveMQ login info not set, only operating locally.");
+            log.debug("ActiveMQ login info not set, only operating locally.");
         }
     }
 
@@ -157,7 +195,7 @@ public class Main implements Callable<Integer> {
     public Integer call() {
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
         if (activeMQConnector != null) {
-            log.info("Starting connection to ActiveMQ");
+            log.debug("Starting connection to ActiveMQ");
             activeMQConnector.start(exn_synchronizer);
         } else {
             log.error("ActiveMQ connector not initialized so we're unresponsive. Will keep running to keep CI/CD happy but don't expect anything more from me.");
@@ -185,5 +223,27 @@ public class Main implements Callable<Integer> {
             .setExecutionStrategy(main::executionStrategy) // perform common initialization
             .execute(args);
         System.exit(exitCode);
+    }
+
+    /**
+     * Log a file into the given log directory.  Does nothing if {@link
+     * Main#logDirectory} is not set.
+     *
+     * @param name The filename.  Note that the file that is written will have
+     *  a longer name including a timestamp, so this argument does not need to
+     *  be unique.
+     * @param contents The content of the file to be written.  Will be
+     *  converted to String via `toString`.
+     */
+    public static void logFile(String name, Object contents) {
+        if (Main.logDirectory == null) return;
+        String prefix = LocalDateTime.now().toString();
+        Path path = logDirectory.resolve(prefix + "--" + name);
+        try (FileWriter out = new FileWriter(path.toFile())) {
+            out.write(contents.toString());
+            log.trace("Wrote log file {}", path);
+        } catch (IOException e) {
+            log.warn("Error while trying to create data file in log directory", e);
+        }
     }
 }

@@ -25,7 +25,7 @@ public class NebulousApps {
     public static synchronized void add(NebulousApp app) {
         String uuid = app.getUUID();
         apps.put(uuid, app);
-        log.info("Added app {}", uuid);
+        log.debug("Added app {}", uuid);
     }
 
     /**
@@ -47,7 +47,7 @@ public class NebulousApps {
     public static synchronized NebulousApp remove(String uuid) {
         NebulousApp app = apps.remove(uuid);
         if (app != null) {
-            log.info("Removed app {}", uuid);
+            log.debug("Removed app {}", uuid);
         } else {
             log.error("Trying to remove unknown app with uuid {}", uuid);
         }

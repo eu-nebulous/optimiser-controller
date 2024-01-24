@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.qpid.protonj2.client.Message;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -88,7 +89,7 @@ public class ExnConnector {
     public synchronized void start(CountDownLatch synchronizer) {
         this.synchronizer = synchronizer;
         conn.start();
-        log.info("ExnConnector started.");
+        log.debug("ExnConnector started.");
     }
 
     /**
@@ -101,7 +102,7 @@ public class ExnConnector {
         if (synchronizer != null) {
             synchronizer.countDown();
         }
-        log.info("ExnConnector stopped.");
+        log.debug("ExnConnector stopped.");
     }
 
     /**
@@ -122,6 +123,8 @@ public class ExnConnector {
             try {
                 String app_id = message.subject();
                 log.info("App creation message received for app {}", app_id);
+                JsonNode appMessage = mapper.valueToTree(body);
+                Main.logFile("app-message-" + app_id + ".json", appMessage);
                 NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), amplMessagePublisher);
                 NebulousApps.add(app);
                 app.sendAMPL();
@@ -145,10 +148,10 @@ public class ExnConnector {
                 String app_id = message.subject();
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
-                    log.error("Received solver solutions for non-existant app " + app_id);
+                    log.warn("Received solver solutions for non-existant app {}, discarding.", app_id);
                     return;
                 } else {
-                    log.info("Received solver solutions for app {}", app_id);
+                    log.debug("Received solver solutions for app {}", app_id);
                     ObjectNode json_body = mapper.convertValue(body, ObjectNode.class);
                     app.processSolution(json_body);
                 }

@@ -49,7 +49,7 @@ public class LocalExecution implements Callable<Integer> {
         }
         NebulousApp app = NebulousApp.newFromAppMessage(msg, publisher);
         if (connector != null) {
-            log.info("Sending AMPL to channel {}", publisher);
+            log.debug("Sending AMPL to channel {}", publisher);
             app.sendAMPL();
         }
         System.out.println(AMPLGenerator.generateAMPL(app));
