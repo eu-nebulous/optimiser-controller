@@ -2,12 +2,12 @@ package eu.nebulouscloud.optimiser.controller;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.extern.slf4j.Slf4j;
@@ -126,27 +126,63 @@ public class AMPLGenerator {
     private static void generatePerformanceIndicatorsSection(NebulousApp app, PrintWriter out) {
         out.println("# Performance indicators = composite metrics that have at least one variable in their formula");
         for (final JsonNode m : app.getPerformanceIndicators().values()) {
+            String name = m.get("key").asText();
             String formula = replaceVariables(m.get("formula").asText(), m.withObject("mapping"));
             out.format("# %s : %s%n", m.get("name").asText(), m.get("formula").asText());
-            out.format("param %s = %s;%n", m.get("key").asText(), formula);
+            out.format("var %s;%n", name);
+            out.format("subject to define_%s : %s = %s;%n", name, name, formula);
         }
         out.println();
     }
 
     private static void generateMetricsSection(NebulousApp app, PrintWriter out) {
-        out.println("# Raw metrics");
-        out.println("# TODO: here we should also have initial values!");
+        Set<String> usedMetrics = usedMetrics(app);
+        // Naming: in the JSON app message, "key" is the variable name used by
+        // AMPL, "name" is a user-readable string not otherwise used.
+        out.println("# Metrics.  Note that we only emit metrics that are in use.  Values will be provided by the solver.");
+        out.println("## Raw metrics");
         for (final JsonNode m : app.getRawMetrics().values()) {
-            out.format("param %s;	# %s%n", m.get("key").asText(), m.get("name").asText());
+            String name = m.get("key").asText();
+            if (usedMetrics.contains(name)) {
+                out.format("param %s;	# %s%n", name, m.get("name").asText());
+            }
         }
-        out.println();
-
-        out.println("# Composite metrics");
-        out.println("# TODO: here we should also have initial values!");
+        
+        out.println("## Composite metrics");
         for (final JsonNode m : app.getCompositeMetrics().values()) {
-            out.format("param %s;	# %s%n", m.get("key").asText(), m.get("name").asText());
+            String name = m.get("key").asText();
+            if (usedMetrics.contains(name)) {
+                out.format("param %s;	# %s%n", m.get("key").asText(), m.get("name").asText());
+            }
         }
         out.println();
+    }
+
+    /**
+     * Calculate all metrics that are actually used.
+     *
+     * @param app the NebulousApp.
+     * @return The set of raw or composite metrics that are used in
+     *  performance indicators, constraints or utility functions.
+     */
+    private static Set<String> usedMetrics(NebulousApp app) {
+        // TODO: should we also add metrics that are used in other metrics
+        // that are used elsewhere, or does the solver take care of that?
+        Set<String> result = new HashSet<>();
+        // collect from performance indicators
+        for (final JsonNode indicator : app.getPerformanceIndicators().values()) {
+            indicator.withObject("mapping").elements()
+                .forEachRemaining(node -> result.add(node.asText()));
+        }
+        // collect from constraints
+        ObjectNode slo = app.getOriginalAppMessage().withObject(NebulousApp.constraints_path);
+        slo.findParents("key").forEach(keyNode -> result.add(keyNode.asText()));
+        // collect from utility functions
+        for (JsonNode function : app.getOriginalAppMessage().withArray(NebulousApp.utility_function_path)) {
+            function.withObject("mapping").elements()
+                .forEachRemaining(node -> result.add(node.asText()));
+        }
+        return result;
     }
 
     private static void generateVariablesSection(NebulousApp app, PrintWriter out) {
