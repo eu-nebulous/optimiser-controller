@@ -106,7 +106,7 @@ public class AMPLGenerator {
 
     private static void generateUtilityFunctions(NebulousApp app, PrintWriter out) {
         out.println("# Utility functions");
-        for (JsonNode f : app.getOriginalAppMessage().withArray(NebulousApp.utility_function_path)) {
+        for (JsonNode f : app.getUtilityFunctions().values()) {
             String formula = replaceVariables(f.get("formula").asText(), f.withObject("mapping"));
             out.format("# %s : %s%n", f.get("name").asText(), f.get("formula").asText());
             out.format("%s %s :%n	%s;%n",
@@ -178,7 +178,7 @@ public class AMPLGenerator {
         ObjectNode slo = app.getOriginalAppMessage().withObject(NebulousApp.constraints_path);
         slo.findParents("key").forEach(keyNode -> result.add(keyNode.asText()));
         // collect from utility functions
-        for (JsonNode function : app.getOriginalAppMessage().withArray(NebulousApp.utility_function_path)) {
+        for (JsonNode function : app.getUtilityFunctions().values()) {
             function.withObject("mapping").elements()
                 .forEachRemaining(node -> result.add(node.asText()));
         }

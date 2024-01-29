@@ -50,7 +50,7 @@ public class NebulousApp {
     /** Locations of the UUID and name in the app creation message (String) */
     private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
     private static final JsonPointer name_path = JsonPointer.compile("/application/name");
-    public static final JsonPointer utility_function_path = JsonPointer.compile("/utility_functions");
+    private static final JsonPointer utility_function_path = JsonPointer.compile("/utility_functions");
     public static final JsonPointer constraints_path = JsonPointer.compile("/slo");
 
     /** The YAML converter */
@@ -102,7 +102,8 @@ public class NebulousApp {
     @Getter private  Map<String, JsonNode> compositeMetrics = new HashMap<>();
     /** The app's performance indicators, a map from key to the defining JSON node. */
     @Getter private Map<String, JsonNode> performanceIndicators = new HashMap<>();
-
+    /** The app's utility functions; the AMPL solver will optimize for one of these. */
+    @Getter private Map<String, JsonNode> utilityFunctions = new HashMap<>();
     /** When an app gets deployed or redeployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
     /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
@@ -134,6 +135,9 @@ public class NebulousApp {
         for (final JsonNode p : kubevelaVariables) {
             kubevela_variable_paths.put(p.get("key").asText(),
                 yqPathToJsonPointer(p.get("path").asText()));
+        }
+        for (JsonNode f : originalAppMessage.withArray(utility_function_path)) {
+            utilityFunctions.put(f.get("key").asText(), f);
         }
 
         // We need to know which metrics are raw, composite, and which ones
@@ -170,6 +174,10 @@ public class NebulousApp {
         for (JsonNode m : metrics) {
             // What's left is neither a raw nor composite metric.
             performanceIndicators.put(m.get("key").asText(), m);
+        }
+        for (JsonNode f : app_message.withArray(utility_function_path)) {
+            // What's left is neither a raw nor composite metric.
+            utilityFunctions.put(f.get("key").asText(), f);
         }
         log.debug("New App instantiated: Name='{}', UUID='{}'", name, UUID);
     }
@@ -312,7 +320,7 @@ public class NebulousApp {
     }
 
     /**
-     * Calculate AMPL file and send it off to the right channel.
+     * Calculate AMPL file and send it off to the solver.
      */
     public void sendAMPL() {
         if (ampl_message_channel == null) {
@@ -321,14 +329,33 @@ public class NebulousApp {
         }
         String ampl = AMPLGenerator.generateAMPL(this);
         ObjectNode msg = mapper.createObjectNode();
-        msg.put(getUUID() + ".ampl", ampl);
+        msg.put("FileName", getUUID() + ".ampl"); // TODO: check if filename needs to be unique
+        msg.put("FileContent", ampl);
+        msg.put("ObjectiveFunction", getObjectiveFunction());
         ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID());
+        Main.logFile(getUUID() + "to-solver.json", msg.toString());
         Main.logFile(getUUID() + ".ampl", ampl);
     }
 
 
-
     /**
+     * The objective function to use.  In case the app creation message
+     * specifies more than one and doesn't indicate which one to use, choose
+     * the first one.
+     *
+     * @return the objective function specified in the app creation message.
+     */
+    private String getObjectiveFunction() {
+        ArrayNode utility_functions = originalAppMessage.withArray(utility_function_path);
+        if (utility_functions.size() == 0) {
+            log.warn("No utility function given in app message; solver will likely complain");
+            return "";
+        } else {
+            return utility_functions.get(0).get("key").asText();
+        }
+    }
+
+	/**
      * Handle incoming solver message.
      *
      * @param solution The message from the solver, containing a field
