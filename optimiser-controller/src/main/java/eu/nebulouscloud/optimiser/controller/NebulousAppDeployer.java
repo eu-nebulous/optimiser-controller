@@ -12,6 +12,7 @@ import org.ow2.proactive.sal.model.IaasDefinition;
 import org.ow2.proactive.sal.model.JobDefinition;
 import org.ow2.proactive.sal.model.JobInformation;
 import org.ow2.proactive.sal.model.NodeCandidate;
+import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import org.ow2.proactive.sal.model.TaskDefinition;
@@ -30,8 +31,49 @@ import lombok.extern.slf4j.Slf4j;
 public class NebulousAppDeployer {
 
     /**
+     * Given a KubeVela file, extract how many nodes to deploy for each
+     * component.
+     *
+     * We currently detect replica count with the following component trait:
+     * ---
+     * traits:
+     *  - type: scaler
+     *    properties:
+     *      replicas: 2
+     *
+     * @param kubevela the parsed KubeVela file.
+     * @return A map from component name to number of instances to generate.
+     */
+    public static Map<String, Integer> getNodeCountFromKubevela (JsonNode kubevela) {
+        Map<String, Integer> result = new HashMap<>();
+        ArrayNode components = kubevela.withArray("/spec/components");
+        for (final JsonNode c : components) {
+            result.put(c.get("name").asText(), 1); // default value
+            for (final JsonNode t : c.withArray("/traits")) {
+                if (t.at("/type").asText().equals("scaler")
+                    && t.at("/properties/replicas").canConvertToExactIntegral())
+                    {
+                        result.put(c.get("name").asText(), t.at("/properties/replicas").asInt());
+                    }
+            }
+        }
+        return result;
+    }
+
+    /**
      * Given a KubeVela file, extract its VM requirements in a form we can
      * send to the SAL `findNodeCandidates` endpoint. <p>
+     *
+     * We add the requirement that OS family == Ubuntu.
+     *
+     * We read the following attributes for each component:
+     *
+     * - `properties.cpu`, `properties.requests.cpu`: round up to next integer
+     *   and generate requirement `hardware.cores`
+     *
+     * - `properties.memory`, `properties.requests.memory`: Handle "200Mi",
+     *   "0.2Gi" and bare number, convert to MB and generate requirement
+     *   `hardware.memory`
      *
      * Notes:<p>
      *
@@ -44,6 +86,10 @@ public class NebulousAppDeployer {
      *   nearest integer and ask for "this or more" cores, since we might end
      *   up with “strange” numbers of cores. <p>
      *
+     * - We should use `traits.*.properties.replicas` if `traits.*.type` ==
+     *   "scaler" to create multiple instances -- but that's propably a
+     *   separate method
+     *
      * @param kubevela the parsed KubeVela file.
      * @return a map of component name to (potentially empty) list of
      *  requirements for that component.  No requirements mean any node will
@@ -54,13 +100,13 @@ public class NebulousAppDeployer {
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
             ArrayList<Requirement> reqs = new ArrayList<>();
-            result.put(c.get("name").asText(), reqs);
-            JsonNode properties = c.path("properties");
-            if (properties.has("cpu")) {
+            reqs.add(new AttributeRequirement("image", "operatingSystem.family",
+                RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
+            JsonNode cpu = c.at("/properties/cpu");
+            if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
+            if (!cpu.isMissingNode() && cpu.isNumber()) {
                 // KubeVela has fractional core /cpu requirements
-                String kubevela_cpu_str = properties.get("cpu").asText();
-                // TODO: catch NumberFormatException
-                double kubevela_cpu = Double.parseDouble(kubevela_cpu_str);
+                double kubevela_cpu = Double.parseDouble(cpu.asText());
                 long sal_cores = Math.round(Math.ceil(kubevela_cpu));
                 if (sal_cores > 0) {
                     reqs.add(new AttributeRequirement("hardware", "cores",
@@ -70,18 +116,22 @@ public class NebulousAppDeployer {
                     log.warn("CPU of component {} is 0 or not a number", c.get("name").asText());
                 }
             }
-            if (properties.has("memory")) {;
-                String sal_memory = properties.get("memory").asText();
+            JsonNode memory = c.at("/properties/memory");
+            if (memory.isMissingNode()) cpu = c.at("/properties/resources/requests/memory");
+            if (!memory.isMissingNode()) {;
+                String sal_memory = memory.asText();
                 if (sal_memory.endsWith("Mi")) {
                     sal_memory = sal_memory.substring(0, sal_memory.length() - 2);
                 } else if (sal_memory.endsWith("Gi")) {
                     sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
-                } else if (!properties.get("memory").isNumber()) {
+                } else if (!memory.isNumber()) {
                     log.warn("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
-                        properties.get("name").asText(),
-                        properties.get("memory").asText());
+                        c.get("name").asText(),
+                        memory.asText());
                     sal_memory = null;
                 }
+                // Fall-through: we rewrote the KubeVela file and didn't add
+                // the "Mi" suffix, but it's a number
                 if (sal_memory != null) {
                     reqs.add(new AttributeRequirement("hardware", "memory",
                         RequirementOperator.GEQ, sal_memory));
@@ -90,6 +140,8 @@ public class NebulousAppDeployer {
             for (final JsonNode t : c.withArray("traits")) {
                 // Check for node affinity / geoLocation / country
             }
+            // Finally, add requirements for this job to the map
+            result.put(c.get("name").asText(), reqs);
         }
         return result;
     }
@@ -160,10 +212,10 @@ public class NebulousAppDeployer {
         // 3. Create coordinator node
         log.debug("Creating app coordinator node");
         List<NodeCandidate> controller_candidates
-            = NebulousApp.getSalConnector().findNodeCandidates(NebulousApp.getControllerRequirements());
+            = NebulousApp.getSalConnector().findNodeCandidates(NebulousApp.getControllerRequirements(appUUID));
         if (controller_candidates.isEmpty()) {
             log.error("Could not find node candidates for controller node; requirements: {}",
-                NebulousApp.getControllerRequirements());
+                NebulousApp.getControllerRequirements(appUUID));
             return;
         }
         NodeCandidate controller_candidate = controller_candidates.get(0);

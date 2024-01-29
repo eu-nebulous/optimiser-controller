@@ -12,7 +12,6 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -24,15 +23,11 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.CommandsInstallation;
-import org.ow2.proactive.sal.model.Communication;
-import org.ow2.proactive.sal.model.IaasDefinition;
-import org.ow2.proactive.sal.model.JobDefinition;
-import org.ow2.proactive.sal.model.JobInformation;
-import org.ow2.proactive.sal.model.NodeCandidate;
+import org.ow2.proactive.sal.model.NodeType;
+import org.ow2.proactive.sal.model.NodeTypeRequirement;
+import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
-import org.ow2.proactive.sal.model.TaskDefinition;
 
 /**
  * Internal representation of a NebulOus app.
@@ -76,12 +71,19 @@ public class NebulousApp {
      * The requirements of the node running the NebulOuS controller.  This
      * machine runs the Kubernetes cluster and KubeVela.
      */
-    @Getter
-    private static final List<Requirement> controllerRequirements
-        = List.of(
+    public static List<Requirement> getControllerRequirements(String jobID) {
+        return List.of(
+            new NodeTypeRequirement(List.of(NodeType.IAAS), jobID, jobID),
+            // TODO: untested; we rely on the fact that SAL has an abstraction
+            // over operating systems.  See
+            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-common/src/main/java/org/ow2/proactive/sal/model/OperatingSystemFamily.java#L39
+            // and
+            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/nc/NodeCandidateUtils.java#L159
+            new AttributeRequirement("image", "operatingSystem.family",
+                RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
             new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "2048"),
             new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "2"));
-
+    }
     /**
      * The UUID of the app.  This is the UUID that identifies a specific
      * application's ActiveMQ messages.
