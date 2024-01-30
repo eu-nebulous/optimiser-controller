@@ -53,7 +53,10 @@ public class NebulousAppDeployer {
                 if (t.at("/type").asText().equals("scaler")
                     && t.at("/properties/replicas").canConvertToExactIntegral())
                     {
-                        result.put(c.get("name").asText(), t.at("/properties/replicas").asInt());
+                        // Note this can be 0, in case we want to balance
+                        // between e.g. cloud and edge
+                        result.put(c.get("name").asText(),
+                            t.at("/properties/replicas").asInt());
                     }
             }
         }
@@ -86,10 +89,6 @@ public class NebulousAppDeployer {
      *   nearest integer and ask for "this or more" cores, since we might end
      *   up with “strange” numbers of cores. <p>
      *
-     * - We should use `traits.*.properties.replicas` if `traits.*.type` ==
-     *   "scaler" to create multiple instances -- but that's propably a
-     *   separate method
-     *
      * @param kubevela the parsed KubeVela file.
      * @return a map of component name to (potentially empty) list of
      *  requirements for that component.  No requirements mean any node will
@@ -99,21 +98,31 @@ public class NebulousAppDeployer {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
+            String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             reqs.add(new AttributeRequirement("image", "operatingSystem.family",
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
             JsonNode cpu = c.at("/properties/cpu");
             if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
-            if (!cpu.isMissingNode() && cpu.isNumber()) {
-                // KubeVela has fractional core /cpu requirements
-                double kubevela_cpu = Double.parseDouble(cpu.asText());
+            if (!cpu.isMissingNode()) {
+                // KubeVela has fractional core /cpu requirements, and the
+                // value might be given as a string instead of a number, so
+                // parse string in all cases.
+                double kubevela_cpu = -1;
+                try {
+                    kubevela_cpu = Double.parseDouble(cpu.asText());
+                } catch (NumberFormatException e) {
+                    log.warn("CPU spec in {} is not a number, value seen is {}",
+                        componentName, cpu.asText());
+                }
                 long sal_cores = Math.round(Math.ceil(kubevela_cpu));
                 if (sal_cores > 0) {
                     reqs.add(new AttributeRequirement("hardware", "cores",
                         RequirementOperator.GEQ, Long.toString(sal_cores)));
                 } else {
                     // floatValue returns 0.0 if node is not numeric
-                    log.warn("CPU of component {} is 0 or not a number", c.get("name").asText());
+                    log.warn("CPU of component {} is 0 or not a number, value seen is {}",
+                        componentName, cpu.asText());
                 }
             }
             JsonNode memory = c.at("/properties/memory");
@@ -126,7 +135,7 @@ public class NebulousAppDeployer {
                     sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
                 } else if (!memory.isNumber()) {
                     log.warn("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
-                        c.get("name").asText(),
+                        componentName,
                         memory.asText());
                     sal_memory = null;
                 }
@@ -141,7 +150,7 @@ public class NebulousAppDeployer {
                 // Check for node affinity / geoLocation / country
             }
             // Finally, add requirements for this job to the map
-            result.put(c.get("name").asText(), reqs);
+            result.put(componentName, reqs);
         }
         return result;
     }
