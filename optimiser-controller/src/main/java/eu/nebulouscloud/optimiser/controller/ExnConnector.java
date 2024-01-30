@@ -73,8 +73,8 @@ public class ExnConnector {
             // List.of(new Publisher("config", "config", true)),
             List.of(amplMessagePublisher),
             List.of(new Consumer("ui_app_messages", app_creation_channel, new AppCreationMessageHandler(), true, true)),
-            false,
-            false,
+            true,
+            true,
             new StaticExnConfig(host, port, name, password, 15, "eu.nebulouscloud"));
     }
 

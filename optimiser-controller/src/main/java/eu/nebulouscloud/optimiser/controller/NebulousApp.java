@@ -1,6 +1,8 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import com.fasterxml.jackson.core.JsonPointer;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -12,6 +14,11 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -205,13 +212,26 @@ public class NebulousApp {
                 return null;
             } else {
                 return new NebulousApp(app_message,
-                    (ObjectNode)yaml_mapper.readTree(kubevela_string),
+                    (ObjectNode)readKubevelaString(kubevela_string),
                     ampl_message_channel);
             }
         } catch (Exception e) {
             log.error("Could not read app creation message: ", e);
             return null;
         }
+    }
+
+    /** Utility function to parse a KubeVela string.  Can be used from jshell. */
+    public static JsonNode readKubevelaString(String kubevela) throws JsonMappingException, JsonProcessingException {
+        return yaml_mapper.readTree(kubevela);
+    }
+
+    /** Utility function to parse KubeVela from a file.  Intended for use from jshell.
+     * @throws IOException
+     * @throws JsonProcessingException
+     * @throws JsonMappingException */
+    public static JsonNode readKubevelaFile(String path) throws JsonMappingException, JsonProcessingException, IOException {
+        return readKubevelaString(Files.readString(Path.of(path), StandardCharsets.UTF_8));
     }
 
     /**
@@ -336,10 +356,10 @@ public class NebulousApp {
         }
         String ampl = AMPLGenerator.generateAMPL(this);
         ObjectNode msg = mapper.createObjectNode();
-        msg.put("FileName", getUUID() + ".ampl"); // TODO: check if filename needs to be unique
+        msg.put("FileName", getUUID() + ".ampl"); // TODO: check with Geir if filename needs to be unique
         msg.put("FileContent", ampl);
         msg.put("ObjectiveFunction", getObjectiveFunction());
-        ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID());
+        ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile(getUUID() + "to-solver.json", msg.toString());
         Main.logFile(getUUID() + ".ampl", ampl);
     }
