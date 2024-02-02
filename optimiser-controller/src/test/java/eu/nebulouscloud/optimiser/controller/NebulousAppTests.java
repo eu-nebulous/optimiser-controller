@@ -72,7 +72,7 @@ public class NebulousAppTests {
             StandardCharsets.UTF_8);
         JsonNode solutions = mapper.readTree(solution_string);
         ObjectNode replacements = solutions.withObject("VariableValues");
-        ObjectNode kubevela1 = app.rewriteKubevela(replacements);
+        ObjectNode kubevela1 = app.rewriteKubevelaWithSolution(replacements);
         // We deserialize and serialize, just for good measure
         String kubevela_str = yaml_mapper.writeValueAsString(kubevela1);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
@@ -103,7 +103,7 @@ public class NebulousAppTests {
             StandardCharsets.UTF_8);
         JsonNode solutions = mapper.readTree(solution_string);
         ObjectNode replacements = solutions.withObject("VariableValues");
-        ObjectNode kubevela1 = app.rewriteKubevela(replacements);
+        ObjectNode kubevela1 = app.rewriteKubevelaWithSolution(replacements);
 
         Map<String, List<Requirement>> requirements = NebulousAppDeployer.getSalRequirementsFromKubevela(kubevela1);
         // We could compare the requirements with what is contained in

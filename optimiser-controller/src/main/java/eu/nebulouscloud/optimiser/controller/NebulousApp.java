@@ -18,23 +18,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-
-import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.NodeType;
-import org.ow2.proactive.sal.model.NodeTypeRequirement;
-import org.ow2.proactive.sal.model.OperatingSystemFamily;
-import org.ow2.proactive.sal.model.Requirement;
-import org.ow2.proactive.sal.model.RequirementOperator;
 
 /**
  * Internal representation of a NebulOus app.
@@ -74,23 +65,6 @@ public class NebulousApp {
     @Setter @Getter
     private static SalConnector salConnector;
 
-    /**
-     * The requirements of the node running the NebulOuS controller.  This
-     * machine runs the Kubernetes cluster and KubeVela.
-     */
-    public static List<Requirement> getControllerRequirements(String jobID) {
-        return List.of(
-            new NodeTypeRequirement(List.of(NodeType.IAAS), jobID, jobID),
-            // TODO: untested; we rely on the fact that SAL has an abstraction
-            // over operating systems.  See
-            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-common/src/main/java/org/ow2/proactive/sal/model/OperatingSystemFamily.java#L39
-            // and
-            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/nc/NodeCandidateUtils.java#L159
-            new AttributeRequirement("image", "operatingSystem.family",
-                RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
-            new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "2048"),
-            new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "2"));
-    }
     /**
      * The UUID of the app.  This is the UUID that identifies a specific
      * application's ActiveMQ messages.
@@ -316,7 +290,7 @@ public class NebulousApp {
      * @return the modified KubeVela YAML, deserialized into a string, or
      *  null if no KubeVela could be generated.
      */
-    public ObjectNode rewriteKubevela(ObjectNode variable_values) {
+    public ObjectNode rewriteKubevelaWithSolution(ObjectNode variable_values) {
         ObjectNode fresh_kubevela = original_kubevela.deepCopy();
         for (Map.Entry<String, JsonNode> entry : variable_values.properties()) {
             // look up the prepared path in the variable |-> location map
@@ -397,7 +371,7 @@ public class NebulousApp {
             return;
         }
         ObjectNode variables = solution.withObjectProperty("VariableValues");
-        ObjectNode kubevela = rewriteKubevela(variables);
+        ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
         if (isDeployed()) {
             // We assume that killing a node will confuse the application's
             // Kubernetes cluster, therefore:
@@ -406,13 +380,13 @@ public class NebulousApp {
             //    scripts
             // 3. Send updated KubeVela for redeployment
             // 4. Shut down superfluous nodes
-            
+            NebulousAppDeployer.redeployApplication(this, kubevela);
         } else {
             // 1. Calculate node sets, including Nebulous controller node
             // 2. Tell SAL to start all nodes, passing in the deployment
             //    scripts
             // 3. Send KubeVela file for deployment
-            NebulousAppDeployer.startApplication(kubevela, UUID, name);
+            NebulousAppDeployer.deployApplication(kubevela, UUID, name);
         }
     }
 
