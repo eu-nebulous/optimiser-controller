@@ -4,10 +4,14 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.StreamSupport;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.extern.slf4j.Slf4j;
@@ -45,34 +49,22 @@ public class AMPLGenerator {
         out.println("# Constraints. For constraints we don't have name from GUI, must be created");
         ObjectNode slo = app.getOriginalAppMessage().withObject(NebulousApp.constraints_path);
         Set<String> performance_indicators = app.getPerformanceIndicators().keySet();
-        int constraintCount = 0;
-        if (!slo.get("operator").asText().equals("and")) {
-            log.error("Expected top-level 'and' operator for SLO array");
-            return;
-        }
-        for (JsonNode c : slo.withArray("children")) {
-            constraintCount++;
-            if (!containsPerformanceIndicator(c, performance_indicators)) continue;
-            out.format("subject to constraint_%s : ", constraintCount);
-            emitCondition(out, c);
-            out.println(";");
-        }
+        if (!containsPerformanceIndicator(slo, performance_indicators)) return;
+        out.print("subject to constraint_0 : ");
+        emitCondition(out, slo);
+        out.println(";");
     }
 
     private static void emitCondition(PrintWriter out, JsonNode condition){
-        JsonNode type = condition.at("/type");
-        if (type.isMissingNode() || type.asText().equals("simple")) {
-            // if type not specified: we're simple
-            emitSimpleCondition(out, condition);
-        } else if (type.asText().equals("composite")) {
+        if (condition.at("/isComposite").asBoolean()) {
             emitCompositeCondition(out, condition);
         } else {
-            log.error("Unknown condition type {} in SLO expression tree", type.asText());
+            emitSimpleCondition(out, condition);
         }
     }
 
     private static void emitCompositeCondition(PrintWriter out, JsonNode condition) {
-        String operator = condition.get("operator").asText();
+        String operator = condition.get("condition").asText();
         String intermission = "";
         for (JsonNode child : condition.withArray("children")) {
             out.print(intermission); intermission = " " + operator + " ";
@@ -83,12 +75,11 @@ public class AMPLGenerator {
     }
 
     private static void emitSimpleCondition(PrintWriter out, JsonNode c) {
-        ObjectNode condition = c.withObject("condition");
-        if (condition.at("/not").asBoolean()) { out.print("not "); }
+        if (c.at("/not").asBoolean()) { out.print("not "); }
         out.format("%s %s %s",
-            condition.get("key").asText(),
-            condition.get("operand").asText(),
-            condition.get("value").asText());
+            c.get("metricName").asText(),
+            c.get("operator").asText(),
+            c.get("value").asText());
     }
 
 
@@ -98,7 +89,7 @@ public class AMPLGenerator {
      * field.
      */
     private static boolean containsPerformanceIndicator (JsonNode constraint, Set<String> performance_indicators) {
-        for (String key : constraint.findValuesAsText("key")) {
+        for (String key : constraint.findValuesAsText("metricName")) {
             if (performance_indicators.contains(key)) return true;
         }
         return false;
@@ -107,14 +98,15 @@ public class AMPLGenerator {
     private static void generateUtilityFunctions(NebulousApp app, PrintWriter out) {
         out.println("# Utility functions");
         for (JsonNode f : app.getUtilityFunctions().values()) {
-            String formula = replaceVariables(f.get("formula").asText(), f.withObject("mapping"));
-            out.format("# %s : %s%n", f.get("name").asText(), f.get("formula").asText());
+            String formula = replaceVariables(
+                f.at("/expression/formula").asText(),
+                f.withArray("/expression/variables"));
             out.format("%s %s :%n	%s;%n",
-                f.get("type").asText(), f.get("key").asText(),
+                f.get("type").asText(), f.get("name").asText(),
                 formula);
         }
         out.println();
-        out.println("# Default utility function: tbd");
+        out.println("# Default utility function: specified in message to solver");
         out.println();
     }
 
@@ -126,9 +118,8 @@ public class AMPLGenerator {
     private static void generatePerformanceIndicatorsSection(NebulousApp app, PrintWriter out) {
         out.println("# Performance indicators = composite metrics that have at least one variable in their formula");
         for (final JsonNode m : app.getPerformanceIndicators().values()) {
-            String name = m.get("key").asText();
-            String formula = replaceVariables(m.get("formula").asText(), m.withObject("mapping"));
-            out.format("# %s : %s%n", m.get("name").asText(), m.get("formula").asText());
+            String name = m.get("name").asText();
+            String formula = m.get("formula").asText();
             out.format("var %s;%n", name);
             out.format("subject to define_%s : %s = %s;%n", name, name, formula);
         }
@@ -171,16 +162,17 @@ public class AMPLGenerator {
         Set<String> result = new HashSet<>();
         // collect from performance indicators
         for (final JsonNode indicator : app.getPerformanceIndicators().values()) {
-            indicator.withObject("mapping").elements()
+            indicator.withArray("arguments").elements()
                 .forEachRemaining(node -> result.add(node.asText()));
         }
         // collect from constraints
         ObjectNode slo = app.getOriginalAppMessage().withObject(NebulousApp.constraints_path);
-        slo.findParents("key").forEach(keyNode -> result.add(keyNode.asText()));
+        slo.findValuesAsText("metricName").forEach(result::add);
         // collect from utility functions
         for (JsonNode function : app.getUtilityFunctions().values()) {
-            function.withObject("mapping").elements()
-                .forEachRemaining(node -> result.add(node.asText()));
+            function.withArray("/expression/variables")
+                .findValuesAsText("value")
+                .forEach(result::add);
         }
         return result;
     }
@@ -198,7 +190,7 @@ public class AMPLGenerator {
                 if (value != null) {
                     String separator = "";
                     JsonNode lower = value.get("lower_bound");
-                    JsonNode upper = value.get("upper_bound");
+                    JsonNode upper = value.get("higher_bound");
                     // `isNumber` because the constraint might be given as integer
                     if (lower.isNumber()) {
                         out.format(" >= %s", lower.doubleValue());
@@ -208,13 +200,13 @@ public class AMPLGenerator {
                         out.format("%s<= %s", separator, upper.doubleValue());
                     }
                 }
-                out.format(";	# %s%n", param_path);
+                out.println(";");
             } else if (param_type.equals("int")) {
                 out.format("var %s integer", param_name);
                 if (value != null) {
                     String separator = "";
                     JsonNode lower = value.get("lower_bound");
-                    JsonNode upper = value.get("upper_bound");
+                    JsonNode upper = value.get("higher_bound");
                     if (lower.isIntegralNumber()) {
                         out.format(" >= %s", lower.longValue());
                         separator = ", ";
@@ -242,7 +234,7 @@ public class AMPLGenerator {
      *  replacements.
      * @return the formula, with all variables replaced.
      */
-    private static String replaceVariables(String formula, ObjectNode mappings) {
+    private static String replaceVariables(String formula, ArrayNode mappings) {
         // If AMPL needs more rewriting of the formula than just variable name
         // replacement, we should parse the formula here.  For now, since
         // variables are word-shaped, we can hopefully get by with regular
@@ -253,12 +245,16 @@ public class AMPLGenerator {
         int lengthDiff = 0;
         while (matcher.find()) {
             String var = matcher.group(1);
-            JsonNode re = mappings.get(var);
+            
+            JsonNode re = StreamSupport.stream(Spliterators.spliteratorUnknownSize(mappings.elements(), Spliterator.ORDERED), false)
+                .filter(v -> v.at("/name").asText().equals(var))
+                .findFirst().orElse(null);
             if (re != null) {
+                String replacement = re.get("value").asText();
                 int start = matcher.start(1) + lengthDiff;
                 int end = matcher.end(1) + lengthDiff;
-                result.replace(start, end, re.asText());
-                lengthDiff += re.asText().length() - var.length();
+                result.replace(start, end, replacement);
+                lengthDiff += replacement.length() - var.length();
             }
         }
         return result.toString();

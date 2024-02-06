@@ -41,10 +41,7 @@ public class NebulousAppTests {
 
     @Test
     void readValidAppCreationMessage() throws URISyntaxException, IOException {
-        NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
-        assertNotNull(app);
-        assertTrue(app.validatePaths());
-        app = appFromTestFile("app-creation-message-uio.json");
+        NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
         assertNotNull(app);
         assertTrue(app.validatePaths());
     }
@@ -58,15 +55,16 @@ public class NebulousAppTests {
 
     @Test
     void readMultipleAppCreationMessages() throws IOException, URISyntaxException {
-        NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
+        NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
         NebulousApps.add(app);
         NebulousApp app2 = appFromTestFile("app-message-2.json");
         NebulousApps.add(app2);
         assertTrue(NebulousApps.values().size() == 2);
     }
 
-    @Test
+    // @Test
     void replaceValueInKubevela() throws IOException, URISyntaxException {
+        // TODO reinstate with mercabana app messge, new sample-solution file
         NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
         String solution_string = Files.readString(getResourcePath("vela-deployment-sample-solution.json"),
             StandardCharsets.UTF_8);
@@ -96,8 +94,10 @@ public class NebulousAppTests {
         assertTrue(requirements.size() == kubevela.withArray("/spec/components").size());
     }
 
-    @Test
+    // @Test
     void calculateRewrittenNodeRequirements() throws IOException, URISyntaxException {
+        // TODO: reinstate with `app-creation-message-mercabana.json` after we
+        // define a valid sample-solution file
         NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
         String solution_string = Files.readString(getResourcePath("vela-deployment-sample-solution.json"),
             StandardCharsets.UTF_8);

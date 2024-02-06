@@ -34,17 +34,17 @@ import java.util.stream.StreamSupport;
 public class NebulousApp {
     
     /** Location of the kubevela yaml file in the app creation message (String) */
-    private static final JsonPointer kubevela_path = JsonPointer.compile("/kubevela/original");
+    private static final JsonPointer kubevela_path = JsonPointer.compile("/content");
 
     /** Location of the variables (optimizable locations) of the kubevela file
      * in the app creation message. (Array of objects) */
-    private static final JsonPointer variables_path = JsonPointer.compile("/kubevela/variables");
+    private static final JsonPointer variables_path = JsonPointer.compile("/variables");
 
     /** Locations of the UUID and name in the app creation message (String) */
-    private static final JsonPointer uuid_path = JsonPointer.compile("/application/uuid");
-    private static final JsonPointer name_path = JsonPointer.compile("/application/name");
-    private static final JsonPointer utility_function_path = JsonPointer.compile("/utility_functions");
-    public static final JsonPointer constraints_path = JsonPointer.compile("/slo");
+    private static final JsonPointer uuid_path = JsonPointer.compile("/uuid");
+    private static final JsonPointer name_path = JsonPointer.compile("/title");
+    private static final JsonPointer utility_function_path = JsonPointer.compile("/utilityFunctions");
+    public static final JsonPointer constraints_path = JsonPointer.compile("/sloViolations");
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
@@ -122,10 +122,10 @@ public class NebulousApp {
         this.ampl_message_channel = ampl_message_channel;
         for (final JsonNode p : kubevelaVariables) {
             kubevela_variable_paths.put(p.get("key").asText(),
-                yqPathToJsonPointer(p.get("path").asText()));
+                JsonPointer.compile(p.get("path").asText()));
         }
         for (JsonNode f : originalAppMessage.withArray(utility_function_path)) {
-            utilityFunctions.put(f.get("key").asText(), f);
+            utilityFunctions.put(f.get("name").asText(), f);
         }
 
         // We need to know which metrics are raw, composite, and which ones
@@ -143,16 +143,16 @@ public class NebulousApp {
             while (it.hasNext()) {
                 JsonNode m = it.next();
                 if (m.get("type").asText().equals("raw")) {
-                    rawMetrics.put(m.get("key").asText(), m);
+                    rawMetrics.put(m.get("name").asText(), m);
                     it.remove();
                     done = false;
                 } else {
-                    ObjectNode mappings = m.withObject("mapping");
+                    ArrayNode arguments = m.withArray("arguments");
                     boolean is_composite_metric = StreamSupport.stream(
-                        Spliterators.spliteratorUnknownSize(mappings.elements(), Spliterator.ORDERED), false)
+                        Spliterators.spliteratorUnknownSize(arguments.elements(), Spliterator.ORDERED), false)
                         .allMatch(o -> rawMetrics.containsKey(o.asText()) || compositeMetrics.containsKey(o.asText()));
                     if (is_composite_metric) {
-                        compositeMetrics.put(m.get("key").asText(), m);
+                        compositeMetrics.put(m.get("name").asText(), m);
                         it.remove();
                         done = false;
                     }
@@ -161,11 +161,11 @@ public class NebulousApp {
         }
         for (JsonNode m : metrics) {
             // What's left is neither a raw nor composite metric.
-            performanceIndicators.put(m.get("key").asText(), m);
+            performanceIndicators.put(m.get("name").asText(), m);
         }
         for (JsonNode f : app_message.withArray(utility_function_path)) {
             // What's left is neither a raw nor composite metric.
-            utilityFunctions.put(f.get("key").asText(), f);
+            utilityFunctions.put(f.get("name").asText(), f);
         }
         log.debug("New App instantiated: Name='{}', UUID='{}'", name, UUID);
     }
@@ -250,33 +250,17 @@ public class NebulousApp {
     }
 
     /**
-     * Rewrite ".spec.components[3].properties.edge.cpu" (yq path as
-     * delivered in the parameter file) into
-     * "/spec/components/3/properties/edge/cpu" (JSON Pointer notation,
-     * https://datatracker.ietf.org/doc/html/rfc6901)
-     *
-     * @param yq_path the path in yq notation.
-     * @return the path as JsonPointer.
-     */
-    private static JsonPointer yqPathToJsonPointer(String yq_path) {
-        String normalizedQuery = yq_path.replaceAll("\\[(\\d+)\\]", ".$1").replaceAll("\\.", "/");
-        return JsonPointer.compile(normalizedQuery);
-    }
-
-    /**
      * Return the location of a path in the application's KubeVela model.
      *
-     * @param path the path to the requested node, in yq notation (see <a
-     *  href="https://mikefarah.gitbook.io/yq/">https://mikefarah.gitbook.io/yq/</a>)
+     * See https://datatracker.ietf.org/doc/html/rfc6901 for a specification
+     * of the path format.
+     *
+     * @param path the path to the requested node, in JSON Pointer notation.
      * @return the node identified by the given path, or null if the path
      * cannot be followed
      */
     private JsonNode findPathInKubevela(String path) {
-        // rewrite ".spec.components[3].properties.edge.cpu" (yq path as
-        // delivered in the parameter file) into
-        // "/spec/components/3/properties/edge/cpu" (JSON Pointer notation,
-        // https://datatracker.ietf.org/doc/html/rfc6901)
-        JsonNode result = original_kubevela.at(yqPathToJsonPointer(path));
+        JsonNode result = original_kubevela.at(path);
         return result.isMissingNode() ? null : result;
     }
 
@@ -342,17 +326,17 @@ public class NebulousApp {
           //   }
           // }
         for (final JsonNode function : originalAppMessage.withArray(utility_function_path)) {
-            if (!(function.get("functionType").asText().equals("constant")))
+            if (!(function.get("type").asText().equals("constant")))
                 continue;
             // NOTE: for a constant function, we rely on the fact that the
             // function body is a single variable defined in the "Variables"
             // section and pointing to KubeVela, and the
             // `functionExpressionVariables` array contains one entry.
-            JsonNode variable = function.withArray("functionExpressionVariables").get(0);
-            String variableName = variable.get("valueVariable").asText();
+            JsonNode variable = function.withArray("/expression/variables").get(0);
+            String variableName = variable.get("value").asText();
             JsonPointer path = kubevela_variable_paths.get(variableName);
             JsonNode value = original_kubevela.at(path);
-            ObjectNode constant = constants.withObject(function.get("functionName").asText());
+            ObjectNode constant = constants.withObject(function.get("name").asText());
             constant.put("Variable", variableName);
             constant.set("Value", value);
         }
@@ -373,8 +357,8 @@ public class NebulousApp {
         ArrayNode utility_functions = originalAppMessage.withArray(utility_function_path);
         for (final JsonNode function : utility_functions) {
             // do not optimize a constant function
-            if (!(function.get("functionType").asText().equals("constant"))) {
-                return function.get("functionName").asText();
+            if (!(function.get("type").asText().equals("constant"))) {
+                return function.get("name").asText();
             }
         }
         log.warn("No non-constant utility function specified for application; solver will likely complain");

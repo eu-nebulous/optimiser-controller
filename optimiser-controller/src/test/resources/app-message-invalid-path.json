@@ -1,221 +1,142 @@
 {
-  "application": {
-    "name": "This is the application name",
-    "uuid": "XXXXXf81ee-b42a8-a13d56-e28ec9-2f5578"
-  },
-  "kubevela": {
-    "original": "apiVersion: core.oam.dev/v1beta1\nkind: Application\nmetadata:\n  name: surveillance-demo\n  namespace: default\nspec:\n  components:\n    - name: kafka-server\n      type: webservice\n      properties:\n        image: confluentinc/cp-kafka:7.2.1\n        hostname: kafka-server\n        ports:\n          - port: 9092\n            expose: true\n          - port: 9093\n            expose: true\n          - port: 29092\n            expose: true\n        cpu: \"1\"\n        memory: \"2000Mi\"\n        cmd: [ \"/bin/bash\", \"/tmp/run_workaround.sh\" ]\n        env:\n          - name: KAFKA_NODE_ID\n            value: \"1\"\n          - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP\n            value: \"CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT\"\n          - name: KAFKA_LISTENERS\n            value: \"PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093\"\n          - name: KAFKA_ADVERTISED_LISTENERS\n            value: \"PLAINTEXT://kafka-server:9092,PLAINTEXT_HOST://212.101.173.161:29092\"\n          - name: KAFKA_CONTROLLER_LISTENER_NAMES\n            value: \"CONTROLLER\"\n          - name: KAFKA_CONTROLLER_QUORUM_VOTERS\n            value: \"1@0.0.0.0:9093\"\n          - name: KAFKA_PROCESS_ROLES\n            value: \"broker,controller\"\n#        volumeMounts:\n#          configMap:\n#            - name: configmap-example-1\n#              mountPath: /tmp\n#              cmName: configmap-example-1\n#              defaultMod: 777\n      traits:\n        - type: storage\n          properties:\n            configMap:\n              - name: kafka-init\n                mountPath: /tmp\n                data:\n                  run_workaround.sh: |-\n                    #!/bin/sh\n                    sed -i '/KAFKA_ZOOKEEPER_CONNECT/d' /etc/confluent/docker/configure\n                    sed -i 's/cub zk-ready/echo ignore zk-ready/' /etc/confluent/docker/ensure\n                    echo \"kafka-storage format --ignore-formatted -t NqnEdODVKkiLTfJvqd1uqQ== -c /etc/kafka/kafka.properties\" >> /etc/confluent/docker/ensure\n                    /etc/confluent/docker/run\n\n    - name: kafka-ui\n      type: webservice\n      properties:\n        image: provectuslabs/kafka-ui:cd9bc43d2e91ef43201494c4424c54347136d9c0\n        exposeType: NodePort\n        ports:\n          - port: 8080\n            expose: true\n            nodePort: 30001\n        cpu: \"0.3\"\n        memory: \"512Mi\"\n        env:\n          - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS\n            value: \"kafka-server:9092\"\n\n    - name: video-capture\n      type: webservice\n      properties:\n        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/video-capture:1.1.0\n        cpu: \"0.2\"\n        memory: \"100Mi\"\n        env:\n          - name: KAFKA_URL\n            value: \"kafka-server:9092\"\n          - name: KAFKA_DETECTION_TOPIC\n            value: \"surveillance\"\n          - name: CAPTURE_VIDEO\n            value: \"False\"\n          - name: CAPTURE_DEVICE\n            value: \"/dev/video0\"\n          - name: DEBUG\n            value: \"True\"\n          - name: HOSTNAME\n            value: \"docker-capture\"\n        volumeMounts:\n          hostPath:\n            - name: video\n              mountPath: \"/dev/video1\"\n              path: \"/dev/video0\"\n      traits:\n        - type: affinity\n          properties:\n            nodeAffinity:\n              required:\n                nodeSelectorTerms:\n                  - matchExpressions:\n                    - key: \"kubernetes.io/hostname\"\n                      operator: \"In\"\n                      values: [\"nebulousk8s-worker-1\"]\n\n\n#    devices:\n#      - /dev/video0:/dev/video0\n\n    - name: face-detection\n      type: webservice\n      properties:\n        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/face-detection:1.2.0\n        edge:\n          cpu: \"1.2\"\n          memory: \"512Mi\"\n          env:\n            - name: KAFKA_URL\n              value: \"kafka-server:9092\"\n            - name: KAFKA_DETECTION_TOPIC\n              value: \"surveillance\"\n            - name: THREADS_COUNT\n              value: \"1\"\n            - name: STORE_METRIC\n              value: \"False\"\n            - name: DEBUG\n              value: \"True\"\n        cloud:\n          cpu: \"1.2\"\n          memory: \"512Mi\"\n          env:\n            - name: KAFKA_URL\n              value: \"kafka-server:9092\"\n            - name: KAFKA_DETECTION_TOPIC\n              value: \"surveillance\"\n            - name: THREADS_COUNT\n              value: \"1\"\n            - name: STORE_METRIC\n              value: \"False\"\n            - name: DEBUG\n              value: \"True\"\n      traits:\n        - type: affinity\n          properties:\n            podAntiAffinity:\n              required:\n                - labelSelector:\n                    matchExpressions:\n                      - key: \"app.oam.dev/component\"\n                        operator: \"In\"\n                        values: [ \"video-capture\" ]\n                  topologyKey: \"test\"\n        - type: nodePlacement\n          properties:\n            cloudWorkers:\n              count: 6\n              nodeSelector:\n                - name: node1\n                  value: 2\n                - name: node2\n                  value: 1\n                - name: node3\n                  value: 3\n            edgeWorkers:\n              count: 3\n              nodeSelector:\n                - name: node4\n                  value: 2\n                - name: node5\n                  value: 1\n        - type: geoLocation\n          properties:\n            affinity:\n              required:\n                - labelSelector:\n                    - key: \"continent\"\n                      operator: \"In\"\n                      values: [\"Europe\"]\n\n    - name: video-player\n      type: webservice\n      properties:\n        image: registry.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/video-player:1.1.0\n        exposeType: NodePort\n        env:\n          - name: KAFKA_URL\n            value: \"kafka-server:9092\"\n          - name: DEBUG\n            value: \"True\"\n          - name: SERVER_PORT\n            value: \"8081\"\n        ports:\n          - port: 8081\n            expose: true\n            nodePort: 30002\n",
+    "title": "Mercabana Intralogistics",
+    "uuid": "419c5ac2-e8cb-4115-8aa1-27d41ba0a08e",
+    "content": "\napiVersion: core.oam.dev/v1beta1\nkind: Application\nmetadata:\n  name: mercabarna-deploy\nspec:\n  components:\n    - name: license-plate-reading-service\n      type: webservice \n      properties:\n        image: ghcr.io/applied-artificial-intelligence-eurecat/nebulous-intralogistics-uc-license-plate-reading-service:latest\n        volumeMounts:\n          pvc:\n            - name: lprs-pv-configs\n              mountPath: /configs/\n              claimName: lprs-pvc-configs\n            - name: lprs-pvc-models\n              mountPath: /models/\n              claimName: lprs-pvc-models\n            - name: lprs-pv-data\n              mountPath: /data/\n              claimName: llprs-pvc-data\n              \n          \n        #potser no fa falta\n        livenessProbe:\n          exec:\n            command:\n            - /bin/bash\n            - -c\n            - ps -ef | grep main.py | grep -v grep\n          initialDelaySeconds: 10\n          periodSeconds: 10\n      traits:\n        - type: scaler         # Set the replica to the specified value\n          properties:\n            replicas: 1\n\n\n    - name: file-server\n      type: webservice\n      properties:\n        image:  ghcr.io/applied-artificial-intelligence-eurecat/nebulous-intralogistics-uc-file-server:1.0\n        imagePullSecrets: [\"reg-cred\"]\n        ports:\n        - port: 10004\n          #expose: true ????\n        \n        volumeMounts:\n          pvc:\n          - name: fs-pv-files\n            mountPath: /usr/src/app/files \n            claimName: fs-pvc-files\n        livenessProbe:\n          httpGet:\n            path: /\n            port: 80\n            httpHeaders:\n            - name: Custom-Header\n              value: ItsAlive\n          initialDelaySeconds: 5\n          periodSeconds: 5\n        healthCheck:\n          checkPolicy: \"all\"\n          detectors:\n          - httpGet:\n              path: \"/\"\n              port: 10004\n            successCondition: \"len(.) > 3000\"\n      traits: #Don't really know if works\n        # - type: container-ports\n        #   properties:\n        #     containers:\n        #     ports:\n        #       containerPort: 80\n        #       hostPort: 10004\n        #- type: \"node-affinity\"\n        #  properties:\n        #    affinity:\n        #      location: [\"mercabarna-core\"]\n      \n    - name: traffic-reconstruction-module\n      type: webservice\n      properties:\n        image: traffic-reconstruction-module:latest\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n    - name: nebulous-intralogistics-uc-api\n      type: webservice   \n      properties: \n        image: nebulous-intralogistics-uc-api:latest\n        ports:\n        - port: 8000\n        livenessProbe:\n          httpGet:\n            path: /\n            port: 8000\n            httpHeaders:\n            - name: Custom-Header\n              value: ItsAlive\n          initialDelaySeconds: 5\n          periodSeconds: 5\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n      \n    - name: nebulous-intralogistics-uc-web\n      type: webservice\n      properties:\n        image: nebulous-intralogistics-uc-web:latest \n\n        ports:\n        - port: 3000\n      traits:\n        # - type: container-ports\n        #   properties:\n        #     ports:\n        #       containerPort: 80\n        #       hostPort: 3000\n        #- type: \"node-affinity\"\n        #  properties:\n        #    affinity:\n        #      location: [\"mercabarna-core\"]\n\n    - name: nebulous-intralogistics-uc-db\n      type: webservice\n      properties:\n        image: postgres:16.1\n        ports:\n        - port: 5432\n        env: #secrets\n          - name: POSTGRES_USER\n            valueFrom: \n              secretKeyRef:\n                name: nebulous-intralogistics-uc-db-secrets\n                key: POSTGRES_USER\n          - name: POSTGRES_PASSWORD\n            valueFrom: \n              secretKeyRef:\n                name: nebulous-intralogistics-uc-db-secrets\n                key: POSTGRES_PASSWORD\n        volumeMounts:\n          pvc:\n            - name: db-pv-db \n              mountPath: /var/lib/postgresql/data\n              claimName: db-pvc-db\n            - name: db-pv-init \n              mountPath: /docker-entrypoint-initdb.d/init.sql\n              claimName: db-pvc-init\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n        # - type: liveness\n        #   properties:\n        #     httpGet:\n        #       path: / # Adjust the path if needed\n        #       port: 5432 # Adjust the port to match the PostgreSQL port\n        #       httpHeaders:\n        #         - name: Custom-Header\n        #           value: ItsAlive\n        #     initialDelaySeconds: 5\n        #     periodSeconds: 5\n    - name: emqx1\n      type: webservice\n      properties:\n        image: emqx:5.1.0\n        ports:\n          - name: mqtt\n            port: 1883\n          - name: mqttssl\n            port: 8883\n          - name: mgmt\n            port: 8081\n          - name: ws\n            port: 8083\n          - name: wss\n            port: 8084\n          - name: dashboard\n            port: 18083\n        env: #config\n          - name: EMQX_NODE_NAME\n            valueFrom: \n              configMapKeyRef:\n                name: configMap-emqx1\n                key: EMQX_NODE_NAME\n          - name: EMQX_CLUSTER__DISCOVERY_STRATEGY\n            valueFrom: \n              configMapKeyRef:\n                name: configMap-emqx1\n                key: EMQX_CLUSTER__DISCOVERY_STRATEGY\n          - name: EMQX_CLUSTER__STATIC__SEEDS\n            valueFrom: \n              configMapKeyRef:\n                name: configMap-emqx1\n                key: EMQX_CLUSTER__STATIC__SEEDS\n        volumeMounts:\n          pvc:\n          - name: emqx-data\n            mountPath: \"/opt/emqx/data/mnesia\"\n            claimName: emqx-pvc\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n        # - type: health\n        #   properties:\n        #     cmd: [\"/opt/emqx/bin/emqx_ctl\", \"status\"]\n        #     interval: 5s\n        #     timeout: 25s\n        #     retries: 5\n    #- name: vehicle-detection-and-cropping\n    #  type: webservice \n    #  properties:\n    #    image: vehicle-detection-and-cropping:latest\n    #    env: #secret\n    #      - name: CAMERA_URI\n    #        valueFrom:\n    #          secretKeyRef:\n    #            name: vehicle-detection-and-cropping-secrets\n    #            key: CAMERA_URI\n    #      - name: file_server\n    #        value: file-server\n    #      - name: message_broker\n    #        value: emqx1\n    #  traits:\n    #    - type: scaler         # Set the replica to the specified value\n    #      properties:\n    #        replicas: 1\n    #    - type: \"node-affinity\"\n    #      properties:\n    #        affinity:\n    #          location: [\"mercabarna-core\"]\n\n  policies:\n    - name: target-default\n      type: topology\n      properties:\n        namespace: \"default\"\n\n  workflow:\n    steps:\n      - name: apply-vd-pvc-configs\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: vd-pvc-configs\n            spec:\n              resources:\n                requests:\n                  storage: 10M \n              accessModes:\n                - ReadWriteMany\n      - name: apply-vd-pvc-data\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: vd-pvc-data\n            spec:\n              resources:\n                requests:\n                  storage: 500M \n              accessModes:\n                - ReadWriteMany\n      - name: apply-lprs-pvc-configs\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: lprs-pvc-configs\n            spec:\n              resources:\n                requests:\n                  storage: 500M \n              accessModes:\n                - ReadWriteMany\n      - name: apply-lprs-pvc-models\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: lprs-pvc-models\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n\n      - name: apply-lprs-pvc-data\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: lprs-pvc-data\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-fs-pvc-files\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: fs-pvc-files\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-api-pvc-files\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: api-pvc-files\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n\n      - name: apply-db-pvc-db\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: db-pvc-db\n            spec:\n              resources:\n                requests:\n                  storage: 5G # !!!!maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-db-pvc-init\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: db-pvc-init\n            spec:\n              resources:\n                requests:\n                  storage: 100M  # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-emqx-pvc\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: emqx-pvc\n            spec:\n              resources:\n                requests:\n                  storage: 200M # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n\n      - name: deploy2default\n        type: deploy\n        properties:\n          policies: ['target-default']",
     "variables": [
-      {
-        "key": "face_detection_edge_worker_cpu",
-        "path": ".spec.components[3].properties.edge.cpu.asdfasdgs",
-        "meaning": "cpu",
-        "type": "float",
-        "value": {
-          "lower_bound": 1.2,
-          "upper_bound": 3.0
-        },
-        "is_constant": false
-      },
-      {
-        "key": "face_detection_edge_worker_memory",
-        "path": ".spec.components[3].properties.edge.memory",
-        "meaning": "memory",
-        "type": "float",
-        "value": {
-          "lower_bound": 250,
-          "upper_bound": 1000
-        },
-        "is_constant": false
-      },
-      {
-        "key": "face_detection_edge_worker_count",
-        "path": ".spec.components[3].traits[1].properties.edgeWorkers.count",
-        "type": "int",
-        "value": {
-          "lower_bound": 0,
-          "upper_bound": 5
-        }
-      },
-      {
-        "key": "face_detection_edge_workers",
-        "path": ".spec.components[3].traits[1].properties.edgeWorkers.nodeSelector",
-        "type": "array",
-        "entry": {
-          "type": "kv",
-          "members": [
-            {
-              "key": "nodename",
-              "type": "string"
-            },
-            {
-              "key": "count",
-              "type": "int"
+        {
+            "key": "spec_components_0_traits_0_properties_replicas",
+            "path": "/invalid/spec/components/0/traits/0/properties/replicas",
+            "type": "float",
+            "meaning": "replicas",
+            "value": {
+                "lower_bound": 1,
+                "higher_bound": 8
             }
-          ]
         }
-      },
-      {
-        "key": "face_detection_cloud_worker_cpu",
-        "path": ".spec.components[3].properties.cloud.cpu",
-        "meaning": "cpu",
-        "type": "float",
-        "value": {
-          "lower_bound": 3.0,
-          "upper_bound": 6.0
+    ],
+    "resources": [
+        {
+            "uuid": "4c686b6b-4ef8-4a24-ad90-67ec8c204ba9",
+            "title": "Test BYON",
+            "platform": "BYON",
+            "enabled": false
         },
-        "is_constant": false
-      },
-      {
-        "key": "face_detection_cloud_worker_memory",
-        "path": ".spec.components[3].properties.cloud.memory",
-        "meaning": "memory",
-        "type": "float",
-        "value": {
-          "lower_bound": 1000,
-          "upper_bound": 4000
-        },
-        "is_constant": false
-      },
-      {
-        "key": "face_detection_cloud_worker_count",
-        "path": ".spec.components[3].traits[1].properties.cloudWorkers.count",
-        "type": "int",
-        "value": {
-          "lower_bound": 2,
-          "upper_bound": 10
+        {
+            "uuid": "9e6644b6-cb58-4fc5-b5cf-bf7a571d92fe",
+            "title": "AWs my resource",
+            "platform": "aws",
+            "enabled": true
         }
-      },
-      {
-        "key": "face_detection_cloud_workers",
-        "path": ".spec.components[3].traits[1].properties.cloudWorkers.nodeSelector",
-        "type": "array",
-        "entry": {
-          "type": "kv",
-          "members": [
-            {
-              "key": "nodename",
-              "type": "string"
+    ],
+    "templates": [
+        {
+            "id": "time",
+            "type": "int",
+            "minValue": 0,
+            "maxValue": 600,
+            "unit": "seconds"
+        }
+    ],
+    "parameters": [
+        {
+            "name": "job_process_time_instance",
+            "template": "time"
+        }
+    ],
+    "metrics": [
+        {
+            "type": "composite",
+            "name": "job_process_time",
+            "formula": "mean(job_process_time_instance)",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 60,
+                "unit": "sec"
             },
-            {
-              "key": "count",
-              "type": "int"
-            }
-          ]
-        }
-      }
-    ]
-  },
-  "cloud_providers": [
-    {
-      "type": "aws",
-      "sal_key": "2342342342asdfsadf"
-    },
-    {
-      "type": "gce",
-      "sal_key": "fseae2$@$@#aAfadadsf"
-    }
-  ],
-  "metrics": [
-    {
-      "type": "composite",
-      "@comment": "// composite | raw",
-      "key": "some_composite_metric_name",
-      "name": "Some composite metric name",
-      "formula": "A * B * C - E",
-      "window": {
-        "@comment": "// this can be empty"
-      }
-    },
-    {
-      "type": "composite",
-      "@comment": "// composite | raw",
-      "key": "cpu_util_prtc",
-      "name": "cpu_util_prtc",
-      "formula": "A * B * C - E",
-      "window": {
-        "input": {
-          "type": "all",
-          "interval": 30,
-          "unit": "sec",
-          "@comment": "// this can ms / sec / min / hour"
+            "isWindowOutput": true,
+            "output": {
+                "type": "sliding",
+                "interval": 30,
+                "unit": "sec"
+            },
+            "arguments": [
+                "job_process_time_instance"
+            ]
         },
-        "output": {
-          "type": "all",
-          "interval": 30,
-          "unit": "ms"
+        {
+            "type": "composite",
+            "level": "global",
+            "name": "pi",
+            "formula": "variablename + job_process_time",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "arguments": [
+                "variablename",
+                "job_process_time"
+            ]
         }
-      }
-    },
-    {
-      "type": "raw",
-      "@comment": "// composite | raw",
-      "name": "cpu_util_prtc #2",
-      "key": "cpu_util_prtc_2",
-      "sensor": "sensor_camery",
-      "config": {
-        "ipAddres": "0.0.0.0",
-        "location": "europe",
-        "timezone": "Europe/Athens"
-      }
-    }
-  ],
-  "slo": {
-    "operator": "and",
-    "children": [
-      {
-        "operator": "or",
-        "type": "composite",
+    ],
+    "sloViolations": {
+        "nodeKey": "d760437d-81cd-4675-9e40-e8d0ea4b9b4d",
+        "isComposite": true,
+        "condition": "OR",
+        "not": false,
         "children": [
-          {
-            "condition": {
-              "not": true,
-              "key": "cpu_util_prtc_2",
-              "operand": ">",
-              "value": 2
+            {
+                "nodeKey": "b50b961b-6e9a-4f90-842c-e92fbab43f40",
+                "isComposite": false,
+                "metricName": "job_process_time",
+                "operator": ">",
+                "value": "10"
             }
-          },
-          {
-            "condition": {
-              "key": "cpu_util_prtc",
-              "operand": "<",
-              "value": 100
-            }
-          }
         ]
-      },
-      {
-        "type": "simple",
-        "condition": {
-          "key": "cpu_util_prtc_2",
-          "operand": ">",
-          "value": 2,
-          "type": "float"
-        }
-      }
-    ]
-  },
-  "utility_functions": [
-    {
-      "key": "utility_function_1",
-      "name": "Utility Function 1",
-      "type": "maximize",
-      "@comment": "// maximize | minimize",
-      "formula": "A * B * C - E",
-      "mapping": {
-        "A": "cpu_util_prtc",
-        "B": "component_facedetection_1_cpu_2"
-      }
     },
-    {
-      "key": "utility_function_2",
-      "name": "Utility Function 2",
-      "type": "minimize",
-      "@comment": "// maximize | minimize",
-      "formula": "A",
-      "mapping": {
-        "A": "bacdafd"
-      }
-    }
-  ]
+    "utilityFunctions": [
+        {
+            "name": "first-function",
+            "type": "maximize",
+            "expression": {
+                "formula": "(A*C)/B",
+                "variables": [
+                    {
+                        "name": "A",
+                        "value": "job_process_time"
+                    },
+                    {
+                        "name": "C",
+                        "value": "currentReplicas"
+                    },
+                    {
+                        "name": "B",
+                        "value": "spec_components_0_traits_0_properties_replicas"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "currentReplicas",
+            "type": "constant",
+            "expression": {
+                "formula": "A",
+                "variables": [
+                    {
+                        "name": "A",
+                        "value": "spec_components_0_traits_0_properties_replicas"
+                    }
+                ]
+            }
+        }
+    ],
+    "environmentVariables": []
 }
