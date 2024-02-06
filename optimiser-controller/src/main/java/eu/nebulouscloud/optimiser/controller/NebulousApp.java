@@ -330,14 +330,37 @@ public class NebulousApp {
         }
         String ampl = AMPLGenerator.generateAMPL(this);
         ObjectNode msg = mapper.createObjectNode();
-        msg.put("FileName", getUUID() + ".ampl"); // TODO: check with Geir if filename needs to be unique
+        msg.put("FileName", getUUID() + ".ampl");
         msg.put("FileContent", ampl);
         msg.put("ObjectiveFunction", getObjectiveFunction());
+        ObjectNode constants = msg.withObject("Constants");
+          // Define initial values for constant utility functions:
+          // "Constants" : {
+          //   <constant utility function name> : {
+          //        "Variable" : <AMPL Variable Name>
+          //        "Value"    : <value at the variable's path in original KubeVela>
+          //   }
+          // }
+        for (final JsonNode function : originalAppMessage.withArray(utility_function_path)) {
+            if (!(function.get("functionType").asText().equals("constant")))
+                continue;
+            // NOTE: for a constant function, we rely on the fact that the
+            // function body is a single variable defined in the "Variables"
+            // section and pointing to KubeVela, and the
+            // `functionExpressionVariables` array contains one entry.
+            JsonNode variable = function.withArray("functionExpressionVariables").get(0);
+            String variableName = variable.get("valueVariable").asText();
+            JsonPointer path = kubevela_variable_paths.get(variableName);
+            JsonNode value = original_kubevela.at(path);
+            ObjectNode constant = constants.withObject(function.get("functionName").asText());
+            constant.put("Variable", variableName);
+            constant.set("Value", value);
+        }
+
         ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile(getUUID() + "to-solver.json", msg.toString());
         Main.logFile(getUUID() + ".ampl", ampl);
     }
-
 
     /**
      * The objective function to use.  In case the app creation message
@@ -348,12 +371,14 @@ public class NebulousApp {
      */
     private String getObjectiveFunction() {
         ArrayNode utility_functions = originalAppMessage.withArray(utility_function_path);
-        if (utility_functions.size() == 0) {
-            log.warn("No utility function given in app message; solver will likely complain");
-            return "";
-        } else {
-            return utility_functions.get(0).get("key").asText();
+        for (final JsonNode function : utility_functions) {
+            // do not optimize a constant function
+            if (!(function.get("functionType").asText().equals("constant"))) {
+                return function.get("functionName").asText();
+            }
         }
+        log.warn("No non-constant utility function specified for application; solver will likely complain");
+        return "";
     }
 
 	/**
@@ -361,7 +386,7 @@ public class NebulousApp {
      *
      * @param solution The message from the solver, containing a field
      *  "VariableValues" that can be processed by {@link
-     *  NebulousApp#rewriteKubevela}.
+     *  NebulousApp#rewriteKubevelaWithSolution}.
      */
     public void processSolution(ObjectNode solution) {
         // TODO: check if the solution is for our application (check uuid) in
