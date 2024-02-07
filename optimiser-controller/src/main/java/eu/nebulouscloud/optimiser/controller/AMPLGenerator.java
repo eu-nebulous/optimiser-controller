@@ -36,6 +36,7 @@ public class AMPLGenerator {
 
         generateVariablesSection(app, out);
         generateMetricsSection(app, out);
+        generateConstants(app, out);
         generatePerformanceIndicatorsSection(app, out);
         generateCostParameterSection(app, out);
         generateUtilityFunctions(app, out);
@@ -44,15 +45,27 @@ public class AMPLGenerator {
         return result.toString();
     }
 
+    // Utility functions that are constant go here
+    private static void generateConstants(NebulousApp app, PrintWriter out) {
+        out.println("# Constants");
+        for (JsonNode f : app.getUtilityFunctions().values()) {
+            if (!(f.get("type").asText().equals("constant")))
+                continue;
+            out.format("param %s;%n", f.get("name").asText());
+        }
+        out.println();
+    }
+
     private static void generateConstraints(NebulousApp app, PrintWriter out) {
         // We only care about SLOs defined over performance indicators
         out.println("# Constraints. For constraints we don't have name from GUI, must be created");
-        ObjectNode slo = app.getOriginalAppMessage().withObject(NebulousApp.constraints_path);
-        Set<String> performance_indicators = app.getPerformanceIndicators().keySet();
-        if (!containsPerformanceIndicator(slo, performance_indicators)) return;
-        out.print("subject to constraint_0 : ");
-        emitCondition(out, slo);
-        out.println(";");
+        int counter = 0;
+        for (JsonNode slo : app.getEffectiveConstraints()) {
+            out.format("subject to constraint_{} : ", counter);
+            emitCondition(out, slo);
+            out.println(";");
+            counter = counter + 1;
+        }
     }
 
     private static void emitCondition(PrintWriter out, JsonNode condition){
@@ -82,22 +95,11 @@ public class AMPLGenerator {
             c.get("value").asText());
     }
 
-
-    /**
-     * We only want to emit constraints over at least one performance
-     * indicator.  Those have the key of a performance indicator in a "key"
-     * field.
-     */
-    private static boolean containsPerformanceIndicator (JsonNode constraint, Set<String> performance_indicators) {
-        for (String key : constraint.findValuesAsText("metricName")) {
-            if (performance_indicators.contains(key)) return true;
-        }
-        return false;
-    }
-
     private static void generateUtilityFunctions(NebulousApp app, PrintWriter out) {
         out.println("# Utility functions");
         for (JsonNode f : app.getUtilityFunctions().values()) {
+            if (f.get("type").asText().equals("constant"))
+                continue;
             String formula = replaceVariables(
                 f.at("/expression/formula").asText(),
                 f.withArray("/expression/variables"));
@@ -119,8 +121,12 @@ public class AMPLGenerator {
         out.println("# Performance indicators = composite metrics that have at least one variable in their formula");
         for (final JsonNode m : app.getPerformanceIndicators().values()) {
             String name = m.get("name").asText();
-            String formula = m.get("formula").asText();
             out.format("var %s;%n", name);
+        }
+        out.println("# Performance indicator formulas");
+        for (final JsonNode m : app.getPerformanceIndicators().values()) {
+            String name = m.get("name").asText();
+            String formula = m.get("formula").asText();
             out.format("subject to define_%s : %s = %s;%n", name, name, formula);
         }
         out.println();
@@ -152,33 +158,37 @@ public class AMPLGenerator {
     /**
      * Calculate all metrics that are actually used.
      *
-     * NOTE: may also contain variable names.  This is not a problem as long
-     * as we use the result of this method to filter out unused metrics, but
-     * must be fixed if we use this method for other purposes as well.
-     *
      * @param app the NebulousApp.
      * @return The set of raw or composite metrics that are used in
      *  performance indicators, constraints or utility functions.
      */
     private static Set<String> usedMetrics(NebulousApp app) {
-        // TODO: should we also add metrics that are used in other metrics
-        // that are used elsewhere, or does the solver take care of that?
         Set<String> result = new HashSet<>();
+        Set<String> allMetrics = new HashSet<>(app.getRawMetrics().keySet());
+        allMetrics.addAll(app.getCompositeMetrics().keySet());
         // collect from performance indicators
         for (final JsonNode indicator : app.getPerformanceIndicators().values()) {
-            // FIXME: note that here we collect also variables
             indicator.withArray("arguments").elements()
-                .forEachRemaining(node -> result.add(node.asText()));
+                .forEachRemaining(node -> {
+                    if (allMetrics.contains(node.asText()))
+                        result.add(node.asText());
+                });
         }
         // collect from constraints
-        ObjectNode slo = app.getOriginalAppMessage().withObject(NebulousApp.constraints_path);
-        slo.findValuesAsText("metricName").forEach(result::add);
+        for (JsonNode slo : app.getEffectiveConstraints()) {
+            slo.findValuesAsText("metricName").forEach(metricName -> {
+                    if (allMetrics.contains(metricName)) result.add(metricName);
+                });
+        }
         // collect from utility functions
         for (JsonNode function : app.getUtilityFunctions().values()) {
             function.withArray("/expression/variables")
                 .findValuesAsText("value")
-                .forEach(result::add);
+                .forEach(name -> {
+                    if (allMetrics.contains(name)) result.add(name);
+                });
         }
+            
         return result;
     }
 

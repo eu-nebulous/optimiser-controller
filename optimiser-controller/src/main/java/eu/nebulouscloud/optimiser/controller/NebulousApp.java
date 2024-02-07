@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
@@ -92,6 +93,12 @@ public class NebulousApp {
     @Getter private Map<String, JsonNode> performanceIndicators = new HashMap<>();
     /** The app's utility functions; the AMPL solver will optimize for one of these. */
     @Getter private Map<String, JsonNode> utilityFunctions = new HashMap<>();
+    /**
+     * The constraints that are actually effective: if a constraint does not
+     * contain a variable, we cannot influence it via the solver
+     */
+    @Getter private Set<JsonNode> effectiveConstraints = new HashSet<>();
+
     /** When an app gets deployed or redeployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
     /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
@@ -166,6 +173,18 @@ public class NebulousApp {
         for (JsonNode f : app_message.withArray(utility_function_path)) {
             // What's left is neither a raw nor composite metric.
             utilityFunctions.put(f.get("name").asText(), f);
+        }
+        // In the current app message, constraints is not an array.  When this
+        // changes, wrap this for loop in another loop over the constraints
+        // (Constraints are called sloViolations in the app message).
+        for (String key : app_message.withObject(constraints_path).findValuesAsText("metricName")) {
+            // Constraints that do not use variables, directly or via
+            // performance indicators, will be ignored.
+            if (kubevela_variable_paths.keySet().contains(key)
+                || performanceIndicators.keySet().contains(key)) {
+                effectiveConstraints.add(app_message.withObject(constraints_path));
+                break;
+            }
         }
         log.debug("New App instantiated: Name='{}', UUID='{}'", name, UUID);
     }
