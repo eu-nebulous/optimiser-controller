@@ -44,7 +44,7 @@ import java.util.List;
 public class SalConnector {
 
     private static final String connectStr = "sal/pagateway/connect";
-    private static final String getAllCloudsStr = "sal/cloud";
+    private static final String getAllCloudsStr = "sal/clouds";
     private static final String findNodeCandidatesStr = "sal/nodecandidates";
     private static final String createJobStr = "sal/job";
     private static final String getJobsStr = "sal/job"; // same, but different method/body

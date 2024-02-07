@@ -20,9 +20,12 @@ import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import org.ow2.proactive.sal.model.TaskDefinition;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +45,8 @@ public class NebulousAppDeployer {
      */
     @Getter
     private static CommandsInstallation controllerInstallation = new CommandsInstallation();
+
+    private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
 
     // TODO: find out the commands to initialize the workers
     /**
@@ -184,8 +189,8 @@ public class NebulousAppDeployer {
                         RequirementOperator.GEQ, sal_memory));
                 }
             }
-            for (final JsonNode t : c.withArray("traits")) {
-                // Check for node affinity / geoLocation / country
+            for (final JsonNode t : c.withArray("/traits")) {
+                // TODO: Check for node affinity / geoLocation / country
             }
             // Finally, add requirements for this job to the map
             result.put(componentName, reqs);
@@ -266,6 +271,9 @@ public class NebulousAppDeployer {
         Map<String, List<Requirement>> requirements = getSalRequirementsFromKubevela(kubevela);
         Map<String, Integer> nodeCounts = getNodeCountFromKubevela(kubevela);
 
+        Main.logFile("node-requirements-" + appUUID + ".txt", requirements);
+        Main.logFile("node-counts-" + appUUID + ".txt", nodeCounts);
+
         // ------------------------------------------------------------
         // 2. Create SAL job
         log.debug("Creating job info for {}", appUUID);
@@ -331,31 +339,38 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 6. Create worker nodes from requirements
         log.debug("Starting worker nodes for {}", appUUID);
-        for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
-            List<NodeCandidate> candidates = NebulousApp.getSalConnector().findNodeCandidates(e.getValue());
-            if (candidates.isEmpty()) {
-                log.error("Could not find node candidates for requirements: {}", e.getValue());
-                return;
-            }
-            NodeCandidate candidate = candidates.get(0);
-            // Here we specify the node names that we (hope to) use for node
-            // affinity declarations in KubeVela
-            IaasDefinition def = new IaasDefinition(
-                e.getKey(), "nebulous-worker", candidate.getId(), candidate.getCloud().getId()
-            );
-            int n = nodeCounts.get(e.getKey());
-            log.debug("Asking for {} copies of {} for application {}", n, candidate, appUUID);
-            success = NebulousApp.getSalConnector().addNodes(Collections.nCopies(n, def), appUUID);
-            if (!success) {
-                log.error("Failed to add node: {}", candidate);
-            }
-        }
+        // for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
+        //     List<NodeCandidate> candidates = NebulousApp.getSalConnector().findNodeCandidates(e.getValue());
+        //     if (candidates.isEmpty()) {
+        //         log.error("Could not find node candidates for requirements: {}", e.getValue());
+        //         return;
+        //     }
+        //     NodeCandidate candidate = candidates.get(0);
+        //     // Here we specify the node names that we (hope to) use for node
+        //     // affinity declarations in KubeVela
+        //     IaasDefinition def = new IaasDefinition(
+        //         e.getKey(), "nebulous-worker", candidate.getId(), candidate.getCloud().getId()
+        //     );
+        //     int n = nodeCounts.get(e.getKey());
+        //     log.debug("Asking for {} copies of {} for application {}", n, candidate, appUUID);
+        //     success = NebulousApp.getSalConnector().addNodes(Collections.nCopies(n, def), appUUID);
+        //     if (!success) {
+        //         log.error("Failed to add node: {}", candidate);
+        //     }
+        // }
 
         // ------------------------------------------------------------
         // 7. Rewrite KubeVela file, based on running node names
 
         // TODO
         JsonNode rewritten = addNodeAffinities(kubevela);
+        String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
+	try {
+	    rewritten_kubevela = yaml_mapper.writeValueAsString(rewritten);
+	} catch (JsonProcessingException e) {
+            log.error("Failed to convert KubeVela to YAML; this should never happen", e);
+	}
+        Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", rewritten_kubevela);
 
         // ------------------------------------------------------------
         // 8. Submit KubeVela file to coordinator node

@@ -152,6 +152,10 @@ public class AMPLGenerator {
     /**
      * Calculate all metrics that are actually used.
      *
+     * NOTE: may also contain variable names.  This is not a problem as long
+     * as we use the result of this method to filter out unused metrics, but
+     * must be fixed if we use this method for other purposes as well.
+     *
      * @param app the NebulousApp.
      * @return The set of raw or composite metrics that are used in
      *  performance indicators, constraints or utility functions.
@@ -162,6 +166,7 @@ public class AMPLGenerator {
         Set<String> result = new HashSet<>();
         // collect from performance indicators
         for (final JsonNode indicator : app.getPerformanceIndicators().values()) {
+            // FIXME: note that here we collect also variables
             indicator.withArray("arguments").elements()
                 .forEachRemaining(node -> result.add(node.asText()));
         }

@@ -185,6 +185,7 @@ public class NebulousApp {
                 log.error("Could not find kubevela or parameters in app creation message.");
                 return null;
             } else {
+                Main.logFile("incoming-kubevela-" + app_message.at(uuid_path).textValue() + ".yaml", kubevela_string);
                 return new NebulousApp(app_message,
                     (ObjectNode)readKubevelaString(kubevela_string),
                     ampl_message_channel);
@@ -342,8 +343,8 @@ public class NebulousApp {
         }
 
         ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID(), true);
-        Main.logFile(getUUID() + "to-solver.json", msg.toString());
-        Main.logFile(getUUID() + ".ampl", ampl);
+        Main.logFile("to-solver-" + getUUID() + ".json", msg.toString());
+        Main.logFile("to-solver-" + getUUID() + ".ampl", ampl);
     }
 
     /**
@@ -365,7 +366,7 @@ public class NebulousApp {
         return "";
     }
 
-	/**
+    /**
      * Handle incoming solver message.
      *
      * @param solution The message from the solver, containing a field
@@ -399,4 +400,11 @@ public class NebulousApp {
         }
     }
 
+    /**
+     * Deploy an application, bypassing the solver.  Will deploy unmodified
+     * KubeVela, as given by the initial app creation message.
+     */
+    public void deployUnmodifiedApplication() {
+        NebulousAppDeployer.deployApplication(original_kubevela, UUID, name);
+    }
 }

@@ -154,7 +154,7 @@ public class Main implements Callable<Integer> {
                 log.warn("Trying to use a file as log directory, or directory not writable: {}. Continuing without file logging.", logDirectory);
                 logDirectory = null;
             } else {
-                log.debug("Logging all messages to directory {}", logDirectory);
+                log.info("Logging all messages to directory {}", logDirectory);
             }
         }
         // Start connection to SAL if possible.
@@ -171,7 +171,7 @@ public class Main implements Callable<Integer> {
         }
         // Start connection to ActiveMQ if possible.
         if (activemq_user != null && activemq_password != null) {
-            log.debug("Preparing ActiveMQ connection: host={} port={}",
+            log.info("Preparing ActiveMQ connection: host={} port={}",
                 activemq_host, activemq_port);
             activeMQConnector
               = new ExnConnector(activemq_host, activemq_port,
@@ -203,6 +203,7 @@ public class Main implements Callable<Integer> {
         // Note that we try to synchronize, even if we didn't connect to
         // ActiveMQ.  This is so that the container can be deployed.  (If the
         // container terminates, the build registers as unsuccessful.)
+        log.info("Optimiser-controller Initialization complete, waiting for messages");
         try {
             exn_synchronizer.await();
         } catch (InterruptedException e) {

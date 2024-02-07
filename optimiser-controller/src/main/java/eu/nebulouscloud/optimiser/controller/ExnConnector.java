@@ -128,6 +128,7 @@ public class ExnConnector {
                 NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), amplMessagePublisher);
                 NebulousApps.add(app);
                 app.sendAMPL();
+                app.deployUnmodifiedApplication();
             } catch (Exception e) {
                 log.error("Error while receiving app creation message", e);
             }

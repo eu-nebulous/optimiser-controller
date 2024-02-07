@@ -51,6 +51,7 @@ public class LocalExecution implements Callable<Integer> {
         if (connector != null) {
             log.debug("Sending AMPL to channel {}", publisher);
             app.sendAMPL();
+            app.deployUnmodifiedApplication();
         }
         System.out.println(AMPLGenerator.generateAMPL(app));
         // TODO: wait for solver reply here?
