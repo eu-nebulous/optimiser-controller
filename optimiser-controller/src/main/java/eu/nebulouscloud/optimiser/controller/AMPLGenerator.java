@@ -133,7 +133,7 @@ public class AMPLGenerator {
         out.println("# Metrics.  Note that we only emit metrics that are in use.  Values will be provided by the solver.");
         out.println("## Raw metrics");
         for (final JsonNode m : app.getRawMetrics().values()) {
-            String name = m.get("key").asText();
+            String name = m.get("name").asText();
             if (usedMetrics.contains(name)) {
                 out.format("param %s;	# %s%n", name, m.get("name").asText());
             }
@@ -141,9 +141,9 @@ public class AMPLGenerator {
         
         out.println("## Composite metrics");
         for (final JsonNode m : app.getCompositeMetrics().values()) {
-            String name = m.get("key").asText();
+            String name = m.get("name").asText();
             if (usedMetrics.contains(name)) {
-                out.format("param %s;	# %s%n", m.get("key").asText(), m.get("name").asText());
+                out.format("param %s;	# %s%n", m.get("name").asText(), m.get("name").asText());
             }
         }
         out.println();
