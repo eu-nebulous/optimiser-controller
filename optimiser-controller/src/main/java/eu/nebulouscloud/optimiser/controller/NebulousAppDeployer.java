@@ -206,8 +206,7 @@ public class NebulousAppDeployer {
      * Add affinities trait to all components, except for those with a replica
      * count of 0.
      *
-     * <pre>
-     * {@code
+     * <pre>{@code
      * traits:
      *   - type: affinity
      *     properties:
@@ -356,9 +355,9 @@ public class NebulousAppDeployer {
             String componentName = e.getKey();
             int numberOfNodes = nodeCounts.get(e.getKey());
             Set<String> nodeNames = new HashSet<>();
-            IntStream.rangeClosed(1, numberOfNodes)
-                .mapToObj(i -> nodeNames.add(String.format("%s-%s",
-                                                           componentName, i)));
+            for (int i = 1; i <= numberOfNodes; i++){
+                nodeNames.add(String.format("%s-%s", componentName, i));
+            }
             app.getComponentMachineNames().put(componentName, nodeNames);
             if (numberOfNodes == 0) {
                 // Do not ask for node candidates if this component's replica
@@ -381,7 +380,7 @@ public class NebulousAppDeployer {
                 log.error("Failed to add nodes for component {}", componentName);
             }
         }
-
+        Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentMachineNames());
         // ------------------------------------------------------------
         // 7. Rewrite KubeVela file, based on running node names
 
