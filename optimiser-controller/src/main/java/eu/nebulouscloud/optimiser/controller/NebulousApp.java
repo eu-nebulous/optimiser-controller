@@ -33,14 +33,28 @@ import java.util.stream.StreamSupport;
  */
 @Slf4j
 public class NebulousApp {
-    
+
+    /**
+     * The UUID of the app. This identifies a specific application's ActiveMQ
+     * messages, etc.  Chosen by the UI, unique across a NebulOuS
+     * installation.
+     */
+    @Getter
+    private String UUID;
+    /**
+     * The app name, a user-readable string.  Not safe to assume that this is
+     * a unique value.
+     */
+    @Getter private String name;
+
+    // ----------------------------------------
+    // App message parsing stuff
+
     /** Location of the kubevela yaml file in the app creation message (String) */
     private static final JsonPointer kubevela_path = JsonPointer.compile("/content");
-
     /** Location of the variables (optimizable locations) of the kubevela file
      * in the app creation message. (Array of objects) */
     private static final JsonPointer variables_path = JsonPointer.compile("/variables");
-
     /** Locations of the UUID and name in the app creation message (String) */
     private static final JsonPointer uuid_path = JsonPointer.compile("/uuid");
     private static final JsonPointer name_path = JsonPointer.compile("/title");
@@ -54,6 +68,33 @@ public class NebulousApp {
     /** General-purpose object mapper */
     private static final ObjectMapper mapper = new ObjectMapper();
 
+    // ----------------------------------------
+    // AMPL stuff
+
+    /** The array of KubeVela variables in the app message. */
+    @Getter private ArrayNode kubevelaVariables;
+    /** Map from AMPL variable name to location in KubeVela. */
+    private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
+    /** The app's raw metrics, a map from key to the defining JSON node. */
+    @Getter private Map<String, JsonNode> rawMetrics = new HashMap<>();
+    /** The app's composite metrics, a map from key to the defining JSON node. */
+    @Getter private  Map<String, JsonNode> compositeMetrics = new HashMap<>();
+    /** The app's performance indicators, a map from key to the defining JSON node. */
+    @Getter private Map<String, JsonNode> performanceIndicators = new HashMap<>();
+    /** The app's utility functions; the AMPL solver will optimize for one of these. */
+    @Getter private Map<String, JsonNode> utilityFunctions = new HashMap<>();
+    /**
+     * The constraints that are actually relevant for the optimizer.  If a
+     * constraint does not contain a variable, we cannot influence it via the
+     * solver, so it should not be included in the AMPL file.
+     */
+    @Getter private Set<JsonNode> effectiveConstraints = new HashSet<>();
+
+    // ----------------------------------------
+    // Deployment stuff
+    /** The original app message. */
+    @Getter private JsonNode originalAppMessage;
+    private ObjectNode original_kubevela;
     /**
      * The active SAL connector, or null if we operate offline.
      *
@@ -67,37 +108,16 @@ public class NebulousApp {
     private static SalConnector salConnector;
 
     /**
-     * The UUID of the app.  This is the UUID that identifies a specific
-     * application's ActiveMQ messages.
+     * Map of component name to machine name(s) deployed for that component.
+     * Component names are defined in the KubeVela file.  We assume that
+     * component names stay constant during redeployment, i.e., once an
+     * application is deployed, its KubeVela file will not change.
      *
-     * @return the UUID of the app
+     * Note that this map does not include the master node, since this is not
+     * specified in KubeVela.
      */
     @Getter
-    private String UUID;
-    /** The app name, a user-defined string.  Not safe to assume that this is
-      * a unique value. */
-    @Getter private String name;
-    /** The original app message. */
-    @Getter private JsonNode originalAppMessage;
-    private ObjectNode original_kubevela;
-    /** The array of KubeVela variables in the app message. */
-    @Getter private ArrayNode kubevelaVariables;
-
-    /** Map from AMPL variable name to location in KubeVela. */
-    private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
-    /** The app's raw metrics, a map from key to the defining JSON node. */
-    @Getter private Map<String, JsonNode> rawMetrics = new HashMap<>();
-    /** The app's composite metrics, a map from key to the defining JSON node. */
-    @Getter private  Map<String, JsonNode> compositeMetrics = new HashMap<>();
-    /** The app's performance indicators, a map from key to the defining JSON node. */
-    @Getter private Map<String, JsonNode> performanceIndicators = new HashMap<>();
-    /** The app's utility functions; the AMPL solver will optimize for one of these. */
-    @Getter private Map<String, JsonNode> utilityFunctions = new HashMap<>();
-    /**
-     * The constraints that are actually effective: if a constraint does not
-     * contain a variable, we cannot influence it via the solver
-     */
-    @Getter private Set<JsonNode> effectiveConstraints = new HashSet<>();
+    private Map<String, Set<String>> componentMachineNames = new HashMap<>();
 
     /** When an app gets deployed or redeployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
@@ -415,7 +435,7 @@ public class NebulousApp {
             // 2. Tell SAL to start all nodes, passing in the deployment
             //    scripts
             // 3. Send KubeVela file for deployment
-            NebulousAppDeployer.deployApplication(kubevela, UUID, name);
+            NebulousAppDeployer.deployApplication(this, kubevela);
         }
     }
 
@@ -424,6 +444,6 @@ public class NebulousApp {
      * KubeVela, as given by the initial app creation message.
      */
     public void deployUnmodifiedApplication() {
-        NebulousAppDeployer.deployApplication(original_kubevela, UUID, name);
+        NebulousAppDeployer.deployApplication(this, original_kubevela);
     }
 }

@@ -3,8 +3,12 @@ package eu.nebulouscloud.optimiser.controller;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.CommandsInstallation;
@@ -199,12 +203,11 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Add affinities trait to all components.
+     * Add affinities trait to all components, except for those with a replica
+     * count of 0.
      *
-     * TODO: we need to find out which key to use to get the node labels, as
-     * assigned by the SAL `addNodes` endpoint.
-     *
-     * #+begin_src yaml
+     * <pre>
+     * {@code
      * traits:
      *   - type: affinity
      *     properties:
@@ -212,27 +215,36 @@ public class NebulousAppDeployer {
      *         required:
      *           nodeSelectorTerms:
      *           - matchExpressions:
-     *             - key: label
+     *             - key: "kubernetes.io/hostname"
      *               operator: In
-     *               values: ["machinelabel"]
-     * #+end_src
+     *               values: ["componentname-1", "componentname-2"]
+     * }</pre>
      *
      * @param kubevela the KubeVela specification to modify. This parameter is
      *  not modified.
+     * @param componentMachineNames Map from component name to node names
+     *  where that component should be deployed.
      * @return a fresh KubeVela specification with added nodeAffinity traits.
      */
-    public static JsonNode addNodeAffinities(JsonNode kubevela) {
+    public static JsonNode addNodeAffinities(JsonNode kubevela, Map<String, Set<String>> componentMachineNames) {
         JsonNode result = kubevela.deepCopy();
         for (final JsonNode c : result.withArray("/spec/components")) {
+            if (componentMachineNames.getOrDefault(c.get("name").asText(), Set.of()).isEmpty()){
+                // Do not generate trait at all if we didn't deploy any
+                // machines.  This happens if replicas is 0
+                continue;
+            }
             ArrayNode traits = c.withArray("traits");
             ObjectNode trait = traits.addObject();
             trait.put("type", "affinity");
             ArrayNode nodeSelectorTerms = trait.withArray("/properties/nodeAffinity/required/nodeSelectorTerms");
             ArrayNode matchExpressions = nodeSelectorTerms.addObject().withArray("matchExpressions");
             ObjectNode term = matchExpressions.addObject();
-            term.put("key", "label")
+            term.put("key", "kubernetes.io/hostname")
                 .put("operator", "In");
-            term.withArray("values").add(c.get("name").asText());
+            componentMachineNames
+                .getOrDefault(c.get("name").asText(), Set.of())
+                .forEach(nodename -> term.withArray("values").add(nodename));
         }
         return result;
     }
@@ -241,11 +253,12 @@ public class NebulousAppDeployer {
      * Given a KubeVela file, extract node requirements, create the job, start
      * its nodes and submit KubeVela.
      *
+     * @param app the NebulOuS app object.
      * @param kubevela the KubeVela file to deploy.
-     * @param appUUID the application UUID.
-     * @param appName the application name.
      */
-    public static void deployApplication(JsonNode kubevela, String appUUID, String appName) {
+    public static void deployApplication(NebulousApp app, JsonNode kubevela) {
+        String appUUID = app.getUUID();
+        String appName = app.getName();
         log.info("Starting initial deployment of {}", appUUID);
         if (NebulousApp.getSalConnector() == null) {
             log.warn("Tried to submit job, but do not have a connection to SAL");
@@ -339,31 +352,41 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 6. Create worker nodes from requirements
         log.debug("Starting worker nodes for {}", appUUID);
-        // for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
-        //     List<NodeCandidate> candidates = NebulousApp.getSalConnector().findNodeCandidates(e.getValue());
-        //     if (candidates.isEmpty()) {
-        //         log.error("Could not find node candidates for requirements: {}", e.getValue());
-        //         return;
-        //     }
-        //     NodeCandidate candidate = candidates.get(0);
-        //     // Here we specify the node names that we (hope to) use for node
-        //     // affinity declarations in KubeVela
-        //     IaasDefinition def = new IaasDefinition(
-        //         e.getKey(), "nebulous-worker", candidate.getId(), candidate.getCloud().getId()
-        //     );
-        //     int n = nodeCounts.get(e.getKey());
-        //     log.debug("Asking for {} copies of {} for application {}", n, candidate, appUUID);
-        //     success = NebulousApp.getSalConnector().addNodes(Collections.nCopies(n, def), appUUID);
-        //     if (!success) {
-        //         log.error("Failed to add node: {}", candidate);
-        //     }
-        // }
+        for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
+            String componentName = e.getKey();
+            int numberOfNodes = nodeCounts.get(e.getKey());
+            Set<String> nodeNames = new HashSet<>();
+            IntStream.rangeClosed(1, numberOfNodes)
+                .mapToObj(i -> nodeNames.add(String.format("%s-%s",
+                                                           componentName, i)));
+            app.getComponentMachineNames().put(componentName, nodeNames);
+            if (numberOfNodes == 0) {
+                // Do not ask for node candidates if this component's replica
+                // count is 0.  Note that we still set the app's machine names
+                // to an empty set.
+                continue;
+            }
+            List<NodeCandidate> candidates = NebulousApp.getSalConnector().findNodeCandidates(e.getValue());
+            if (candidates.isEmpty()) {
+                log.error("Could not find node candidates for requirements: {}", e.getValue());
+                return;
+            }
+            NodeCandidate candidate = candidates.get(0);
+            List<IaasDefinition> componentDefinitions = nodeNames.stream()
+                .map(name -> new IaasDefinition(name, "nebulous-worker", candidate.getId(), candidate.getCloud().getId()))
+                .collect(Collectors.toList());
+            log.debug("Asking for {} copies of {} for application {}", numberOfNodes, candidate, appUUID);
+            success = NebulousApp.getSalConnector().addNodes(componentDefinitions, appUUID);
+            if (!success) {
+                log.error("Failed to add nodes for component {}", componentName);
+            }
+        }
 
         // ------------------------------------------------------------
         // 7. Rewrite KubeVela file, based on running node names
 
         // TODO
-        JsonNode rewritten = addNodeAffinities(kubevela);
+        JsonNode rewritten = addNodeAffinities(kubevela, app.getComponentMachineNames());
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
 	try {
 	    rewritten_kubevela = yaml_mapper.writeValueAsString(rewritten);
