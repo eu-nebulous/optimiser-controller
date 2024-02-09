@@ -11,7 +11,6 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -95,17 +94,6 @@ public class NebulousApp {
     /** The original app message. */
     @Getter private JsonNode originalAppMessage;
     private ObjectNode original_kubevela;
-    /**
-     * The active SAL connector, or null if we operate offline.
-     *
-     * NOTE: this might only be used until we switch to the exn-sal
-     * middleware, or maybe we keep the SalConnector class and send to exn
-     * from there.
-     *
-     * @param salConnector the SAL connector.
-     */
-    @Setter @Getter
-    private static SalConnector salConnector;
 
     /**
      * Map of component name to machine name(s) deployed for that component.
@@ -126,6 +114,14 @@ public class NebulousApp {
     private boolean deployed = false;
 
     /**
+     * The EXN connector for this class.  At the moment all apps share the
+     * same instance, but probably every app should have their own, out of
+     * thread-safety concerns.
+     */
+    @Getter
+    private ExnConnector exnConnector;
+
+    /**
      * Creates a NebulousApp object.
      *
      * @param app_message The whole app creation message (JSON)
@@ -134,11 +130,12 @@ public class NebulousApp {
      */
     // Note that example KubeVela and parameter files can be found at
     // optimiser-controller/src/test/resources/
-    public NebulousApp(JsonNode app_message, ObjectNode kubevela, Publisher ampl_message_channel) {
+    public NebulousApp(JsonNode app_message, ObjectNode kubevela, ExnConnector exnConnector) {
         this.UUID = app_message.at(uuid_path).textValue();
         this.name = app_message.at(name_path).textValue();
         this.originalAppMessage = app_message;
         this.original_kubevela = kubevela;
+        this.exnConnector = exnConnector;
         JsonNode parameters = app_message.at(variables_path);
         if (parameters.isArray()) {
             this.kubevelaVariables = (ArrayNode)app_message.at(variables_path);
@@ -146,7 +143,6 @@ public class NebulousApp {
             log.error("Cannot read parameters from app message '{}', continuing without parameters", UUID);
             this.kubevelaVariables = mapper.createArrayNode();
         }
-        this.ampl_message_channel = ampl_message_channel;
         for (final JsonNode p : kubevelaVariables) {
             kubevela_variable_paths.put(p.get("key").asText(),
                 JsonPointer.compile(p.get("path").asText()));
@@ -212,11 +208,14 @@ public class NebulousApp {
     /**
      * Create a NebulousApp object given an app creation message parsed into JSON.
      *
-     * @param app_message the app creation message, including valid KubeVela YAML et al
-     * @param ampl_message_channel conduit to broadcast the current AMPL file
-     * @return a NebulousApp object, or null if `app_message` could not be parsed
+     * @param app_message the app creation message, including valid KubeVela
+     *  YAML et al
+     * @param exnConnector The EXN connector to use for sending messages to
+     *  the solver etc.
+     * @return a NebulousApp object, or null if `app_message` could not be
+     *  parsed
      */
-    public static NebulousApp newFromAppMessage(JsonNode app_message, Publisher ampl_message_channel) {
+    public static NebulousApp newFromAppMessage(JsonNode app_message, ExnConnector exnConnector) {
         try {
             String kubevela_string = app_message.at(kubevela_path).textValue();
             JsonNode parameters = app_message.at(variables_path);
@@ -226,8 +225,7 @@ public class NebulousApp {
             } else {
                 Main.logFile("incoming-kubevela-" + app_message.at(uuid_path).textValue() + ".yaml", kubevela_string);
                 return new NebulousApp(app_message,
-                    (ObjectNode)readKubevelaString(kubevela_string),
-                    ampl_message_channel);
+                    (ObjectNode)readKubevelaString(kubevela_string), exnConnector);
             }
         } catch (Exception e) {
             log.error("Could not read app creation message: ", e);
@@ -348,10 +346,6 @@ public class NebulousApp {
      * Calculate AMPL file and send it off to the solver.
      */
     public void sendAMPL() {
-        if (ampl_message_channel == null) {
-            log.warn("AMPL publisher not set, cannot send AMPL file");
-            return;
-        }
         String ampl = AMPLGenerator.generateAMPL(this);
         ObjectNode msg = mapper.createObjectNode();
         msg.put("FileName", getUUID() + ".ampl");
@@ -381,7 +375,7 @@ public class NebulousApp {
             constant.set("Value", value);
         }
 
-        ampl_message_channel.send(mapper.convertValue(msg, Map.class), getUUID(), true);
+        exnConnector.getAmplMessagePublisher().send(mapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("to-solver-" + getUUID() + ".json", msg.toString());
         Main.logFile("to-solver-" + getUUID() + ".ampl", ampl);
     }

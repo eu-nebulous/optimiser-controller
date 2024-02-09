@@ -46,15 +46,6 @@ spec:
               value: "{{ .Values.activemq.ACTIVEMQ_PORT }}"
             - name: ACTIVEMQ_USER
               value: "{{ .Values.activemq.ACTIVEMQ_USER }}"
-            - name: SAL_USER
-              value: "{{ .Values.sal.SAL_USER }}"
-            - name: SAL_URL
-              value: "{{ .Values.sal.SAL_URL }}"
-            - name: SAL_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "nebulous-optimiser-controller.fullname" . }}-secrets
-                  key: SAL_PASSWORD
             - name: ACTIVEMQ_PASSWORD
               valueFrom:
                 secretKeyRef:

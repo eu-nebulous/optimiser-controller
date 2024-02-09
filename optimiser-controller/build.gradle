@@ -48,14 +48,6 @@ dependencies {
     // SAL client library
     implementation 'org.ow2.proactive:sal-common:13.1.0-SNAPSHOT'
 
-    // HTTP requests; used by Melodic and we adapt their SAL client code
-    // https://github.com/reactor/reactor-netty
-    implementation 'io.projectreactor.netty:reactor-netty:1.1.15'
-
-    // HTTPHeaders etc.; used by Melodic and we adapt their SAL client code
-    // https://mvnrepository.com/artifact/org.springframework/spring-web
-    implementation 'org.springframework:spring-web:6.1.3'
-
     // Logging: https://www.slf4j.org
     implementation 'org.slf4j:slf4j-api:2.0.9'
     // We use java.util.logging as the backend for now; see

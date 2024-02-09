@@ -141,7 +141,7 @@ public class NebulousAppDeployer {
      *  requirements for that component.  No requirements mean any node will
      *  suffice.
      */
-    public static Map<String, List<Requirement>> getSalRequirementsFromKubevela(JsonNode kubevela) {
+    public static Map<String, List<Requirement>> getWorkerRequirementsFromKubevela(JsonNode kubevela) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
@@ -194,7 +194,8 @@ public class NebulousAppDeployer {
                 }
             }
             for (final JsonNode t : c.withArray("/traits")) {
-                // TODO: Check for node affinity / geoLocation / country
+                // TODO: Check for node affinity / geoLocation / country /
+                // node type (edge or cloud)
             }
             // Finally, add requirements for this job to the map
             result.put(componentName, reqs);
@@ -252,139 +253,103 @@ public class NebulousAppDeployer {
      * Given a KubeVela file, extract node requirements, create the job, start
      * its nodes and submit KubeVela.
      *
+     * NOTE: this method is under reconstruction, pending the new endpoints.
+     *
      * @param app the NebulOuS app object.
      * @param kubevela the KubeVela file to deploy.
      */
     public static void deployApplication(NebulousApp app, JsonNode kubevela) {
         String appUUID = app.getUUID();
-        String appName = app.getName();
         log.info("Starting initial deployment of {}", appUUID);
-        if (NebulousApp.getSalConnector() == null) {
-            log.warn("Tried to submit job, but do not have a connection to SAL");
-            return;
-        }
+
         // The overall flow:
         //
         // 1. Extract node requirements and node counts from the KubeVela
         //    definition.
-        // 2. Create a SAL job, with the uuid and name of the NebulOuS app
-        // 3. Create a coordinator node with hardcoded requirements; this node
-        //    will run the Kubernetes controller.  This node is in addition to
-        //    the nodes required by KubeVela.
-        // 4. Submit the job, thereby starting the coordinator node
-        // 5. Extract information (IP address, ...) from the coordinator node
-        // 6. Add the worker nodes to the job
-        // 7. Rewrite the KubeVela file to add node affinities to each
-        //    component
-        // 8. Send the KubeVela file to the coordinator node
+        // 2. Find node candidates for all workers and the controller.
+        // 3. Select node candidates.
+        // 4. Create a SAL cluster.
+        // 5. Deploy the SAL cluster.
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> requirements = getSalRequirementsFromKubevela(kubevela);
+        Map<String, List<Requirement>> workerRequirements = getWorkerRequirementsFromKubevela(kubevela);
         Map<String, Integer> nodeCounts = getNodeCountFromKubevela(kubevela);
+        List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
 
-        Main.logFile("node-requirements-" + appUUID + ".txt", requirements);
-        Main.logFile("node-counts-" + appUUID + ".txt", nodeCounts);
+        Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
+        Main.logFile("worker-counts-" + appUUID + ".txt", nodeCounts);
+        Main.logFile("contoller-requirements-" + appUUID + ".txt", controllerRequirements);
+        // ----------------------------------------
+        // 2. Find node candidates
 
-        // ------------------------------------------------------------
-        // 2. Create SAL job
-        log.debug("Creating job info for {}", appUUID);
-        JobInformation jobinfo = new JobInformation(appUUID, appName);
-        // TODO: figure out what ports to specify here
-        List<Communication> communications = List.of();
-        // This task is deployed on the controller node (the one not specified
-        // in the app KubeVela file)
-        TaskDefinition nebulous_controller_task = new TaskDefinition(
-            "nebulous-controller", controllerInstallation, List.of());
-        // This task is deployed on all worker nodes (the ones specified by
-        // the app KubeVela file and optimized by NebulOuS)
-        // TODO: find out if/how to modify `nebulous_worker_task` to pass in
-        //       information about the controller
-        TaskDefinition nebulous_worker_task = new TaskDefinition(
-            "nebulous-worker", nodeInstallation, List.of());
-        List<TaskDefinition> tasks = List.of(nebulous_controller_task, nebulous_worker_task);
-        JobDefinition job = new JobDefinition(communications, jobinfo, tasks);
-        Boolean success = NebulousApp.getSalConnector().createJob(job);
-        if (!success) {
-            // This can happen if the job has already been submitted
-            log.error("Error trying to create the job; SAL createJob returned {}", success);
-            log.debug("Check if a job with id {} already exists, run stopJobs if yes", appUUID);
-            return;
+        // TODO: switch to asking the cloud broker for candidates when it's
+        // ready
+        List<NodeCandidate> controllerCandidates = SalConnector.findNodeCandidates(controllerRequirements, appUUID);
+        if (controllerCandidates.isEmpty()) {
+            log.error("Could not find node candidates for requirements: {}", controllerRequirements);
+            // Continue here while we don't really deploy
+            // return;
+        }
+        Map<String, List<NodeCandidate>> workerCandidates = new HashMap<>();
+        for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
+            String nodeName = e.getKey();
+            List<Requirement> requirements = e.getValue();
+            List<NodeCandidate> candidates = SalConnector.findNodeCandidates(requirements, appUUID);
+            if (candidates.isEmpty()) {
+                log.error("Could not find node candidates for requirements: {}", requirements);
+                // Continue here while we don't really deploy
+                // return;
+            }
+            workerCandidates.put(nodeName, candidates);
         }
 
         // ------------------------------------------------------------
-        // 3. Create coordinator node
-        log.debug("Creating app coordinator node for {}", appUUID);
-        List<NodeCandidate> controller_candidates
-            = NebulousApp.getSalConnector().findNodeCandidates(getControllerRequirements(appUUID));
-        if (controller_candidates.isEmpty()) {
-            log.error("Could not find node candidates for controller node; requirements: {}",
-                getControllerRequirements(appUUID));
-            return;
-        }
-        NodeCandidate controller_candidate = controller_candidates.get(0);
+        // 3. Select node candidates
 
-        IaasDefinition controller_def = new IaasDefinition(
-            "nebulous-controller-node", "nebulous-controller",
-            controller_candidate.getId(), controller_candidate.getCloud().getId());
-        success = NebulousApp.getSalConnector().addNodes(List.of(controller_def), appUUID);
-        if (!success) {
-            log.error("Failed to add controller node: {}", controller_candidate);
-            return;
-        }
-
-        // ------------------------------------------------------------
-        // 4. Submit job
-        log.debug("Starting job {}", appUUID);
-        String return_job_id = NebulousApp.getSalConnector().submitJob(appUUID);
-        if (return_job_id.equals("-1")) {
-            log.error("Failed to add start job {}, SAL returned {}",
-                appUUID, return_job_id);
-            return;
-        }
-
-        // ------------------------------------------------------------
-        // 5. Extract coordinator node information
-
-        // TODO
-
-        // ------------------------------------------------------------
-        // 6. Create worker nodes from requirements
-        log.debug("Starting worker nodes for {}", appUUID);
-        for (Map.Entry<String, List<Requirement>> e : requirements.entrySet()) {
+        log.debug("Collecting worker nodes for {}", appUUID);
+        Map<String, NodeCandidate> nodeNameToCandidate = new HashMap<>();
+        for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
+            // Here we collect two things: the flat list (hostname ->
+            // candidate) to send to createCluster, and the per-component
+            // hostname sets that we remember in the app object.
             String componentName = e.getKey();
-            int numberOfNodes = nodeCounts.get(e.getKey());
+            int numberOfNodes = nodeCounts.get(componentName);
             Set<String> nodeNames = new HashSet<>();
-            for (int i = 1; i <= numberOfNodes; i++){
-                nodeNames.add(String.format("%s-%s", componentName, i));
+            for (int i = 1; i <= numberOfNodes; i++) {
+                String nodeName = String.format("%s-%s", componentName, i);
+                nodeNames.add(nodeName);
+                // TODO: Here we need to discriminate between edge and cloud
+                // node candidates: we can deploy an edge node only once, but
+                // cloud nodes arbitrarily often.  So if the best node
+                // candidate is an edge node, we should select it and fill the
+                // rest of the nodes with second-best cloud nodes.
+
+                // TODO: make sure we only choose the same edge node once; it
+                // might be in all node candidate lists :)
+                if (!workerCandidates.get(componentName).isEmpty()) {
+                    // should always be true, except currently we don't abort
+                    // in Step 2 if we don't find candidates.
+                    NodeCandidate candidate = workerCandidates.get(componentName).get(0);
+                    nodeNameToCandidate.put(nodeName, candidate);
+                }
             }
             app.getComponentMachineNames().put(componentName, nodeNames);
-            if (numberOfNodes == 0) {
-                // Do not ask for node candidates if this component's replica
-                // count is 0.  Note that we still set the app's machine names
-                // to an empty set.
-                continue;
-            }
-            List<NodeCandidate> candidates = NebulousApp.getSalConnector().findNodeCandidates(e.getValue());
-            if (candidates.isEmpty()) {
-                log.error("Could not find node candidates for requirements: {}", e.getValue());
-                return;
-            }
-            NodeCandidate candidate = candidates.get(0);
-            List<IaasDefinition> componentDefinitions = nodeNames.stream()
-                .map(name -> new IaasDefinition(name, "nebulous-worker", candidate.getId(), candidate.getCloud().getId()))
-                .collect(Collectors.toList());
-            log.debug("Asking for {} copies of {} for application {}", numberOfNodes, candidate, appUUID);
-            success = NebulousApp.getSalConnector().addNodes(componentDefinitions, appUUID);
-            if (!success) {
-                log.error("Failed to add nodes for component {}", componentName);
-            }
         }
         Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentMachineNames());
-        // ------------------------------------------------------------
-        // 7. Rewrite KubeVela file, based on running node names
+        Main.logFile("worker-nodes-" + appUUID + ".txt", nodeNameToCandidate);
 
-        // TODO
+        // ------------------------------------------------------------
+        // 4. Create cluster
+
+        // TODO: call defineCluster endpoint with nodename -> candidate
+        // mapping etc.
+
+        // ------------------------------------------------------------
+        // 5. Deploy cluster
+
+        // TODO: call deployCluster endpoint
+
         JsonNode rewritten = addNodeAffinities(kubevela, app.getComponentMachineNames());
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
 	try {
@@ -393,11 +358,7 @@ public class NebulousAppDeployer {
             log.error("Failed to convert KubeVela to YAML; this should never happen", e);
 	}
         Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", rewritten_kubevela);
-
-        // ------------------------------------------------------------
-        // 8. Submit KubeVela file to coordinator node
-
-        // TODO
+        // TODO: call deployApplication endpoint
     }
 
     /**
@@ -405,7 +366,7 @@ public class NebulousAppDeployer {
      */
     public static void redeployApplication(NebulousApp app, ObjectNode kubevela) {
         // The overall flow:
-        // 
+        //
         // 1. Extract node requirements and node counts from the updated
         //    KubeVela definition.
         // 2. Extract current nodes from running SAL job
@@ -413,10 +374,10 @@ public class NebulousAppDeployer {
         //    nodes
         // 4. Find node candidates for new nodes (from Step 3) according to
         //    their requirements (from Step 1)
-        // 5. Create nodes, add them to SAL job
-        // 6. Rewrite KubeVela with updated node affinities
-        // 7. Send updated KubeVela to running cluster
-        // 8. Shut down superfluous nodes (from Step 3)
+        // 5. Rewrite KubeVela with updated node affinities
+        // 6. Call clusterScaleOut endpoint with list of added nodes
+        // 7. Call deployApplication with rewritten KubeVela
+        // 8. call clusterScaleIn endpoint with list of removed node names
         
     }
 

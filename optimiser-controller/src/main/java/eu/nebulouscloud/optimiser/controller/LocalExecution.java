@@ -34,10 +34,8 @@ public class LocalExecution implements Callable<Integer> {
     @Override public Integer call() {
         ObjectMapper mapper = new ObjectMapper();
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
-        ExnConnector connector = main.getActiveMQConnector();
-        Publisher publisher = null;
+        ExnConnector connector = Main.getActiveMQConnector();
         if (connector != null) {
-            publisher = connector.getAmplMessagePublisher();
             connector.start(exn_synchronizer);
         }
         JsonNode msg;
@@ -47,9 +45,9 @@ public class LocalExecution implements Callable<Integer> {
             log.error("Could not read an input file: ", e);
             return 1;
         }
-        NebulousApp app = NebulousApp.newFromAppMessage(msg, publisher);
+        NebulousApp app = NebulousApp.newFromAppMessage(msg, connector);
         if (connector != null) {
-            log.debug("Sending AMPL to channel {}", publisher);
+            log.debug("Sending AMPL to channel {}", connector.getAmplMessagePublisher());
             app.sendAMPL();
             app.deployUnmodifiedApplication();
         }

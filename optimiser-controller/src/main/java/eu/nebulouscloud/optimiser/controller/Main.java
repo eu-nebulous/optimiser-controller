@@ -39,24 +39,6 @@ import static picocli.CommandLine.Option;
 )
 public class Main implements Callable<Integer> {
 
-    @Option(names = {"-s", "--sal-url"},
-            description = "The URL of the SAL server (including URL scheme http:// or https://). Can also be set via the @|bold SAL_URL|@ environment variable.",
-            paramLabel = "SAL_URL",
-            defaultValue = "${SAL_URL:-http://localhost:8880/}")
-    private java.net.URI sal_uri;
-
-    @Option(names = {"--sal-user"},
-            description = "The user name for the SAL server. Can also be set via the @|bold SAL_USER|@ environment variable.",
-            paramLabel = "SAL_USER",
-            defaultValue = "${SAL_USER}")
-    private String sal_user;
-
-    @Option(names = {"--sal-password"},
-            description = "The password for the SAL server. Can also be set via the @|bold SAL_PASSWORD|@ environment variable.",
-            paramLabel = "SAL_PASSWORD",
-            defaultValue = "${SAL_PASSWORD}")
-    private String sal_password;
-
     @Option(names = {"--activemq-host"},
             description = "The hostname of the ActiveMQ server.  Can also be set via the @|bold ACTIVEMQ_HOST|@ environment variable.",
             paramLabel = "ACTIVEMQ_HOST",
@@ -94,19 +76,12 @@ public class Main implements Callable<Integer> {
     private boolean[] verbosity;
 
     /**
-     * The connector to the SAL library.
-     *
-     * @return the SAL connector, or null if running offline.
-     */
-    @Getter
-    private SalConnector salConnector = null;
-    /**
      * The ActiveMQ connector.
      *
      * @return the ActiveMQ connector wrapper, or null if running offline.
      */
     @Getter
-    private ExnConnector activeMQConnector = null;
+    private static ExnConnector activeMQConnector = null;
 
     /**
      * PicoCLI execution strategy that uses common initialization.
@@ -156,18 +131,6 @@ public class Main implements Callable<Integer> {
             } else {
                 log.info("Logging all messages to directory {}", logDirectory);
             }
-        }
-        // Start connection to SAL if possible.
-        if (sal_uri != null && sal_user != null && sal_password != null) {
-            salConnector = new SalConnector(sal_uri, sal_user, sal_password);
-            if (!salConnector.isConnected()) {
-                log.warn("Connection to SAL unsuccessful, continuing without SAL");
-            } else {
-                log.info("Established connection to SAL");
-                NebulousApp.setSalConnector(salConnector);
-            }
-        } else {
-            log.debug("SAL login information not specified, skipping");
         }
         // Start connection to ActiveMQ if possible.
         if (activemq_user != null && activemq_password != null) {

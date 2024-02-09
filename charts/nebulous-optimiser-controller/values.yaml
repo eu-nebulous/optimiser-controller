@@ -84,10 +84,6 @@ affinity: {}
 debug:
   LOGDIR: /tmp/nebulous
 
-sal:
-  SAL_URL: sal
-  SAL_USER: admin
-
 activemq:
   ACTIVEMQ_HOST: activemq
   ACTIVEMQ_PORT: 5672
@@ -95,4 +91,3 @@ activemq:
 
 secrets:
   ACTIVEMQ_PASSWORD: nebulous
-  SAL_PASSWORD: admin

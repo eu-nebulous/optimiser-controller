@@ -5,17 +5,24 @@ import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
 import eu.nebulouscloud.exn.core.Publisher;
+import eu.nebulouscloud.exn.core.SyncedPublisher;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.qpid.protonj2.client.Message;
+import org.ow2.proactive.sal.model.NodeCandidate;
+import org.ow2.proactive.sal.model.Requirement;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -53,6 +60,30 @@ public class ExnConnector {
     @Getter
     private final Publisher amplMessagePublisher;
 
+    // ----------------------------------------
+    // Communication with SAL
+
+    // We define these publishers here instead of in the `SalConnector`
+    // class since they need to be registered here and I'm afraid I will
+    // forget to do it when adding new endpoints over in another class.
+
+    /** The createJob endpoint. */
+    public static final SyncedPublisher createJob
+        = new SyncedPublisher("createJob",
+            "eu.nebulouscloud.exn.sal.job.post", true, true);
+    /** The findNodeCandidates endpoint. */
+    public static final SyncedPublisher findNodeCandidates
+        = new SyncedPublisher("findNodeCandidates",
+            "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
+    /** The addNodes endpoint. */
+    public static final SyncedPublisher addNodes
+        = new SyncedPublisher("addNodes",
+            "eu.nebulouscloud.exn.sal.nodes.add", true, true);
+    /** The submitJob endpoint. */
+    public static final SyncedPublisher submitJob
+        = new SyncedPublisher("submitJob",
+            "eu.nebulouscloud.exn.sal.job.update", true, true);
+
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
      * initial publishers and consumers.
@@ -71,7 +102,8 @@ public class ExnConnector {
         conn = new Connector("optimiser_controller",
             callback,
             // List.of(new Publisher("config", "config", true)),
-            List.of(amplMessagePublisher),
+            List.of(amplMessagePublisher,
+                createJob, findNodeCandidates, addNodes, submitJob),
             List.of(new Consumer("ui_app_messages", app_creation_channel, new AppCreationMessageHandler(), true, true)),
             true,
             true,
@@ -125,7 +157,9 @@ public class ExnConnector {
                 log.info("App creation message received for app {}", app_id);
                 JsonNode appMessage = mapper.valueToTree(body);
                 Main.logFile("app-message-" + app_id + ".json", appMessage);
-                NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), amplMessagePublisher);
+                NebulousApp app = NebulousApp.newFromAppMessage(
+                    // TODO create a new ExnConnector here?
+                    mapper.valueToTree(body), ExnConnector.this);
                 NebulousApps.add(app);
                 app.sendAMPL();
                 app.deployUnmodifiedApplication();
@@ -161,4 +195,5 @@ public class ExnConnector {
             }
         }
     }
+
 }
