@@ -114,8 +114,8 @@ public class ExnConnector {
      * Connect to ActiveMQ and activate all publishers and consumers.  It is
      * an error to start the controller more than once.
      *
-     * @param synchronizer if non-null, a countdown latch that will be signaled
-     *  when the connector is stopped by calling {@link
+     * @param synchronizer if non-null, a countdown latch that will be
+     *  signaled when the connector is stopped by calling {@link
      *  CountDownLatch#countDown} once.
      */
     public synchronized void start(CountDownLatch synchronizer) {
