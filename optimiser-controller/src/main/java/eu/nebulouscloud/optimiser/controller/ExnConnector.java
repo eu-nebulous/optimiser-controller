@@ -45,8 +45,11 @@ public class ExnConnector {
 
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    /** The topic where we listen for app creation messages */
-    public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic.>";
+    /** The topic where we listen for app creation messages. */
+    public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic";
+    /** The topic with incoming solver solution messages.  See
+      * https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/2-solvers */
+    public static final String solver_solution_channel = "eu.nebulouscloud.optimiser.solver.solution";
     /** The topic where we send AMPL messages */
     // 1 object with key: filename, value: AMPL file (serialized)
     public static final String ampl_message_channel = "eu.nebulouscloud.optimiser.solver.model";
@@ -104,7 +107,11 @@ public class ExnConnector {
             // List.of(new Publisher("config", "config", true)),
             List.of(amplMessagePublisher,
                 createJob, findNodeCandidates, addNodes, submitJob),
-            List.of(new Consumer("ui_app_messages", app_creation_channel, new AppCreationMessageHandler(), true, true)),
+            List.of(
+                new Consumer("ui_app_messages", app_creation_channel,
+                    new AppCreationMessageHandler(), true, true),
+                new Consumer("solver_solution_messages", solver_solution_channel,
+                    new SolverSolutionMessageHandler(), true, true)),
             true,
             true,
             new StaticExnConfig(host, port, name, password, 15, "eu.nebulouscloud"));
