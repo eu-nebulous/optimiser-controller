@@ -78,15 +78,19 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Given a KubeVela file, extract how many nodes to deploy for each
-     * component.
+     * Given a KubeVela file, extract how many nodes to deploy for
+     * each component.  Note that this can be zero, when the component
+     * should not be deployed at all, e.g., when there is a cloud and
+     * an edge version of the component.
      *
-     * We currently detect replica count with the following component trait:
-     * ---
+     * We currently look for the following component trait:
+     *
+     * <pre>{@code
      * traits:
      *  - type: scaler
      *    properties:
      *      replicas: 2
+     * }</pre>
      *
      * @param kubevela the parsed KubeVela file.
      * @return A map from component name to number of instances to generate.
@@ -100,8 +104,6 @@ public class NebulousAppDeployer {
                 if (t.at("/type").asText().equals("scaler")
                     && t.at("/properties/replicas").canConvertToExactIntegral())
                     {
-                        // Note this can be 0, in case we want to balance
-                        // between e.g. cloud and edge
                         result.put(c.get("name").asText(),
                             t.at("/properties/replicas").asInt());
                     }
@@ -204,8 +206,10 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Add affinities trait to all components, except for those with a replica
-     * count of 0.
+     * Produce a fresh KubeVela specification with added node affinity traits.
+     *
+     * We add the following trait to all components, except those with
+     * a replica count of 0:
      *
      * <pre>{@code
      * traits:
@@ -279,7 +283,7 @@ public class NebulousAppDeployer {
 
         Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
         Main.logFile("worker-counts-" + appUUID + ".txt", nodeCounts);
-        Main.logFile("contoller-requirements-" + appUUID + ".txt", controllerRequirements);
+        Main.logFile("controller-requirements-" + appUUID + ".txt", controllerRequirements);
         // ----------------------------------------
         // 2. Find node candidates
 
@@ -352,19 +356,30 @@ public class NebulousAppDeployer {
 
         JsonNode rewritten = addNodeAffinities(kubevela, app.getComponentMachineNames());
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
-	try {
-	    rewritten_kubevela = yaml_mapper.writeValueAsString(rewritten);
-	} catch (JsonProcessingException e) {
+        try {
+            rewritten_kubevela = yaml_mapper.writeValueAsString(rewritten);
+        } catch (JsonProcessingException e) {
             log.error("Failed to convert KubeVela to YAML; this should never happen", e);
-	}
+        }
         Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", rewritten_kubevela);
         // TODO: call deployApplication endpoint
     }
 
     /**
-     * Redeploy a running application.
+     * Given a KubeVela file, adapt the running application to its specification.
+     *
+     * The KubeVela file will have been rewritten with updated
+     * information from the solver.
+     *
+     * NOTE: this method is under development, pending the new endpoints.
+     *
+     * @param app the NebulOuS app object.
+     * @param kubevela the KubeVela file to deploy.
      */
     public static void redeployApplication(NebulousApp app, ObjectNode kubevela) {
+        String appUUID = app.getUUID();
+        log.info("Starting redeployment of {}", appUUID);
+
         // The overall flow:
         //
         // 1. Extract node requirements and node counts from the updated
@@ -378,7 +393,18 @@ public class NebulousAppDeployer {
         // 6. Call clusterScaleOut endpoint with list of added nodes
         // 7. Call deployApplication with rewritten KubeVela
         // 8. call clusterScaleIn endpoint with list of removed node names
-        
+        Main.logFile("kubevela-updated-from-solver-" + appUUID + ".yaml", kubevela);
+
+        // ------------------------------------------------------------
+        // 1. Extract node requirements
+        Map<String, List<Requirement>> workerRequirements = getWorkerRequirementsFromKubevela(kubevela);
+        Map<String, Integer> nodeCounts = getNodeCountFromKubevela(kubevela);
+        List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
+
+        Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
+        Main.logFile("worker-counts-" + appUUID + ".txt", nodeCounts);
+        Main.logFile("controller-requirements-" + appUUID + ".txt", controllerRequirements);
+
     }
 
 }

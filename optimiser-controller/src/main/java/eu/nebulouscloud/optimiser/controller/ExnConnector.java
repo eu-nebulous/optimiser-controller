@@ -180,14 +180,15 @@ public class ExnConnector {
             // We'll talk a lot with SAL etc, so we should maybe fire up a
             // thread so as not to block here.
             try {
+                ObjectNode json_body = mapper.convertValue(body, ObjectNode.class);
                 String app_id = message.subject();
+                Main.logFile("solver-solution-" + app_id + ".json", json_body);
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
                     log.warn("Received solver solutions for non-existant app {}, discarding.", app_id);
                     return;
                 } else {
                     log.debug("Received solver solutions for app {}", app_id);
-                    ObjectNode json_body = mapper.convertValue(body, ObjectNode.class);
                     app.processSolution(json_body);
                 }
             } catch (Exception e) {

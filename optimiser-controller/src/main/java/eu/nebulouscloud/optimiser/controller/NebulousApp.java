@@ -374,7 +374,7 @@ public class NebulousApp {
             constant.put("Variable", variableName);
             constant.set("Value", value);
         }
-
+        log.info("Sending AMPL file to solver");
         exnConnector.getAmplMessagePublisher().send(mapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("to-solver-" + getUUID() + ".json", msg.toString());
         Main.logFile("to-solver-" + getUUID() + ".ampl", ampl);

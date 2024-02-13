@@ -92,10 +92,11 @@ public class Main implements Callable<Integer> {
     }
 
     /**
-     * Initialization code shared between main and subcommands.  Note that
-     * here we connect to SAL if possible, but (for now) do not start the EXN
-     * ActiveMQ middleware. Each main method needs to call
-     * `activeMQConnector.start`.
+     * Initialization code shared between this class and any
+     * subcommands: set logging level, create log directory and create
+     * the ActiveMQ adapter.  Note that we do not start the EXN
+     * ActiveMQ middleware, so each main method needs to call
+     * `activeMQConnector.start` if needed.
      */
     private void init() {
         log.debug("Beginning common startup of optimiser-controller");
