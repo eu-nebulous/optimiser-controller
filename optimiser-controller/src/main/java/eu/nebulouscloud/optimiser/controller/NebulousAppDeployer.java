@@ -33,6 +33,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 /**
  * Deploy or redeploy a NebulousApp.  This class could live as a couple of
@@ -264,7 +265,7 @@ public class NebulousAppDeployer {
      */
     public static void deployApplication(NebulousApp app, JsonNode kubevela) {
         String appUUID = app.getUUID();
-        log.info("Starting initial deployment of {}", appUUID);
+        log.info("Starting initial deployment for application", keyValue("appId", appUUID));
 
         // The overall flow:
         //

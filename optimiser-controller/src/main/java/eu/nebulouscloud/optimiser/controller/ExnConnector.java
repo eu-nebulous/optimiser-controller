@@ -10,6 +10,7 @@ import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 import org.apache.qpid.protonj2.client.Message;
 import org.ow2.proactive.sal.model.NodeCandidate;
@@ -161,7 +162,7 @@ public class ExnConnector {
         public void onMessage(String key, String address, Map body, Message message, Context context) {
             try {
                 String app_id = message.subject();
-                log.info("App creation message received for app {}", app_id);
+                log.info("App creation message received", keyValue("appId", app_id));
                 JsonNode appMessage = mapper.valueToTree(body);
                 Main.logFile("app-message-" + app_id + ".json", appMessage);
                 NebulousApp app = NebulousApp.newFromAppMessage(
@@ -192,10 +193,13 @@ public class ExnConnector {
                 Main.logFile("solver-solution-" + app_id + ".json", json_body);
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
-                    log.warn("Received solver solutions for non-existant app {}, discarding.", app_id);
+                    log.warn("Received solver solutions for non-existant application, discarding.",
+                        keyValue("appId", app_id));
                     return;
                 } else {
-                    log.debug("Received solver solutions for app {}", app_id);
+                    log.debug("Received solver solutions for application",
+                        keyValue("appId", app_id));
+                    // TODO: check if solution should be deployed (it's a field in the message)
                     app.processSolution(json_body);
                 }
             } catch (Exception e) {

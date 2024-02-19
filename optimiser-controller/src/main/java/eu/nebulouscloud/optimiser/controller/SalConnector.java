@@ -12,6 +12,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 
 /**
@@ -42,7 +43,8 @@ public class SalConnector {
                 "metaData", Map.of("user", "admin"),
                 "body", mapper.writeValueAsString(requirements));
 	} catch (JsonProcessingException e) {
-            log.error("Could not convert requirements list to JSON string (this should never happen)", e);
+            log.error("Could not convert requirements list to JSON string (this should never happen)",
+                keyValue("appId", appID), e);
             return null;
 	}
         Map<String, Object> response = ExnConnector.findNodeCandidates.sendSync(msg, appID, null, false);
@@ -50,7 +52,8 @@ public class SalConnector {
 	try {
 	    return Arrays.asList(mapper.readValue(body, NodeCandidate[].class));
 	} catch (JsonProcessingException e) {
-            log.error("Error receiving findNodeCandidates result (this should never happen)", e);
+            log.error("Error receiving findNodeCandidates result (this should never happen)",
+                keyValue("appId", appID), e);
             return null;
 	}
     }

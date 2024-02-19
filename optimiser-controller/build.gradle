@@ -48,11 +48,10 @@ dependencies {
     // SAL client library
     implementation 'org.ow2.proactive:sal-common:13.1.0-SNAPSHOT'
 
-    // Logging: https://www.slf4j.org
-    implementation 'org.slf4j:slf4j-api:2.0.9'
-    // We use java.util.logging as the backend for now; see
-    // https://www.slf4j.org/manual.html#projectDep for other options
-    implementation 'org.slf4j:slf4j-jdk14:2.0.9'
+    // Logging: SLF4J (implemented by Logback)
+    implementation 'ch.qos.logback:logback-classic:1.4.14'
+    // Include logstash-logback-encoder for JSON formatting
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
 
     // the EXN Middleware:
     // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/asynchronous-messaging-specification

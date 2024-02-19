@@ -12,6 +12,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import eu.nebulouscloud.exn.core.Publisher;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -140,7 +141,8 @@ public class NebulousApp {
         if (parameters.isArray()) {
             this.kubevelaVariables = (ArrayNode)app_message.at(variables_path);
         } else {
-            log.error("Cannot read parameters from app message '{}', continuing without parameters", UUID);
+            log.error("Cannot read parameters from app message, continuing without parameters",
+                keyValue("appId", UUID));
             this.kubevelaVariables = mapper.createArrayNode();
         }
         for (final JsonNode p : kubevelaVariables) {
@@ -202,7 +204,7 @@ public class NebulousApp {
                 break;
             }
         }
-        log.debug("New App instantiated: Name='{}', UUID='{}'", name, UUID);
+        log.debug("New App instantiated.", keyValue("appName", name), keyValue("appId", UUID));
     }
 
     /**
@@ -218,17 +220,19 @@ public class NebulousApp {
     public static NebulousApp newFromAppMessage(JsonNode app_message, ExnConnector exnConnector) {
         try {
             String kubevela_string = app_message.at(kubevela_path).textValue();
+            String UUID = app_message.at(uuid_path).textValue();
             JsonNode parameters = app_message.at(variables_path);
             if (kubevela_string == null || !parameters.isArray()) {
-                log.error("Could not find kubevela or parameters in app creation message.");
+                log.error("Could not find kubevela or parameters in app creation message",
+                    keyValue("appId", UUID));
                 return null;
             } else {
-                Main.logFile("incoming-kubevela-" + app_message.at(uuid_path).textValue() + ".yaml", kubevela_string);
+                Main.logFile("incoming-kubevela-" + UUID + ".yaml", kubevela_string);
                 return new NebulousApp(app_message,
                     (ObjectNode)readKubevelaString(kubevela_string), exnConnector);
             }
         } catch (Exception e) {
-            log.error("Could not read app creation message: ", e);
+            log.error("Could not read app creation message", e);
             return null;
         }
     }
@@ -319,7 +323,8 @@ public class NebulousApp {
             JsonPointer path = kubevela_variable_paths.get(entry.getKey());
             JsonNode node = fresh_kubevela.at(path);
             if (node == null) {
-                log.error("Location {} not found in KubeVela, cannot replace value", entry.getKey());
+                log.warn("Location {} not found in KubeVela, cannot replace value", entry.getKey(),
+                    keyValue("appId", UUID));
             } else if (!node.getNodeType().equals(entry.getValue().getNodeType())) {
                 // This could be a legitimate code path for, e.g., replacing
                 // KubeVela "memory: 512Mi" with "memory: 1024" (i.e., if the
@@ -330,7 +335,8 @@ public class NebulousApp {
                 //
                 // TODO: add the "Mi" suffix if the "meaning" field of that
                 // variable entry in the app creation message is "memory".
-                log.error("Trying to replace value with a value of a different type");
+                log.error("While rewriting KubeVela with solution: trying to replace value with a value of a different type",
+                    keyValue("appId", UUID));
             } else {
                 // get the parent object and the property name; replace with
                 // what we got
@@ -374,7 +380,7 @@ public class NebulousApp {
             constant.put("Variable", variableName);
             constant.set("Value", value);
         }
-        log.info("Sending AMPL file to solver");
+        log.info("Sending AMPL file to solver", keyValue("amplMessage", msg), keyValue("appId", UUID));
         exnConnector.getAmplMessagePublisher().send(mapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("to-solver-" + getUUID() + ".json", msg.toString());
         Main.logFile("to-solver-" + getUUID() + ".ampl", ampl);
@@ -395,7 +401,8 @@ public class NebulousApp {
                 return function.get("name").asText();
             }
         }
-        log.warn("No non-constant utility function specified for application; solver will likely complain");
+        log.warn("No non-constant utility function specified for application; solver will likely complain",
+            keyValue("appId", UUID));
         return "";
     }
 

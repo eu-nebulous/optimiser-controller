@@ -42,7 +42,7 @@ public class LocalExecution implements Callable<Integer> {
 	try {
 	    msg = mapper.readTree(Files.readString(app_creation_msg, StandardCharsets.UTF_8));
 	} catch (IOException e) {
-            log.error("Could not read an input file: ", e);
+            log.error("Could not read an input file: {}", app_creation_msg, e);
             return 1;
         }
         NebulousApp app = NebulousApp.newFromAppMessage(msg, connector);

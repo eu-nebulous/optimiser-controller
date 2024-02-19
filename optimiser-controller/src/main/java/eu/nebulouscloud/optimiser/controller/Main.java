@@ -8,7 +8,6 @@ import java.time.LocalDateTime;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Level;
 
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.handlers.ConnectorHandler;
@@ -99,23 +98,25 @@ public class Main implements Callable<Integer> {
      * `activeMQConnector.start` if needed.
      */
     private void init() {
-        log.debug("Beginning common startup of optimiser-controller");
-        // Set log level.  java.util.logging wants to be configured with a
-        // configuration file, convince it otherwise.
-        java.util.logging.Logger rootLogger = java.util.logging.Logger.getLogger("");
-        Level level;
-        if (verbosity == null) level = Level.SEVERE;
-        else
-            switch (verbosity.length) {
-            case 0: level = Level.SEVERE; break; // can't happen
-            case 1: level = Level.INFO; break;   // Skip warning, since I (rudi) want INFO with just `-v`
-            case 2: level = Level.FINE; break;
-            default: level = Level.ALL; break;
+        // Note: in logback.xml we turn on JSON encoding and set the
+        // level to WARN.  Here we override the level.
+        final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger("eu.nebulouscloud");
+        if (!(logger instanceof ch.qos.logback.classic.Logger)) {
+            log.info("Cannot set log level: logger not of class ch.qos.logback.classic.Logger");
+        } else {
+            ch.qos.logback.classic.Logger logbackLogger = (ch.qos.logback.classic.Logger) logger;
+            if (verbosity != null) {
+                switch (verbosity.length) {
+                    case 0: break;
+                    case 1: logbackLogger.setLevel(ch.qos.logback.classic.Level.INFO); break;
+                    case 2: logbackLogger.setLevel(ch.qos.logback.classic.Level.DEBUG); break;
+                    case 3: logbackLogger.setLevel(ch.qos.logback.classic.Level.TRACE); break;
+                    default: logbackLogger.setLevel(ch.qos.logback.classic.Level.ALL); break;
+                }
             }
-        rootLogger.setLevel(level);
-        for (java.util.logging.Handler handler : rootLogger.getHandlers()) {
-            handler.setLevel(rootLogger.getLevel());
         }
+
+        log.debug("Beginning common startup of optimiser-controller");
         // Set up directory for file logs (dumps of contents of incoming or
         // outgoing messages).
         if (logDirectory != null) {
