@@ -49,10 +49,14 @@ public class LocalExecution implements Callable<Integer> {
         if (connector != null) {
             log.debug("Sending AMPL to channel {}", connector.getAmplMessagePublisher());
             app.sendAMPL();
-            app.deployUnmodifiedApplication();
+            // skip for now until the endpoints are ready and the exn middleware is running
+            // app.deployUnmodifiedApplication();
         }
         System.out.println(AMPLGenerator.generateAMPL(app));
         // TODO: wait for solver reply here?
+        if (connector != null) {
+            connector.stop();
+        }
         return 0;
     }
 }
