@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
@@ -59,22 +60,22 @@ public class NebulousApp {
     private static final JsonPointer uuid_path = JsonPointer.compile("/uuid");
     private static final JsonPointer name_path = JsonPointer.compile("/title");
     private static final JsonPointer utility_function_path = JsonPointer.compile("/utilityFunctions");
-    public static final JsonPointer constraints_path = JsonPointer.compile("/sloViolations");
+    private static final JsonPointer constraints_path = JsonPointer.compile("/sloViolations");
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
-    private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
+    private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
 
     /** General-purpose object mapper */
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper jsonMapper = new ObjectMapper();
 
     // ----------------------------------------
     // AMPL stuff
 
     /** The array of KubeVela variables in the app message. */
-    @Getter private ArrayNode kubevelaVariables;
+    @Getter private Map<String, JsonNode> kubevelaVariables = new HashMap<>();
     /** Map from AMPL variable name to location in KubeVela. */
-    private Map<String, JsonPointer> kubevela_variable_paths = new HashMap<>();
+    private Map<String, JsonPointer> kubevelaVariablePaths = new HashMap<>();
     /** The app's raw metrics, a map from key to the defining JSON node. */
     @Getter private Map<String, JsonNode> rawMetrics = new HashMap<>();
     /** The app's composite metrics, a map from key to the defining JSON node. */
@@ -139,15 +140,14 @@ public class NebulousApp {
         this.exnConnector = exnConnector;
         JsonNode parameters = app_message.at(variables_path);
         if (parameters.isArray()) {
-            this.kubevelaVariables = (ArrayNode)app_message.at(variables_path);
+            for (JsonNode p : parameters) {
+                kubevelaVariables.put(p.get("key").asText(), p);
+                kubevelaVariablePaths.put(p.get("key").asText(),
+                    JsonPointer.compile(p.get("path").asText()));
+            }
         } else {
             log.error("Cannot read parameters from app message, continuing without parameters",
                 keyValue("appId", UUID));
-            this.kubevelaVariables = mapper.createArrayNode();
-        }
-        for (final JsonNode p : kubevelaVariables) {
-            kubevela_variable_paths.put(p.get("key").asText(),
-                JsonPointer.compile(p.get("path").asText()));
         }
         for (JsonNode f : originalAppMessage.withArray(utility_function_path)) {
             utilityFunctions.put(f.get("name").asText(), f);
@@ -198,7 +198,7 @@ public class NebulousApp {
         for (String key : app_message.withObject(constraints_path).findValuesAsText("metricName")) {
             // Constraints that do not use variables, directly or via
             // performance indicators, will be ignored.
-            if (kubevela_variable_paths.keySet().contains(key)
+            if (kubevelaVariablePaths.keySet().contains(key)
                 || performanceIndicators.keySet().contains(key)) {
                 effectiveConstraints.add(app_message.withObject(constraints_path));
                 break;
@@ -239,7 +239,7 @@ public class NebulousApp {
 
     /** Utility function to parse a KubeVela string.  Can be used from jshell. */
     public static JsonNode readKubevelaString(String kubevela) throws JsonMappingException, JsonProcessingException {
-        return yaml_mapper.readTree(kubevela);
+        return yamlMapper.readTree(kubevela);
     }
 
     /** Utility function to parse KubeVela from a file.  Intended for use from jshell.
@@ -276,8 +276,7 @@ public class NebulousApp {
      * @return true if all requirements hold, false otherwise
      */
     public boolean validatePaths() {
-        for (final Object p : kubevelaVariables) {
-            ObjectNode param = (ObjectNode) p;
+        for (final JsonNode param : kubevelaVariables.values()) {
             String param_name = param.get("key").textValue();
             if (param_name == null || param_name.equals("")) return false;
             String param_type = param.get("type").textValue();
@@ -311,41 +310,53 @@ public class NebulousApp {
      * the solver.  We look up the paths of the variables in the `parameters`
      * field.
      *
-     * @param variable_values A JSON object with keys being variable names and
-     *  their values the replacement value, e.g., `{ 'P1': 50, 'P2': 2.5 }`.
-     * @return the modified KubeVela YAML, deserialized into a string, or
-     *  null if no KubeVela could be generated.
+     * @param variableValues A JSON object with keys being variable names and
+     *  their values the replacement value, for example:
+     *
+     *  <pre>{@code { 'cpu': 8, 'memory': 4906 }}</pre>
+     *
+     *  The variable names are generated by the UI and are cross-referenced
+     *  with locations in the KubeVela file.
+     *
+     * @return the modified KubeVela YAML, or null if no KubeVela could be
+     *  generated.
      */
-    public ObjectNode rewriteKubevelaWithSolution(ObjectNode variable_values) {
-        ObjectNode fresh_kubevela = original_kubevela.deepCopy();
-        for (Map.Entry<String, JsonNode> entry : variable_values.properties()) {
-            // look up the prepared path in the variable |-> location map
-            JsonPointer path = kubevela_variable_paths.get(entry.getKey());
-            JsonNode node = fresh_kubevela.at(path);
-            if (node == null) {
-                log.warn("Location {} not found in KubeVela, cannot replace value", entry.getKey(),
-                    keyValue("appId", UUID));
-            } else if (!node.getNodeType().equals(entry.getValue().getNodeType())) {
-                // This could be a legitimate code path for, e.g., replacing
-                // KubeVela "memory: 512Mi" with "memory: 1024" (i.e., if the
-                // solution delivers a number where we had a string--note that
-                // suffix-less memory specs are handled in
-                // getSalRequirementsFromKubevela).  Adapt as necessary during
-                // integration test.
-                //
-                // TODO: add the "Mi" suffix if the "meaning" field of that
-                // variable entry in the app creation message is "memory".
-                log.error("While rewriting KubeVela with solution: trying to replace value with a value of a different type",
-                    keyValue("appId", UUID));
-            } else {
-                // get the parent object and the property name; replace with
-                // what we got
-                ObjectNode parent = (ObjectNode)fresh_kubevela.at(path.head());
+    public ObjectNode rewriteKubevelaWithSolution(ObjectNode variableValues) {
+        ObjectNode freshKubevela = original_kubevela.deepCopy();
+        for (Map.Entry<String, JsonNode> entry : variableValues.properties()) {
+            String key = entry.getKey();
+            JsonNode replacementValue = entry.getValue();
+            JsonNode param = kubevelaVariables.get(key);
+            JsonPointer path = kubevelaVariablePaths.get(key);
+            JsonNode nodeToBeReplaced = freshKubevela.at(path);
+            boolean doReplacement = true;
+
+            if (nodeToBeReplaced == null) {
+                // Didn't find location in KubeVela file (should never happen)
+                log.warn("Location {} not found in KubeVela, cannot replace with value {}",
+                    key, replacementValue, keyValue("appId", UUID));
+                doReplacement = false;
+            } else if (param == null) {
+                // Didn't find parameter definition (should never happen)
+                log.warn("Variable {} not found in user input, cannot replace with value {}",
+                    key, replacementValue, keyValue("appId", UUID));
+                doReplacement = false;
+            } else if (param.at("/meaning").asText().equals("memory")) {
+                // Special case: the solver delivers a number for memory, but
+                // KubeVela wants a unit.
+                if (!replacementValue.asText().endsWith("Mi")) {
+                    // Don't add a second "Mi", just in case the solver has
+                    // become self-aware and starts adding it on its own
+                    replacementValue = new TextNode(replacementValue.asText() + "Mi");
+                }
+            }              // Handle other special cases here, as they come up
+            if (doReplacement) {
+                ObjectNode parent = (ObjectNode)freshKubevela.at(path.head());
                 String property = path.last().getMatchingProperty();
-                parent.replace(property, entry.getValue());
+                parent.replace(property, replacementValue);
             }
         }
-        return fresh_kubevela;
+        return freshKubevela;
     }
 
     /**
@@ -353,7 +364,7 @@ public class NebulousApp {
      */
     public void sendAMPL() {
         String ampl = AMPLGenerator.generateAMPL(this);
-        ObjectNode msg = mapper.createObjectNode();
+        ObjectNode msg = jsonMapper.createObjectNode();
         msg.put("FileName", getUUID() + ".ampl");
         msg.put("FileContent", ampl);
         msg.put("ObjectiveFunction", getObjectiveFunction());
@@ -374,14 +385,14 @@ public class NebulousApp {
             // `functionExpressionVariables` array contains one entry.
             JsonNode variable = function.withArray("/expression/variables").get(0);
             String variableName = variable.get("value").asText();
-            JsonPointer path = kubevela_variable_paths.get(variableName);
+            JsonPointer path = kubevelaVariablePaths.get(variableName);
             JsonNode value = original_kubevela.at(path);
             ObjectNode constant = constants.withObject(function.get("name").asText());
             constant.put("Variable", variableName);
             constant.set("Value", value);
         }
         log.info("Sending AMPL file to solver", keyValue("amplMessage", msg), keyValue("appId", UUID));
-        exnConnector.getAmplMessagePublisher().send(mapper.convertValue(msg, Map.class), getUUID(), true);
+        exnConnector.getAmplMessagePublisher().send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("to-solver-" + getUUID() + ".json", msg.toString());
         Main.logFile("to-solver-" + getUUID() + ".ampl", ampl);
     }

@@ -195,7 +195,7 @@ public class AMPLGenerator {
 
     private static void generateVariablesSection(NebulousApp app, PrintWriter out) {
         out.println("# Variables");
-        for (final JsonNode p : app.getKubevelaVariables()) {
+        for (final JsonNode p : app.getKubevelaVariables().values()) {
             ObjectNode param = (ObjectNode) p;
             String param_name = param.get("key").textValue();
             String param_path = param.get("path").textValue();
