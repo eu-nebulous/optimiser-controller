@@ -61,8 +61,9 @@ public class NebulousAppDeployer {
     private static CommandsInstallation nodeInstallation = new CommandsInstallation();
 
     /**
-     * The requirements of the node running the NebulOuS controller.  This
-     * machine runs the Kubernetes cluster and KubeVela.
+     * The requirements of the node running the NebulOuS controller.
+     * This machine runs the Kubernetes cluster and KubeVela.  For
+     * now, we ask for 8GB memory and 4 cores.
      */
     public static List<Requirement> getControllerRequirements(String jobID) {
         return List.of(
@@ -74,8 +75,8 @@ public class NebulousAppDeployer {
             // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/nc/NodeCandidateUtils.java#L159
             new AttributeRequirement("image", "operatingSystem.family",
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
-            new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "2048"),
-            new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "2"));
+            new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "4096"),
+            new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "4"));
     }
 
     /**
