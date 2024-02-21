@@ -1,0 +1,9 @@
+{
+    "VariableValues": {
+        "spec_components_0_traits_0_properties_replicas": 8,
+        "spec_components_0_properties_requests_cpu": 3.5,
+        "spec_components_0_properties_requests_memory": 4096
+    },
+    "ObjectiveValues": {
+    }
+}

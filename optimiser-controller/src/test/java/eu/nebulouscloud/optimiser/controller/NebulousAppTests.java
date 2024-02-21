@@ -42,8 +42,11 @@ public class NebulousAppTests {
     @Test
     void readValidAppCreationMessage() throws URISyntaxException, IOException {
         NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
+        NebulousApp app2 = appFromTestFile("app-creation-message-complex.json");
         assertNotNull(app);
+        assertNotNull(app2);
         assertTrue(app.validatePaths());
+        assertTrue(app2.validatePaths());
     }
 
     @Test
@@ -62,11 +65,10 @@ public class NebulousAppTests {
         assertTrue(NebulousApps.values().size() == 2);
     }
 
-    // @Test
+    @Test
     void replaceValueInKubevela() throws IOException, URISyntaxException {
-        // TODO reinstate with mercabana app messge, new sample-solution file
-        NebulousApp app = appFromTestFile("vela-deployment-app-message.json");
-        String solution_string = Files.readString(getResourcePath("vela-deployment-sample-solution.json"),
+        NebulousApp app = appFromTestFile("app-creation-message-complex.json");
+        String solution_string = Files.readString(getResourcePath("sample-solution-complex.json"),
             StandardCharsets.UTF_8);
         JsonNode solutions = mapper.readTree(solution_string);
         ObjectNode replacements = solutions.withObject("VariableValues");
@@ -74,10 +76,12 @@ public class NebulousAppTests {
         // We deserialize and serialize, just for good measure
         String kubevela_str = yaml_mapper.writeValueAsString(kubevela1);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
-        JsonNode cpu = kubevela.at("/spec/components/3/properties/edge/cpu");
-        JsonNode memory = kubevela.at("/spec/components/3/properties/edge/memory");
-        assertTrue(cpu.asText().equals("2.7"));
-        assertTrue(memory.asText().equals("1024"));
+        JsonNode replicas = kubevela.at("/spec/components/0/traits/0/properties/replicas");
+        assertTrue(replicas.asText().equals("8"));
+        JsonNode cpu = kubevela.at("/spec/components/0/properties/requests/cpu");
+        JsonNode memory = kubevela.at("/spec/components/0/properties/requests/memory");
+        assertTrue(cpu.asText().equals("3.5"));
+        assertTrue(memory.asText().equals("4096Mi"));
     }
 
     @Test

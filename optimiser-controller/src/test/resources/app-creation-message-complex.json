@@ -1,0 +1,239 @@
+{
+    "title": "Mercabana Intralogistics",
+    "uuid": "419c5ac2-e8cb-4115-8aa1-27d41ba0a08e",
+    "content": "apiVersion: core.oam.dev/v1beta1\nkind: Application\nmetadata:\n  name: mercabarna-deploy\nspec:\n  components:\n    - name: license-plate-reading-service\n      type: webservice\n      properties:\n        requests:\n          cpu: 1.2\n          memory: 1Gi\n        image: ghcr.io/applied-artificial-intelligence-eurecat/nebulous-intralogistics-uc-license-plate-reading-service:latest\n        volumeMounts:\n          pvc:\n            - name: lprs-pv-configs\n              mountPath: /configs/\n              claimName: lprs-pvc-configs\n            - name: lprs-pvc-models\n              mountPath: /models/\n              claimName: lprs-pvc-models\n            - name: lprs-pv-data\n              mountPath: /data/\n              claimName: llprs-pvc-data\n\n\n        #potser no fa falta\n        livenessProbe:\n          exec:\n            command:\n            - /bin/bash\n            - -c\n            - ps -ef | grep main.py | grep -v grep\n          initialDelaySeconds: 10\n          periodSeconds: 10\n      traits:\n        - type: scaler         # Set the replica to the specified value\n          properties:\n            replicas: 1\n\n\n    - name: file-server\n      type: webservice\n      properties:\n        image:  ghcr.io/applied-artificial-intelligence-eurecat/nebulous-intralogistics-uc-file-server:1.0\n        imagePullSecrets: [\"reg-cred\"]\n        ports:\n        - port: 10004\n          #expose: true ????\n\n        volumeMounts:\n          pvc:\n          - name: fs-pv-files\n            mountPath: /usr/src/app/files\n            claimName: fs-pvc-files\n        livenessProbe:\n          httpGet:\n            path: /\n            port: 80\n            httpHeaders:\n            - name: Custom-Header\n              value: ItsAlive\n          initialDelaySeconds: 5\n          periodSeconds: 5\n        healthCheck:\n          checkPolicy: \"all\"\n          detectors:\n          - httpGet:\n              path: \"/\"\n              port: 10004\n            successCondition: \"len(.) > 3000\"\n      traits: #Don't really know if works\n        # - type: container-ports\n        #   properties:\n        #     containers:\n        #     ports:\n        #       containerPort: 80\n        #       hostPort: 10004\n        #- type: \"node-affinity\"\n        #  properties:\n        #    affinity:\n        #      location: [\"mercabarna-core\"]\n\n    - name: traffic-reconstruction-module\n      type: webservice\n      properties:\n        image: traffic-reconstruction-module:latest\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n    - name: nebulous-intralogistics-uc-api\n      type: webservice\n      properties:\n        image: nebulous-intralogistics-uc-api:latest\n        ports:\n        - port: 8000\n        livenessProbe:\n          httpGet:\n            path: /\n            port: 8000\n            httpHeaders:\n            - name: Custom-Header\n              value: ItsAlive\n          initialDelaySeconds: 5\n          periodSeconds: 5\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n\n    - name: nebulous-intralogistics-uc-web\n      type: webservice\n      properties:\n        image: nebulous-intralogistics-uc-web:latest\n\n        ports:\n        - port: 3000\n      traits:\n        # - type: container-ports\n        #   properties:\n        #     ports:\n        #       containerPort: 80\n        #       hostPort: 3000\n        #- type: \"node-affinity\"\n        #  properties:\n        #    affinity:\n        #      location: [\"mercabarna-core\"]\n\n    - name: nebulous-intralogistics-uc-db\n      type: webservice\n      properties:\n        image: postgres:16.1\n        ports:\n        - port: 5432\n        env: #secrets\n          - name: POSTGRES_USER\n            valueFrom:\n              secretKeyRef:\n                name: nebulous-intralogistics-uc-db-secrets\n                key: POSTGRES_USER\n          - name: POSTGRES_PASSWORD\n            valueFrom:\n              secretKeyRef:\n                name: nebulous-intralogistics-uc-db-secrets\n                key: POSTGRES_PASSWORD\n        volumeMounts:\n          pvc:\n            - name: db-pv-db\n              mountPath: /var/lib/postgresql/data\n              claimName: db-pvc-db\n            - name: db-pv-init\n              mountPath: /docker-entrypoint-initdb.d/init.sql\n              claimName: db-pvc-init\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n        # - type: liveness\n        #   properties:\n        #     httpGet:\n        #       path: / # Adjust the path if needed\n        #       port: 5432 # Adjust the port to match the PostgreSQL port\n        #       httpHeaders:\n        #         - name: Custom-Header\n        #           value: ItsAlive\n        #     initialDelaySeconds: 5\n        #     periodSeconds: 5\n    - name: emqx1\n      type: webservice\n      properties:\n        image: emqx:5.1.0\n        ports:\n          - name: mqtt\n            port: 1883\n          - name: mqttssl\n            port: 8883\n          - name: mgmt\n            port: 8081\n          - name: ws\n            port: 8083\n          - name: wss\n            port: 8084\n          - name: dashboard\n            port: 18083\n        env: #config\n          - name: EMQX_NODE_NAME\n            valueFrom:\n              configMapKeyRef:\n                name: configMap-emqx1\n                key: EMQX_NODE_NAME\n          - name: EMQX_CLUSTER__DISCOVERY_STRATEGY\n            valueFrom:\n              configMapKeyRef:\n                name: configMap-emqx1\n                key: EMQX_CLUSTER__DISCOVERY_STRATEGY\n          - name: EMQX_CLUSTER__STATIC__SEEDS\n            valueFrom:\n              configMapKeyRef:\n                name: configMap-emqx1\n                key: EMQX_CLUSTER__STATIC__SEEDS\n        volumeMounts:\n          pvc:\n          - name: emqx-data\n            mountPath: \"/opt/emqx/data/mnesia\"\n            claimName: emqx-pvc\n      #traits:\n      #  - type: \"node-affinity\"\n      #    properties:\n      #      affinity:\n      #        location: [\"mercabarna-core\"]\n        # - type: health\n        #   properties:\n        #     cmd: [\"/opt/emqx/bin/emqx_ctl\", \"status\"]\n        #     interval: 5s\n        #     timeout: 25s\n        #     retries: 5\n    #- name: vehicle-detection-and-cropping\n    #  type: webservice\n    #  properties:\n    #    image: vehicle-detection-and-cropping:latest\n    #    env: #secret\n    #      - name: CAMERA_URI\n    #        valueFrom:\n    #          secretKeyRef:\n    #            name: vehicle-detection-and-cropping-secrets\n    #            key: CAMERA_URI\n    #      - name: file_server\n    #        value: file-server\n    #      - name: message_broker\n    #        value: emqx1\n    #  traits:\n    #    - type: scaler         # Set the replica to the specified value\n    #      properties:\n    #        replicas: 1\n    #    - type: \"node-affinity\"\n    #      properties:\n    #        affinity:\n    #          location: [\"mercabarna-core\"]\n\n  policies:\n    - name: target-default\n      type: topology\n      properties:\n        namespace: \"default\"\n\n  workflow:\n    steps:\n      - name: apply-vd-pvc-configs\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: vd-pvc-configs\n            spec:\n              resources:\n                requests:\n                  storage: 10M\n              accessModes:\n                - ReadWriteMany\n      - name: apply-vd-pvc-data\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: vd-pvc-data\n            spec:\n              resources:\n                requests:\n                  storage: 500M\n              accessModes:\n                - ReadWriteMany\n      - name: apply-lprs-pvc-configs\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: lprs-pvc-configs\n            spec:\n              resources:\n                requests:\n                  storage: 500M\n              accessModes:\n                - ReadWriteMany\n      - name: apply-lprs-pvc-models\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: lprs-pvc-models\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n\n      - name: apply-lprs-pvc-data\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: lprs-pvc-data\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-fs-pvc-files\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: fs-pvc-files\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-api-pvc-files\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: api-pvc-files\n            spec:\n              resources:\n                requests:\n                  storage: 5G # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n\n      - name: apply-db-pvc-db\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: db-pvc-db\n            spec:\n              resources:\n                requests:\n                  storage: 5G # !!!!maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-db-pvc-init\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: db-pvc-init\n            spec:\n              resources:\n                requests:\n                  storage: 100M  # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n      - name: apply-emqx-pvc\n        type: apply-object\n        properties:\n          value:\n            apiVersion: v1\n            kind: PersistentVolumeClaim\n            metadata:\n              name: emqx-pvc\n            spec:\n              resources:\n                requests:\n                  storage: 200M # maybe change needs to be upgraded on real deploy enviroment\n              accessModes:\n                - ReadWriteMany\n\n      - name: deploy2default\n        type: deploy\n        properties:\n          policies: ['target-default']\n",
+    "variables": [
+        {
+            "key": "spec_components_0_traits_0_properties_replicas",
+            "path": "/spec/components/0/traits/0/properties/replicas",
+            "type": "float",
+            "meaning": "replicas",
+            "value": {
+                "lower_bound": 1,
+                "higher_bound": 8
+            }
+        },
+        {
+            "key": "spec_components_0_properties_requests_cpu",
+            "path": "/spec/components/0/properties/requests/cpu",
+            "type": "float",
+            "meaning": "cpu",
+            "value": {
+                "lower_bound": 1,
+                "higher_bound": 8
+            }
+        },
+        {
+            "key": "spec_components_0_properties_requests_memory",
+            "path": "/spec/components/0/properties/requests/memory",
+            "type": "float",
+            "meaning": "memory",
+            "value": {
+                "lower_bound": 1024,
+                "higher_bound": 8192
+            }
+        }
+    ],
+    "resources": [
+        {
+            "uuid": "4c686b6b-4ef8-4a24-ad90-67ec8c204ba9",
+            "title": "Test BYON",
+            "platform": "BYON",
+            "enabled": false
+        },
+        {
+            "uuid": "9e6644b6-cb58-4fc5-b5cf-bf7a571d92fe",
+            "title": "AWs my resource",
+            "platform": "aws",
+            "enabled": true
+        }
+    ],
+    "templates": [
+        {
+            "id": "time",
+            "type": "int",
+            "minValue": 0,
+            "maxValue": 600,
+            "unit": "seconds"
+        }
+    ],
+    "parameters": [
+        {
+            "name": "job_process_time_instance",
+            "template": "time"
+        }
+    ],
+    "metrics": [
+        {
+            "type": "composite",
+            "name": "comp_C",
+            "formula": "mean(raw_A)",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 60,
+                "unit": "sec"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "sliding",
+                "interval": 30,
+                "unit": "sec"
+            },
+            "arguments": [
+                "raw_A"
+            ]
+        },
+        {
+            "type": "raw",
+            "name": "raw_A",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 60,
+                "unit": "sec"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "sliding",
+                "interval": 30,
+                "unit": "sec"
+            }
+        },
+        {
+            "type": "raw",
+            "name": "raw_B",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 60,
+                "unit": "sec"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "sliding",
+                "interval": 30,
+                "unit": "sec"
+            }
+        },
+        {
+            "type": "composite",
+            "level": "global",
+            "name": "pi_D",
+            "formula": "spec_components_0_traits_0_properties_replicas + comp_C + raw_B",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "arguments": [
+                "spec_components_0_traits_0_properties_replicas",
+                "comp_C",
+                "raw_B"
+            ]
+        },
+          {
+            "type": "composite",
+            "level": "global",
+            "name": "comp_E",
+            "formula": "count(raw_A)+comp_C",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "arguments": [
+                "raw_A",
+                "comp_C"
+            ]
+        },
+      {
+            "type": "composite",
+            "level": "global",
+            "name": "pi_F",
+            "formula": "pi_D + comp_C",
+            "isWindowInput": true,
+            "input": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "isWindowOutput": true,
+            "output": {
+                "type": "all",
+                "interval": 0,
+                "unit": "ms"
+            },
+            "arguments": [
+                "pi_D",
+                "comp_C"
+            ]
+        }
+    ],
+    "sloViolations": {
+        "nodeKey": "d760437d-81cd-4675-9e40-e8d0ea4b9b4d",
+        "isComposite": true,
+        "condition": "OR",
+        "not": false,
+        "children": [
+            {
+                "nodeKey": "b50b961b-6e9a-4f90-842c-e92fbab43f40",
+                "isComposite": false,
+                "metricName": "comp_E",
+                "operator": ">",
+                "value": "10"
+            }
+        ]
+    },
+    "utilityFunctions": [
+        {
+            "name": "firstfunction",
+            "type": "maximize",
+            "expression": {
+                "formula": "(A*C)/B",
+                "variables": [
+                    {
+                        "name": "A",
+                        "value": "comp_C"
+                    },
+                    {
+                        "name": "C",
+                        "value": "currentReplicas"
+                    },
+                    {
+                        "name": "B",
+                        "value": "spec_components_0_traits_0_properties_replicas"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "currentReplicas",
+            "type": "constant",
+            "expression": {
+                "formula": "A",
+                "variables": [
+                    {
+                        "name": "A",
+                        "value": "spec_components_0_traits_0_properties_replicas"
+                    }
+                ]
+            }
+        }
+    ],
+    "environmentVariables": []
+}
