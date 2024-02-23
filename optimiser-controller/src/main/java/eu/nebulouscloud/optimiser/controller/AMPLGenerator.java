@@ -198,46 +198,29 @@ public class AMPLGenerator {
         out.println("# Variables");
         for (final JsonNode p : app.getKubevelaVariables().values()) {
             ObjectNode param = (ObjectNode) p;
-            // Even if these variables are sent over as "float", we know they
-            // have to be treated as integers for kubevela (replicas, memory)
-            // or SAL (cpu).  I.e., paramMeaning overrides paramType.
-            List<String> integerVariables = List.of("cpu", "memory", "replicas");
+            List<String> integerMeanings = List.of("cpu", "memory", "replicas");
             String paramName = param.get("key").textValue();
             String paramPath = param.get("path").textValue();
             String paramType = param.get("type").textValue();
             String paramMeaning = param.get("meaning").textValue();
+            // Even if these variables are sent over as "float", we know they
+            // have to be treated as integers for kubevela (replicas, memory)
+            // or SAL (cpu).  I.e., paramMeaning overrides paramType.
+            boolean shouldBeInt = paramType.equals("int") || integerMeanings.contains(paramMeaning);
             ObjectNode value = (ObjectNode)param.get("value");
-            if (paramType.equals("int") || integerVariables.contains(paramMeaning)) {
-                out.format("var %s integer", paramName);
-                if (value != null) {
-                    String separator = "";
-                    JsonNode lower = value.at("/lower_bound");
-                    JsonNode upper = value.at("/higher_bound");
-                    // TODO: What if the constraints are given as float?
-                    // Round up or down?  Emit as floats and hope for the
-                    // best?  Leave out illegal constraints?
-                    if (lower.isIntegralNumber()) {
-                        out.format(" >= %s", lower.longValue());
-                        separator = ", ";
-                    }
-                    if (upper.isIntegralNumber()) {
-                        out.format("%s<= %s", separator, upper.longValue());
-                    }
-                }
-                out.println(";");
-            } else if (paramType.equals("float")) {
+            if (paramType.equals("int") || paramType.equals("float")) {
                 out.format("var %s", paramName);
+                if (shouldBeInt) { out.print(" integer"); }
                 if (value != null) {
                     String separator = "";
                     JsonNode lower = value.at("/lower_bound");
                     JsonNode upper = value.at("/higher_bound");
-                    // `isNumber` because the constraint might be given as integer
                     if (lower.isNumber()) {
-                        out.format(" >= %s", lower.doubleValue());
-                        separator = ", ";
+                        out.format(" >= %s", lower.numberValue());
+                        separator = ",";
                     }
                     if (upper.isNumber()) {
-                        out.format("%s<= %s", separator, upper.doubleValue());
+                        out.format("%s <= %s", separator, upper.numberValue());
                     }
                 }
                 out.println(";");
