@@ -10,6 +10,8 @@ import org.ow2.proactive.sal.model.Requirement;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.extern.slf4j.Slf4j;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
@@ -25,18 +27,27 @@ import static net.logstash.logback.argument.StructuredArguments.keyValue;
 @Slf4j
 public class SalConnector {
 
+    private SalConnector() {}
+
     private static final ObjectMapper mapper = new ObjectMapper();
 
     /**
-     * Get list of node candidates that fulfil the requirements.
+     * Get list of node candidates from the resource broker that fulfil the
+       given requirements.
      *
-     * See https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/nodecandidates-endpoints.md#71--filter-node-candidates-endpoint
+     * <p>Note that we cannot convert the result to a list containing {@code
+     * org.ow2.proactive.sal.model.NodeCandidate} instances, since the broker
+     * adds the additional fields {@code score} and {@code ranking}.  Instead
+     * we return a JSON {@code ArrayNode} containing {@code ObjectNode}s in
+     * the format specified at
+     * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/nodecandidates-endpoints.md#71--filter-node-candidates-endpoint
+     * but with these two additional attributes.
      *
      * @param requirements The list of requirements.
-     * @param appID The application ID, if available.
-     * @return A list of node candidates, or null in case of error.
+     * @param appID The application ID.
+     * @return A JSON array containing node candidates.
      */
-    public static List<NodeCandidate> findNodeCandidates(List<Requirement> requirements, String appID) {
+    public static ArrayNode findNodeCandidates(List<Requirement> requirements, String appID) {
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -47,15 +58,16 @@ public class SalConnector {
                 keyValue("appId", appID), e);
             return null;
 	}
-        Map<String, Object> response = ExnConnector.findNodeCandidates.sendSync(msg, appID, null, false);
-        String body = response.get("body").toString(); // body is a string already
-	try {
-	    return Arrays.asList(mapper.readValue(body, NodeCandidate[].class));
-	} catch (JsonProcessingException e) {
-            log.error("Error receiving findNodeCandidates result (this should never happen)",
-                keyValue("appId", appID), e);
-            return null;
-	}
+        Map<String, Object> response = ExnConnector.findBrokerNodeCandidates.sendSync(msg, appID, null, false);
+        ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+        // Note: what we would really like to do here is something like:
+        //
+        //     return Arrays.asList(mapper.readValue(response, NodeCandidate[].class));
+        //
+        // But since the broker adds two attributes, the array elements cannot
+        // be deserialized into org.ow2.proactive.sal.model.NodeCandidate
+        // objects.
+        return jsonBody.withArray("/nodes");
     }
 
 }

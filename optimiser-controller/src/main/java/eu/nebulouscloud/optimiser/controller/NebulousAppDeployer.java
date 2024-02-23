@@ -51,7 +51,8 @@ public class NebulousAppDeployer {
     @Getter
     private static CommandsInstallation controllerInstallation = new CommandsInstallation();
 
-    private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
+    private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     // TODO: find out the commands to initialize the workers
     /**
@@ -289,19 +290,18 @@ public class NebulousAppDeployer {
         // ----------------------------------------
         // 2. Find node candidates
 
-        // TODO: switch to asking the cloud broker for candidates when it's
-        // ready
-        List<NodeCandidate> controllerCandidates = SalConnector.findNodeCandidates(controllerRequirements, appUUID);
+        ArrayNode controllerCandidates = SalConnector.findNodeCandidates(controllerRequirements, appUUID);
         if (controllerCandidates.isEmpty()) {
-            log.error("Could not find node candidates for requirements: {}", controllerRequirements);
+            log.error("Could not find node candidates for requirements: {}",
+                controllerRequirements, keyValue("appId", appUUID));
             // Continue here while we don't really deploy
             // return;
         }
-        Map<String, List<NodeCandidate>> workerCandidates = new HashMap<>();
+        Map<String, ArrayNode> workerCandidates = new HashMap<>();
         for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
-            List<NodeCandidate> candidates = SalConnector.findNodeCandidates(requirements, appUUID);
+            ArrayNode candidates = SalConnector.findNodeCandidates(requirements, appUUID);
             if (candidates.isEmpty()) {
                 log.error("Could not find node candidates for requirements: {}", requirements);
                 // Continue here while we don't really deploy
@@ -313,7 +313,7 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 3. Select node candidates
 
-        log.debug("Collecting worker nodes for {}", appUUID);
+        log.debug("Collecting worker nodes for {}", appUUID, keyValue("appId", appUUID));
         Map<String, NodeCandidate> nodeNameToCandidate = new HashMap<>();
         for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
             // Here we collect two things: the flat list (hostname ->
@@ -325,6 +325,9 @@ public class NebulousAppDeployer {
             for (int i = 1; i <= numberOfNodes; i++) {
                 String nodeName = String.format("%s-%s", componentName, i);
                 nodeNames.add(nodeName);
+                // TODO: choose the node candidate with the highest score
+                // and/or ranking.
+
                 // TODO: Here we need to discriminate between edge and cloud
                 // node candidates: we can deploy an edge node only once, but
                 // cloud nodes arbitrarily often.  So if the best node
@@ -336,8 +339,11 @@ public class NebulousAppDeployer {
                 if (!workerCandidates.get(componentName).isEmpty()) {
                     // should always be true, except currently we don't abort
                     // in Step 2 if we don't find candidates.
-                    NodeCandidate candidate = workerCandidates.get(componentName).get(0);
-                    nodeNameToCandidate.put(nodeName, candidate);
+                    JsonNode candidate = workerCandidates.get(componentName).get(0);
+                    NodeCandidate c = mapper.convertValue(((ObjectNode)candidate).deepCopy()
+                        .remove(List.of("score", "ranking")),
+                        NodeCandidate.class);
+                    nodeNameToCandidate.put(nodeName, c);
                 }
             }
             app.getComponentMachineNames().put(componentName, nodeNames);
@@ -359,7 +365,7 @@ public class NebulousAppDeployer {
         JsonNode rewritten = addNodeAffinities(kubevela, app.getComponentMachineNames());
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
-            rewritten_kubevela = yaml_mapper.writeValueAsString(rewritten);
+            rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
         } catch (JsonProcessingException e) {
             log.error("Failed to convert KubeVela to YAML; this should never happen", e);
         }

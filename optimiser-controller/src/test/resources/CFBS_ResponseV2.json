@@ -1,0 +1,504 @@
+{
+    "nodes": [
+        {
+            "id": "1b2a77f4-0f81-4910-a15c-0dd57c6a89ff",
+            "nodeCandidateType": "EDGE",
+            "jobIdForByon": null,
+            "jobIdForEdge": null,
+            "price": 0.0558,
+            "cloud": {
+                "id": "nebulous-aws-sal-1",
+                "endpoint": null,
+                "cloudType": "PUBLIC",
+                "api": {
+                    "providerName": "aws-ec2"
+                },
+                "credential": null,
+                "cloudConfiguration": {
+                    "nodeGroup": "",
+                    "properties": {}
+                },
+                "owner": null,
+                "state": null,
+                "diagnostic": null
+            },
+            "location": {
+                "id": "",
+                "name": "",
+                "providerId": "",
+                "locationScope": "REGION",
+                "isAssignable": true,
+                "geoLocation": {
+                    "city": "Paris",
+                    "country": "France",
+                    "latitude": 47.4705,
+                    "longitude": 6.1918
+                },
+                "parent": null,
+                "state": null,
+                "owner": null
+            },
+            "image": {
+                "id": "",
+                "name": "PrEstoCloud-Golden-Image",
+                "providerId": "",
+                "operatingSystem": {
+                    "operatingSystemFamily": "UNKNOWN_OS_FAMILY",
+                    "operatingSystemArchitecture": "I386",
+                    "operatingSystemVersion": 0.0
+                },
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "hardware": {
+                "id": "nebulous-aws-sal-1/eu-west-2/t3.medium",
+                "name": "",
+                "providerId": "",
+                "cores": 2,
+                "ram": 4096,
+                "disk": 16.0,
+                "fpga": 0,
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "pricePerInvocation": 0.0,
+            "memoryPrice": 0.0,
+            "nodeId": "",
+            "environment": null,
+            "score": 1,
+            "rank": 1
+        },
+        {
+            "id": "93b846d4-3f43-4e4b-87f2-c3ba07bb5555",
+            "nodeCandidateType": "EDGE",
+            "jobIdForByon": null,
+            "jobIdForEdge": null,
+            "price": 0.0125,
+            "cloud": {
+                "id": "nebulous-aws-sal-1",
+                "endpoint": null,
+                "cloudType": "PUBLIC",
+                "api": {
+                    "providerName": "aws-ec2"
+                },
+                "credential": null,
+                "cloudConfiguration": {
+                    "nodeGroup": "",
+                    "properties": {}
+                },
+                "owner": null,
+                "state": null,
+                "diagnostic": null
+            },
+            "location": {
+                "id": "",
+                "name": "",
+                "providerId": "",
+                "locationScope": "REGION",
+                "isAssignable": true,
+                "geoLocation": {
+                    "city": "Paris",
+                    "country": "France",
+                    "latitude": 47.4705,
+                    "longitude": 6.1918
+                },
+                "parent": null,
+                "state": null,
+                "owner": null
+            },
+            "image": {
+                "id": "",
+                "name": "PrEstoCloud-Golden-Image",
+                "providerId": "",
+                "operatingSystem": {
+                    "operatingSystemFamily": "UNKNOWN_OS_FAMILY",
+                    "operatingSystemArchitecture": "I386",
+                    "operatingSystemVersion": 0.0
+                },
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "hardware": {
+                "id": "nebulous-aws-sal-1/eu-west-2/t3.medium",
+                "name": "",
+                "providerId": "",
+                "cores": 2,
+                "ram": 4096,
+                "disk": 16.0,
+                "fpga": 0,
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "pricePerInvocation": 0.0,
+            "memoryPrice": 0.0,
+            "nodeId": "",
+            "environment": null,
+            "score": 0.938,
+            "rank": 2
+        },
+        {
+            "id": "3b53f32d-53ca-410e-969b-6bf542a3fd32",
+            "nodeCandidateType": "EDGE",
+            "jobIdForByon": null,
+            "jobIdForEdge": null,
+            "price": 0.0836,
+            "cloud": {
+                "id": "nebulous-aws-sal-1",
+                "endpoint": null,
+                "cloudType": "PUBLIC",
+                "api": {
+                    "providerName": "aws-ec2"
+                },
+                "credential": null,
+                "cloudConfiguration": {
+                    "nodeGroup": "",
+                    "properties": {}
+                },
+                "owner": null,
+                "state": null,
+                "diagnostic": null
+            },
+            "location": {
+                "id": "",
+                "name": "",
+                "providerId": "",
+                "locationScope": "REGION",
+                "isAssignable": true,
+                "geoLocation": {
+                    "city": "Paris",
+                    "country": "France",
+                    "latitude": 47.4705,
+                    "longitude": 6.1918
+                },
+                "parent": null,
+                "state": null,
+                "owner": null
+            },
+            "image": {
+                "id": "",
+                "name": "PrEstoCloud-Golden-Image",
+                "providerId": "",
+                "operatingSystem": {
+                    "operatingSystemFamily": "UNKNOWN_OS_FAMILY",
+                    "operatingSystemArchitecture": "I386",
+                    "operatingSystemVersion": 0.0
+                },
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "hardware": {
+                "id": "nebulous-aws-sal-1/eu-west-2/t3.medium",
+                "name": "",
+                "providerId": "",
+                "cores": 2,
+                "ram": 4096,
+                "disk": 16.0,
+                "fpga": 0,
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "pricePerInvocation": 0.0,
+            "memoryPrice": 0.0,
+            "nodeId": "",
+            "environment": null,
+            "score": 0.786,
+            "rank": 3
+        },
+        {
+            "id": "39b00b2a-d430-4557-aed0-b7fa758d83db",
+            "nodeCandidateType": "EDGE",
+            "jobIdForByon": null,
+            "jobIdForEdge": null,
+            "price": 0.0703,
+            "cloud": {
+                "id": "nebulous-aws-sal-1",
+                "endpoint": null,
+                "cloudType": "PUBLIC",
+                "api": {
+                    "providerName": "aws-ec2"
+                },
+                "credential": null,
+                "cloudConfiguration": {
+                    "nodeGroup": "",
+                    "properties": {}
+                },
+                "owner": null,
+                "state": null,
+                "diagnostic": null
+            },
+            "location": {
+                "id": "",
+                "name": "",
+                "providerId": "",
+                "locationScope": "REGION",
+                "isAssignable": true,
+                "geoLocation": {
+                    "city": "Paris",
+                    "country": "France",
+                    "latitude": 47.4705,
+                    "longitude": 6.1918
+                },
+                "parent": null,
+                "state": null,
+                "owner": null
+            },
+            "image": {
+                "id": "",
+                "name": "PrEstoCloud-Golden-Image",
+                "providerId": "",
+                "operatingSystem": {
+                    "operatingSystemFamily": "UNKNOWN_OS_FAMILY",
+                    "operatingSystemArchitecture": "I386",
+                    "operatingSystemVersion": 0.0
+                },
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "hardware": {
+                "id": "nebulous-aws-sal-1/eu-west-2/t3.medium",
+                "name": "",
+                "providerId": "",
+                "cores": 2,
+                "ram": 4096,
+                "disk": 16.0,
+                "fpga": 0,
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "pricePerInvocation": 0.0,
+            "memoryPrice": 0.0,
+            "nodeId": "",
+            "environment": null,
+            "score": 0.764,
+            "rank": 4
+        },
+        {
+            "id": "4b64de40-053a-4ab7-bf68-55a82938507d",
+            "nodeCandidateType": "EDGE",
+            "jobIdForByon": null,
+            "jobIdForEdge": null,
+            "price": 0.0122,
+            "cloud": {
+                "id": "nebulous-aws-sal-1",
+                "endpoint": null,
+                "cloudType": "PUBLIC",
+                "api": {
+                    "providerName": "aws-ec2"
+                },
+                "credential": null,
+                "cloudConfiguration": {
+                    "nodeGroup": "",
+                    "properties": {}
+                },
+                "owner": null,
+                "state": null,
+                "diagnostic": null
+            },
+            "location": {
+                "id": "",
+                "name": "",
+                "providerId": "",
+                "locationScope": "REGION",
+                "isAssignable": true,
+                "geoLocation": {
+                    "city": "Paris",
+                    "country": "France",
+                    "latitude": 47.4705,
+                    "longitude": 6.1918
+                },
+                "parent": null,
+                "state": null,
+                "owner": null
+            },
+            "image": {
+                "id": "",
+                "name": "PrEstoCloud-Golden-Image",
+                "providerId": "",
+                "operatingSystem": {
+                    "operatingSystemFamily": "UNKNOWN_OS_FAMILY",
+                    "operatingSystemArchitecture": "I386",
+                    "operatingSystemVersion": 0.0
+                },
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "hardware": {
+                "id": "nebulous-aws-sal-1/eu-west-2/t3.medium",
+                "name": "",
+                "providerId": "",
+                "cores": 2,
+                "ram": 4096,
+                "disk": 16.0,
+                "fpga": 0,
+                "location": {
+                    "id": "",
+                    "name": "",
+                    "providerId": "",
+                    "locationScope": "REGION",
+                    "isAssignable": true,
+                    "geoLocation": {
+                        "city": "Paris",
+                        "country": "France",
+                        "latitude": 48.8607,
+                        "longitude": 2.3281
+                    },
+                    "parent": null,
+                    "state": null,
+                    "owner": null
+                },
+                "state": null,
+                "owner": null
+            },
+            "pricePerInvocation": 0.0,
+            "memoryPrice": 0.0,
+            "nodeId": "",
+            "environment": null,
+            "score": 0.661,
+            "rank": 5
+        }
+    ]
+}

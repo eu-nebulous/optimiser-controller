@@ -4,3 +4,6 @@ on 2023-10-24.
 
 The canonical `vela-deployment.yaml` file is probably at
 https://gitlab.ubitech.eu/nebulous/use-cases/surveillance-dsl-demo/
+
+
+- `CFBS_ResponseV2.json`: node candidate response as sent by the resource broker. (2024-02-23)

@@ -75,10 +75,15 @@ public class ExnConnector {
     public static final SyncedPublisher createJob
         = new SyncedPublisher("createJob",
             "eu.nebulouscloud.exn.sal.job.post", true, true);
-    /** The findNodeCandidates endpoint. */
+    /** The findNodeCandidates endpoint.  Should not be used during normal
+      * operation--ask the broker instead. */
     public static final SyncedPublisher findNodeCandidates
         = new SyncedPublisher("findNodeCandidates",
             "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
+    /** The findNodeCandidates endpoint (Broker's version). */
+    public static final SyncedPublisher findBrokerNodeCandidates
+        = new SyncedPublisher("findBrokerNodeCandidates",
+            "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
     /** The addNodes endpoint. */
     public static final SyncedPublisher addNodes
         = new SyncedPublisher("addNodes",
@@ -107,7 +112,7 @@ public class ExnConnector {
             callback,
             // List.of(new Publisher("config", "config", true)),
             List.of(amplMessagePublisher,
-                createJob, findNodeCandidates, addNodes, submitJob),
+                createJob, findNodeCandidates, findBrokerNodeCandidates, addNodes, submitJob),
             List.of(
                 new Consumer("ui_app_messages", app_creation_channel,
                     new AppCreationMessageHandler(), true, true),
