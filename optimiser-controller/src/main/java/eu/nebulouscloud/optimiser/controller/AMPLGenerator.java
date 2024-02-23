@@ -3,6 +3,7 @@ package eu.nebulouscloud.optimiser.controller;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
@@ -197,16 +198,39 @@ public class AMPLGenerator {
         out.println("# Variables");
         for (final JsonNode p : app.getKubevelaVariables().values()) {
             ObjectNode param = (ObjectNode) p;
-            String param_name = param.get("key").textValue();
-            String param_path = param.get("path").textValue();
-            String param_type = param.get("type").textValue();
+            // Even if these variables are sent over as "float", we know they
+            // have to be treated as integers for kubevela (replicas, memory)
+            // or SAL (cpu).  I.e., paramMeaning overrides paramType.
+            List<String> integerVariables = List.of("cpu", "memory", "replicas");
+            String paramName = param.get("key").textValue();
+            String paramPath = param.get("path").textValue();
+            String paramType = param.get("type").textValue();
+            String paramMeaning = param.get("meaning").textValue();
             ObjectNode value = (ObjectNode)param.get("value");
-            if (param_type.equals("float")) {
-                out.format("var %s", param_name);
+            if (paramType.equals("int") || integerVariables.contains(paramMeaning)) {
+                out.format("var %s integer", paramName);
                 if (value != null) {
                     String separator = "";
-                    JsonNode lower = value.get("lower_bound");
-                    JsonNode upper = value.get("higher_bound");
+                    JsonNode lower = value.at("/lower_bound");
+                    JsonNode upper = value.at("/higher_bound");
+                    // TODO: What if the constraints are given as float?
+                    // Round up or down?  Emit as floats and hope for the
+                    // best?  Leave out illegal constraints?
+                    if (lower.isIntegralNumber()) {
+                        out.format(" >= %s", lower.longValue());
+                        separator = ", ";
+                    }
+                    if (upper.isIntegralNumber()) {
+                        out.format("%s<= %s", separator, upper.longValue());
+                    }
+                }
+                out.println(";");
+            } else if (paramType.equals("float")) {
+                out.format("var %s", paramName);
+                if (value != null) {
+                    String separator = "";
+                    JsonNode lower = value.at("/lower_bound");
+                    JsonNode upper = value.at("/higher_bound");
                     // `isNumber` because the constraint might be given as integer
                     if (lower.isNumber()) {
                         out.format(" >= %s", lower.doubleValue());
@@ -217,28 +241,13 @@ public class AMPLGenerator {
                     }
                 }
                 out.println(";");
-            } else if (param_type.equals("int")) {
-                out.format("var %s integer", param_name);
-                if (value != null) {
-                    String separator = "";
-                    JsonNode lower = value.get("lower_bound");
-                    JsonNode upper = value.get("higher_bound");
-                    if (lower.isIntegralNumber()) {
-                        out.format(" >= %s", lower.longValue());
-                        separator = ", ";
-                    }
-                    if (upper.isIntegralNumber()) {
-                        out.format("%s<= %s", separator, upper.longValue());
-                    }
-                }
-                out.format(";	# %s%n", param_path);
-            } else if (param_type.equals("string")) {
+            } else if (paramType.equals("string")) {
                 out.println("# TODO not sure how to specify a string variable");
-                out.format("var %s symbolic;	# %s%n", param_name, param_path);
-            } else if (param_type.equals("array")) {
-                out.format("# TODO generate entries for map '%s' at %s%n", param_name, param_path);
+                out.format("var %s symbolic;%n", paramName);
+            } else if (paramType.equals("array")) {
+                out.format("# TODO generate entries for map '%s' at %s%n", paramName, paramPath);
             } else {
-                log.info("Unknown variable parameter type: {}", param_type,
+                log.info("Unknown variable parameter type: {}", paramType,
                     keyValue("appId", app.getUUID()));
             }
         }
