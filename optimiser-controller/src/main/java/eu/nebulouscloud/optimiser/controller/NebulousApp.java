@@ -12,6 +12,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
@@ -22,12 +23,15 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+
+import org.ow2.proactive.sal.model.Requirement;
 
 /**
  * Internal representation of a NebulOus app.
@@ -98,6 +102,14 @@ public class NebulousApp {
     private ObjectNode original_kubevela;
 
     /**
+     * The current "generation" of deployment.  Initial deployment sets this
+     * to 1, each subsequent redeployment increases by 1.  This value is used
+     * to name node instances generated during that deployment.
+     */
+    @Getter @Setter
+    private int deployGeneration = 0;
+
+    /**
      * Map of component name to machine name(s) deployed for that component.
      * Component names are defined in the KubeVela file.  We assume that
      * component names stay constant during redeployment, i.e., once an
@@ -111,9 +123,20 @@ public class NebulousApp {
 
     /** When an app gets deployed or redeployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
-    /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
-     * already nodes running for us? */
-    private boolean deployed = false;
+    // /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
+    //  * already nodes running for us? */
+    // private boolean deployed = false;
+
+    /** The KubeVela as it was most recently sent to the app's controller. */
+    @Getter @Setter
+    private JsonNode deployedKubevela;
+    /** For each KubeVela component, the number of deployed nodes.  All nodes
+      * will be identical wrt machine type etc. */
+    @Getter @Setter
+    private Map<String, Integer> deployedNodeCounts;
+    /** For each KubeVela component, the requirements for its node(s). */
+    @Getter @Setter
+    private Map<String, List<Requirement>> deployedNodeRequirements;
 
     /**
      * The EXN connector for this class.  At the moment all apps share the
@@ -248,25 +271,6 @@ public class NebulousApp {
      * @throws JsonMappingException */
     public static JsonNode readKubevelaFile(String path) throws JsonMappingException, JsonProcessingException, IOException {
         return readKubevelaString(Files.readString(Path.of(path), StandardCharsets.UTF_8));
-    }
-
-    /**
-     * Set "deployed" status. Will typically be set to true once, and then
-     * never to false again.
-     *
-     * @param deployed the new status.
-     */
-    public void setDeployed(boolean deployed) {
-        this.deployed = deployed;
-    }
-    /**
-     * Check if the app has been deployed, i.e., if there are already VMs
-     * allocated from SAL for us.
-     *
-     * @return false if we never asked for nodes, true otherwise.
-     */
-    public boolean isDeployed() {
-        return deployed;
     }
 
     /**
@@ -433,7 +437,7 @@ public class NebulousApp {
         }
         ObjectNode variables = solution.withObjectProperty("VariableValues");
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
-        if (isDeployed()) {
+        if (deployGeneration > 0) {
             // We assume that killing a node will confuse the application's
             // Kubernetes cluster, therefore:
             // 1. Recalculate node sets
