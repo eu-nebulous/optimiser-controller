@@ -4,20 +4,26 @@ __pycache__/
 
 # Gradle project-specific cache directory
 .gradle
-# Gradle build output directory
-/optimiser-controller/build/
+
+# Various output directories
+build/
+bin/
+/nebulous-requirements-extractor/target/
+
 # generated artefact directory
 /optimiser-controller/dist/
 
 # jdtls (Java LSP server) and/or eclipse data files
 .classpath
+.factorypath
 .project
 .settings/
-/optimiser-controller/bin/
 
 # IntelliJ IDEA configuration files
 /.idea/
 
 # Visual Studio Code files
 /.vscode/
+
+# Emacs files
 /.dir-locals.el

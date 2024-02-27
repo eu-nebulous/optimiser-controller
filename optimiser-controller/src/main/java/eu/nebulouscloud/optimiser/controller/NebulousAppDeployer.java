@@ -1,29 +1,19 @@
 package eu.nebulouscloud.optimiser.controller;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
+import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.CommandsInstallation;
-import org.ow2.proactive.sal.model.Communication;
-import org.ow2.proactive.sal.model.IaasDefinition;
-import org.ow2.proactive.sal.model.JobDefinition;
-import org.ow2.proactive.sal.model.JobInformation;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.NodeType;
 import org.ow2.proactive.sal.model.NodeTypeRequirement;
 import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
-import org.ow2.proactive.sal.model.TaskDefinition;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -78,134 +68,6 @@ public class NebulousAppDeployer {
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
             new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "4096"),
             new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "4"));
-    }
-
-    /**
-     * Given a KubeVela file, extract how many nodes to deploy for
-     * each component.  Note that this can be zero, when the component
-     * should not be deployed at all, e.g., when there is a cloud and
-     * an edge version of the component.
-     *
-     * We currently look for the following component trait:
-     *
-     * <pre>{@code
-     * traits:
-     *  - type: scaler
-     *    properties:
-     *      replicas: 2
-     * }</pre>
-     *
-     * @param kubevela the parsed KubeVela file.
-     * @return A map from component name to number of instances to generate.
-     */
-    public static Map<String, Integer> getNodeCountFromKubevela (JsonNode kubevela) {
-        Map<String, Integer> result = new HashMap<>();
-        ArrayNode components = kubevela.withArray("/spec/components");
-        for (final JsonNode c : components) {
-            result.put(c.get("name").asText(), 1); // default value
-            for (final JsonNode t : c.withArray("/traits")) {
-                if (t.at("/type").asText().equals("scaler")
-                    && t.at("/properties/replicas").canConvertToExactIntegral())
-                    {
-                        result.put(c.get("name").asText(),
-                            t.at("/properties/replicas").asInt());
-                    }
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Given a KubeVela file, extract its VM requirements in a form we can
-     * send to the SAL `findNodeCandidates` endpoint. <p>
-     *
-     * We add the requirement that OS family == Ubuntu.
-     *
-     * We read the following attributes for each component:
-     *
-     * - `properties.cpu`, `properties.requests.cpu`: round up to next integer
-     *   and generate requirement `hardware.cores`
-     *
-     * - `properties.memory`, `properties.requests.memory`: Handle "200Mi",
-     *   "0.2Gi" and bare number, convert to MB and generate requirement
-     *   `hardware.memory`
-     *
-     * Notes:<p>
-     *
-     * - For the first version, we specify all requirements as "greater or
-     *   equal", i.e., we might not find precisely the node candidates that
-     *   are asked for. <p>
-     *
-     * - Related, KubeVela specifies "cpu" as a fractional value, while SAL
-     *   wants the number of cores as a whole number.  We round up to the
-     *   nearest integer and ask for "this or more" cores, since we might end
-     *   up with “strange” numbers of cores. <p>
-     *
-     * @param kubevela the parsed KubeVela file.
-     * @return a map of component name to (potentially empty) list of
-     *  requirements for that component.  No requirements mean any node will
-     *  suffice.
-     */
-    public static Map<String, List<Requirement>> getWorkerRequirementsFromKubevela(JsonNode kubevela) {
-        Map<String, List<Requirement>> result = new HashMap<>();
-        ArrayNode components = kubevela.withArray("/spec/components");
-        for (final JsonNode c : components) {
-            String componentName = c.get("name").asText();
-            ArrayList<Requirement> reqs = new ArrayList<>();
-            reqs.add(new AttributeRequirement("image", "operatingSystem.family",
-                RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
-            JsonNode cpu = c.at("/properties/cpu");
-            if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
-            if (!cpu.isMissingNode()) {
-                // KubeVela has fractional core /cpu requirements, and the
-                // value might be given as a string instead of a number, so
-                // parse string in all cases.
-                double kubevela_cpu = -1;
-                try {
-                    kubevela_cpu = Double.parseDouble(cpu.asText());
-                } catch (NumberFormatException e) {
-                    log.warn("CPU spec in {} is not a number, value seen is {}",
-                        componentName, cpu.asText());
-                }
-                long sal_cores = Math.round(Math.ceil(kubevela_cpu));
-                if (sal_cores > 0) {
-                    reqs.add(new AttributeRequirement("hardware", "cores",
-                        RequirementOperator.GEQ, Long.toString(sal_cores)));
-                } else {
-                    // floatValue returns 0.0 if node is not numeric
-                    log.warn("CPU of component {} is 0 or not a number, value seen is {}",
-                        componentName, cpu.asText());
-                }
-            }
-            JsonNode memory = c.at("/properties/memory");
-            if (memory.isMissingNode()) cpu = c.at("/properties/resources/requests/memory");
-            if (!memory.isMissingNode()) {;
-                String sal_memory = memory.asText();
-                if (sal_memory.endsWith("Mi")) {
-                    sal_memory = sal_memory.substring(0, sal_memory.length() - 2);
-                } else if (sal_memory.endsWith("Gi")) {
-                    sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
-                } else if (!memory.isNumber()) {
-                    log.warn("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
-                        componentName,
-                        memory.asText());
-                    sal_memory = null;
-                }
-                // Fall-through: we rewrote the KubeVela file and didn't add
-                // the "Mi" suffix, but it's a number
-                if (sal_memory != null) {
-                    reqs.add(new AttributeRequirement("hardware", "memory",
-                        RequirementOperator.GEQ, sal_memory));
-                }
-            }
-            for (final JsonNode t : c.withArray("/traits")) {
-                // TODO: Check for node affinity / geoLocation / country /
-                // node type (edge or cloud)
-            }
-            // Finally, add requirements for this job to the map
-            result.put(componentName, reqs);
-        }
-        return result;
     }
 
     /**
@@ -280,8 +142,8 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> workerRequirements = getWorkerRequirementsFromKubevela(kubevela);
-        Map<String, Integer> nodeCounts = getNodeCountFromKubevela(kubevela);
+        Map<String, List<Requirement>> workerRequirements = KubevelaAnalyzer.getRequirements(kubevela);
+        Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
 
         Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
@@ -290,25 +152,25 @@ public class NebulousAppDeployer {
         // ----------------------------------------
         // 2. Find node candidates
 
-        ArrayNode controllerCandidates = SalConnector.findNodeCandidates(controllerRequirements, appUUID);
-        if (controllerCandidates.isEmpty()) {
-            log.error("Could not find node candidates for requirements: {}",
-                controllerRequirements, keyValue("appId", appUUID));
-            // Continue here while we don't really deploy
-            // return;
-        }
-        Map<String, ArrayNode> workerCandidates = new HashMap<>();
-        for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
-            String nodeName = e.getKey();
-            List<Requirement> requirements = e.getValue();
-            ArrayNode candidates = SalConnector.findNodeCandidates(requirements, appUUID);
-            if (candidates.isEmpty()) {
-                log.error("Could not find node candidates for requirements: {}", requirements);
-                // Continue here while we don't really deploy
-                // return;
-            }
-            workerCandidates.put(nodeName, candidates);
-        }
+        // ArrayNode controllerCandidates = SalConnector.findNodeCandidates(controllerRequirements, appUUID);
+        // if (controllerCandidates.isEmpty()) {
+        //     log.error("Could not find node candidates for requirements: {}",
+        //         controllerRequirements, keyValue("appId", appUUID));
+        //     // Continue here while we don't really deploy
+        //     // return;
+        // }
+        // Map<String, ArrayNode> workerCandidates = new HashMap<>();
+        // for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
+        //     String nodeName = e.getKey();
+        //     List<Requirement> requirements = e.getValue();
+        //     ArrayNode candidates = SalConnector.findNodeCandidates(requirements, appUUID);
+        //     if (candidates.isEmpty()) {
+        //         log.error("Could not find node candidates for requirements: {}", requirements);
+        //         // Continue here while we don't really deploy
+        //         // return;
+        //     }
+        //     workerCandidates.put(nodeName, candidates);
+        // }
 
         // ------------------------------------------------------------
         // 3. Select node candidates
@@ -334,17 +196,17 @@ public class NebulousAppDeployer {
                 // candidate is an edge node, we should select it and fill the
                 // rest of the nodes with second-best cloud nodes.
 
-                // TODO: make sure we only choose the same edge node once; it
-                // might be in all node candidate lists :)
-                if (!workerCandidates.get(componentName).isEmpty()) {
-                    // should always be true, except currently we don't abort
-                    // in Step 2 if we don't find candidates.
-                    JsonNode candidate = workerCandidates.get(componentName).get(0);
-                    NodeCandidate c = mapper.convertValue(((ObjectNode)candidate).deepCopy()
-                        .remove(List.of("score", "ranking")),
-                        NodeCandidate.class);
-                    nodeNameToCandidate.put(nodeName, c);
-                }
+                // // TODO: make sure we only choose the same edge node once; it
+                // // might be in all node candidate lists :)
+                // if (!workerCandidates.get(componentName).isEmpty()) {
+                //     // should always be true, except currently we don't abort
+                //     // in Step 2 if we don't find candidates.
+                //     JsonNode candidate = workerCandidates.get(componentName).get(0);
+                //     NodeCandidate c = mapper.convertValue(((ObjectNode)candidate).deepCopy()
+                //         .remove(List.of("score", "ranking")),
+                //         NodeCandidate.class);
+                //     nodeNameToCandidate.put(nodeName, c);
+                // }
             }
             app.getComponentMachineNames().put(componentName, nodeNames);
         }
@@ -405,8 +267,8 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> workerRequirements = getWorkerRequirementsFromKubevela(kubevela);
-        Map<String, Integer> nodeCounts = getNodeCountFromKubevela(kubevela);
+        Map<String, List<Requirement>> workerRequirements = KubevelaAnalyzer.getRequirements(kubevela);
+        Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
 
         Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);

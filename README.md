@@ -27,7 +27,6 @@ To compile, install a JDK (Java Development Kit) version 17 or greater on the bu
 A container can be built and run with the following commands:
 
 ```sh
-cd optimiser-controller
 docker build -t optimiser-controller -f Dockerfile .
 docker run --rm optimiser-controller
 ```

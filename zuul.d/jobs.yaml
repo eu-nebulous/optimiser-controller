@@ -8,11 +8,11 @@
       - nebulous-optimiser-controller-container-images
     description: Build the container images.
     files: &image_files
-      - ^optimiser-controller/
+      - ^/
     vars: &image_vars
       promote_container_image_job: nebulous-optimiser-controller-upload-container-images
       container_images:
-        - context: optimiser-controller
+        - context: .
           registry: quay.io
           repository: quay.io/nebulous/optimiser-controller
           namespace: nebulous
@@ -44,7 +44,7 @@
     description: Run Hadolint on Dockerfile(s).
     vars:
       dockerfiles:
-        - optimiser-controller/Dockerfile
+        - Dockerfile
 
 - job:
     name: nebulous-optimiser-controller-helm-lint
@@ -70,3 +70,24 @@
     vars:
       helm_charts:
         nebulous-optimiser-controller: ./charts/nebulous-optimiser-controller
+
+- job:
+    name: nebulous-optimiser-controller-java-build-java-libraries
+    parent: nebulous-build-java-libraries
+    provides:
+      - nebulous-optimiser-controller-java-java-libraries
+    description: Build the java libraries.
+    files: &library_files
+      - ^nebulous-requirements-extractor/
+    vars: &library_vars
+      java_libraries:
+        - context: nebulous-requirements-extractor
+
+- job:
+    name: nebulous-optimiser-controller-java-upload-java-libraries
+    parent: nebulous-upload-java-libraries
+    provides:
+      - nebulous-optimiser-controller-java-java-libraries
+    description: Build and upload the java libraries.
+    files: *library_files
+    vars: *library_vars

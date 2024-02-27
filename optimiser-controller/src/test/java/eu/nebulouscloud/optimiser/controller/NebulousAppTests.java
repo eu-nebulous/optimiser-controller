@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
+import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
+
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -89,7 +91,7 @@ public class NebulousAppTests {
         String kubevela_str = Files.readString(getResourcePath("vela-deployment-v2.yml"),
             StandardCharsets.UTF_8);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
-        Map<String, List<Requirement>> requirements = NebulousAppDeployer.getWorkerRequirementsFromKubevela(kubevela);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getRequirements(kubevela);
         // We could compare the requirements with what is contained in
         // KubeVela, or compare keys with component names, but this would
         // essentially duplicate the method code--so we just make sure the
@@ -109,7 +111,7 @@ public class NebulousAppTests {
         ObjectNode replacements = solutions.withObject("VariableValues");
         ObjectNode kubevela1 = app.rewriteKubevelaWithSolution(replacements);
 
-        Map<String, List<Requirement>> requirements = NebulousAppDeployer.getWorkerRequirementsFromKubevela(kubevela1);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getRequirements(kubevela1);
         // We could compare the requirements with what is contained in
         // KubeVela, or compare keys with component names, but this would
         // essentially duplicate the method code--so we just make sure the

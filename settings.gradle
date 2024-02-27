@@ -12,4 +12,4 @@ plugins {
 
 rootProject.name = 'optimiser-controller'
 
-include('optimiser-controller')
+include('optimiser-controller', 'nebulous-requirements-extractor')

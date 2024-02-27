@@ -6,6 +6,7 @@
         - nebulous-optimiser-controller-build-container-images
         - nebulous-optimiser-controller-hadolint
         - nebulous-platform-apply-helm-charts
+        - nebulous-optimiser-controller-java-build-java-libraries
         - nox-linters
     gate:
       jobs:
@@ -14,7 +15,9 @@
         - nebulous-optimiser-controller-upload-container-images
         - nebulous-optimiser-controller-hadolint
         - nebulous-platform-apply-helm-charts
+        - nebulous-optimiser-controller-java-build-java-libraries
         - nox-linters
     promote:
       jobs:
+        - nebulous-optimiser-controller-java-upload-java-libraries
         - nebulous-optimiser-controller-promote-container-images
