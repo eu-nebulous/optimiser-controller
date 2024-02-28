@@ -167,6 +167,8 @@ public class ExnConnector {
         public void onMessage(String key, String address, Map body, Message message, Context context) {
             try {
                 String app_id = message.subject();
+                if (app_id == null) app_id = message.property("application").toString(); // should be string already, but don't want to cast
+                // if app_id is still null, the filename will look a bit funky but it's not a problem
                 log.info("App creation message received", keyValue("appId", app_id));
                 JsonNode appMessage = mapper.valueToTree(body);
                 Main.logFile("app-message-" + app_id + ".json", appMessage);
