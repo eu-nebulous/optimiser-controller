@@ -11,6 +11,15 @@ This module serves two purposes:
   coming in via ActiveMQ and invoke the optimizer as needed, thereby possibly
   triggering application reconfigurations.
 
+## The `nebulous-requirements-extractor` library
+
+This library offers the utility class `KubevelaAnalyzer` that extracts
+component requirements from KubeVela files.  This code is used both in the
+optimiser-controller and in other components of the NebulOuS optimiser.
+
+The library will be built and deployed automatically as part of the build
+process of the optimiser-controller.
+
 # Building
 
 To compile, install a JDK (Java Development Kit) version 17 or greater on the build machine.
