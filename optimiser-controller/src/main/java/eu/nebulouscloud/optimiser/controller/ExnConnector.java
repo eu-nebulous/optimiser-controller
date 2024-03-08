@@ -166,8 +166,8 @@ public class ExnConnector {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
             try {
-                String app_id = message.subject();
-                if (app_id == null) app_id = message.property("application").toString(); // should be string already, but don't want to cast
+                String app_id = message.property("application").toString(); // should be string already, but don't want to cast
+                if (app_id == null) app_id = message.subject(); // TODO: remove for second version, leaving it in just to be safe
                 // if app_id is still null, the filename will look a bit funky but it's not a problem
                 log.info("App creation message received", keyValue("appId", app_id));
                 JsonNode appMessage = mapper.valueToTree(body);
@@ -196,7 +196,8 @@ public class ExnConnector {
             // thread so as not to block here.
             try {
                 ObjectNode json_body = mapper.convertValue(body, ObjectNode.class);
-                String app_id = message.subject();
+                String app_id = message.property("application").toString(); // should be string already, but don't want to cast
+                if (app_id == null) app_id = message.subject(); // TODO: remove for second version, leaving it in just to be safe
                 Main.logFile("solver-solution-" + app_id + ".json", json_body);
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
