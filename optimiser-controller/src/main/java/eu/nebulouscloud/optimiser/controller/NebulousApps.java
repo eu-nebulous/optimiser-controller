@@ -63,4 +63,18 @@ public class NebulousApps {
     public static synchronized Collection<NebulousApp> values() {
         return apps.values();
     }
+
+    /**
+     * Calculate a short, unique cluster name from the given application id.
+     * Currently, we use the first 5 characters of the application id followed
+     * by the current number of registered applications.  We deem the risk of
+     * two applications with identical UUID heads racing to register to be
+     * acceptable.
+     *
+     * @param applicationUuid the ID of an application that is not yet registered.
+     * @return a short string that is unique across all registered applications.
+     */
+    public static synchronized String calculateUniqueClusterName(String applicationUuid) {
+        return applicationUuid.substring(0, 5) + "-" + (apps.size() + 1);
+    }
 }

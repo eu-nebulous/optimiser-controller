@@ -13,9 +13,6 @@ import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,18 +31,18 @@ public class KubevelaAnalyzer {
      * component.  Note that this can be zero when the component should not be
      * deployed at all.  This can happen for example when there is a cloud and
      * an edge version of the component and only one of them should run.<p>
-     * 
+     *
      * We currently look for the following component trait:
-     * 
+     *
      * <pre>{@code
      * traits:
      *  - type: scaler
      *    properties:
      *      replicas: 2
      * }</pre>
-     * 
+     *
      * If this trait is not found for a component, its count will be 1.
-     * 
+     *
      * @param kubevela the parsed KubeVela file.
      * @return A map from component name to number of instances to generate.
      */
@@ -81,30 +78,30 @@ public class KubevelaAnalyzer {
     /**
      * Extract node requirements from a KubeVela file in a form we can send to
      * the SAL `findNodeCandidates` endpoint. <p>
-     * 
+     *
      * We read the following attributes for each component:
-     * 
+     *
      * - `properties.cpu`, `properties.requests.cpu`: round up to next integer
      *   and generate requirement `hardware.cores`
-     * 
+     *
      * - `properties.memory`, `properties.requests.memory`: Handle "200Mi",
      *   "0.2Gi" and bare number, convert to MB and generate requirement
      *   `hardware.memory`
-     * 
+     *
      * Notes:<p>
-     * 
+     *
      * - We add the requirement that OS family == Ubuntu.<p>
-     * 
+     *
      * - For the first version, we specify all requirements as "greater or
      *   equal", i.e., we might not find precisely the node candidates that
      *   are asked for. <p>
-     * 
+     *
      * - Related, KubeVela specifies "cpu" as a fractional value, while SAL
      *   wants the number of cores as a whole number.  We round up to the
      *   nearest integer and ask for "this or more" cores, since we might end
      *   up with needing, e.g., 3 cores, which is not a configuration commonly
      *   provided by cloud providers. <p>
-     * 
+     *
      * @param kubevela the parsed KubeVela file.
      * @return a map of component name to (potentially empty, except for OS
      *  family) list of requirements for that component.  No requirements mean

@@ -31,6 +31,7 @@ import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
+import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.Requirement;
 
 /**
@@ -51,6 +52,13 @@ public class NebulousApp {
      * a unique value.
      */
     @Getter private String name;
+
+    /**
+     * The cluster name.  This must be globally unique but should be short,
+     * since during deployment it will be used to create instance names, where
+     * AWS has a length restriction.
+     */
+    @Getter private String clusterName;
 
     // ----------------------------------------
     // App message parsing stuff
@@ -99,7 +107,7 @@ public class NebulousApp {
     // Deployment stuff
     /** The original app message. */
     @Getter private JsonNode originalAppMessage;
-    private ObjectNode original_kubevela;
+    private ObjectNode originalKubevela;
 
     /**
      * The current "generation" of deployment.  Initial deployment sets this
@@ -110,7 +118,7 @@ public class NebulousApp {
     private int deployGeneration = 0;
 
     /**
-     * Map of component name to machine name(s) deployed for that component.
+     * Map of component name to node name(s) deployed for that component.
      * Component names are defined in the KubeVela file.  We assume that
      * component names stay constant during redeployment, i.e., once an
      * application is deployed, its KubeVela file will not change.
@@ -119,9 +127,26 @@ public class NebulousApp {
      * specified in KubeVela.
      */
     @Getter
-    private Map<String, Set<String>> componentMachineNames = new HashMap<>();
+    private Map<String, Set<String>> componentNodeNames = new HashMap<>();
+    /**
+     * Map from node name to deployed edge or BYON node candidate.  We keep
+     * track of assigned edge candidates, since we do not want to
+     * doubly-assign edge nodes.  We also store the node name, so we can
+     * "free" the edge candidate when the current component gets redeployed
+     * and lets go of its edge node.  (We do not track cloud node candidates
+     * since these can be instantiated multiple times.)
+     */
+    @Getter
+    private Map<String, NodeCandidate> nodeEdgeCandidates = new HashMap<>();
+    /** Map of component name to its requirements, as currently deployed.
+      * Each replica of a component has identical requirements. */
+    @Getter @Setter
+    private Map<String, List<Requirement>> componentRequirements = new HashMap<>();
+    /** Map of component name to its replica count, as currently deployed. */
+    @Getter @Setter
+    private Map<String, Integer> componentReplicaCounts = new HashMap<>();
 
-    /** When an app gets deployed or redeployed, this is where we send the AMPL file */
+    /** When an app gets deployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
     // /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
     //  * already nodes running for us? */
@@ -158,8 +183,9 @@ public class NebulousApp {
     public NebulousApp(JsonNode app_message, ObjectNode kubevela, ExnConnector exnConnector) {
         this.UUID = app_message.at(uuid_path).textValue();
         this.name = app_message.at(name_path).textValue();
+        this.clusterName = NebulousApps.calculateUniqueClusterName(this.UUID);
         this.originalAppMessage = app_message;
-        this.original_kubevela = kubevela;
+        this.originalKubevela = kubevela;
         this.exnConnector = exnConnector;
         JsonNode parameters = app_message.at(variables_path);
         if (parameters.isArray()) {
@@ -305,7 +331,7 @@ public class NebulousApp {
      * cannot be followed
      */
     private JsonNode findPathInKubevela(String path) {
-        JsonNode result = original_kubevela.at(path);
+        JsonNode result = originalKubevela.at(path);
         return result.isMissingNode() ? null : result;
     }
 
@@ -326,7 +352,7 @@ public class NebulousApp {
      *  generated.
      */
     public ObjectNode rewriteKubevelaWithSolution(ObjectNode variableValues) {
-        ObjectNode freshKubevela = original_kubevela.deepCopy();
+        ObjectNode freshKubevela = originalKubevela.deepCopy();
         for (Map.Entry<String, JsonNode> entry : variableValues.properties()) {
             String key = entry.getKey();
             JsonNode replacementValue = entry.getValue();
@@ -390,7 +416,7 @@ public class NebulousApp {
             JsonNode variable = function.withArray("/expression/variables").get(0);
             String variableName = variable.get("value").asText();
             JsonPointer path = kubevelaVariablePaths.get(variableName);
-            JsonNode value = original_kubevela.at(path);
+            JsonNode value = originalKubevela.at(path);
             ObjectNode constant = constants.withObject(function.get("name").asText());
             constant.put("Variable", variableName);
             constant.set("Value", value);
@@ -422,17 +448,19 @@ public class NebulousApp {
     }
 
     /**
-     * Handle incoming solver message.
+     * Handle an incoming solver message.  If the message has a field {@code
+     * deploySolution} with value {@code true}, rewrite the original KubeVela
+     * file with the contained variable values and perform initial deployment
+     * or redeployment as appropriate.  Otherwise, ignore the message.
      *
      * @param solution The message from the solver, containing a field
      *  "VariableValues" that can be processed by {@link
      *  NebulousApp#rewriteKubevelaWithSolution}.
      */
     public void processSolution(ObjectNode solution) {
-        // TODO: check if the solution is for our application (check uuid) in
-        // message; pass it in
         if (!solution.get("DeploySolution").asBoolean(false)) {
-            // `asBoolean` returns its parameter if node cannot be converted to Boolean
+            // `asBoolean` returns its argument if node is missing or cannot
+            // be converted to Boolean
             return;
         }
         ObjectNode variables = solution.withObjectProperty("VariableValues");
@@ -456,10 +484,10 @@ public class NebulousApp {
     }
 
     /**
-     * Deploy an application, bypassing the solver.  Will deploy unmodified
-     * KubeVela, as given by the initial app creation message.
+     * Deploy an application, bypassing the solver.  This just deploys the
+     * unmodified KubeVela, as given by the initial app creation message.
      */
     public void deployUnmodifiedApplication() {
-        NebulousAppDeployer.deployApplication(this, original_kubevela);
+        NebulousAppDeployer.deployApplication(this, originalKubevela);
     }
 }

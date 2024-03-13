@@ -82,6 +82,10 @@ public class ExnConnector {
     public final SyncedPublisher findBrokerNodeCandidates;
     /** The defineCluster endpoint. */
     public final SyncedPublisher defineCluster;
+    /** The getCluster endpoint. */
+    public final SyncedPublisher getCluster;
+    /** The labelNodes endpoint. */
+    public final SyncedPublisher labelNodes;
     /** The deployCluster endpoint. */
     public final SyncedPublisher deployCluster;
     /** The deployApplication endpoint. */
@@ -109,6 +113,8 @@ public class ExnConnector {
         findSalNodeCandidates = new SyncedPublisher("findSalNodeCandidates", "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
         findBrokerNodeCandidates = new SyncedPublisher("findBrokerNodeCandidates", "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
         defineCluster = new SyncedPublisher("defineCluster", "eu.nebulouscloud.exn.sal.cluster.define", true, true);
+        getCluster = new SyncedPublisher("getCluster", "eu.nebulouscloud.exn.sal.cluster", true, true);
+        labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
         deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
         deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployApplication", true, true);
         scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
@@ -117,7 +123,15 @@ public class ExnConnector {
         conn = new Connector("optimiser_controller",
             callback,
             List.of(amplMessagePublisher,
-                findSalNodeCandidates, findBrokerNodeCandidates, defineCluster, deployCluster, deployApplication, scaleOut, scaleIn),
+                findSalNodeCandidates,
+                findBrokerNodeCandidates,
+                defineCluster,
+                getCluster,
+                labelNodes,
+                deployCluster,
+                deployApplication,
+                scaleOut,
+                scaleIn),
             List.of(
                 new Consumer("ui_app_messages", app_creation_channel,
                     new AppCreationMessageHandler(), true, true),
@@ -205,7 +219,10 @@ public class ExnConnector {
             try {
                 ObjectNode json_body = mapper.convertValue(body, ObjectNode.class);
                 String app_id = message.property("application").toString(); // should be string already, but don't want to cast
-                if (app_id == null) app_id = message.subject(); // TODO: remove for second version, leaving it in just to be safe
+                if (app_id == null) {
+                    log.warn("Received solver solution without 'application' message property, discarding it");
+                    return;
+                }
                 Main.logFile("solver-solution-" + app_id + ".json", json_body);
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
@@ -215,7 +232,6 @@ public class ExnConnector {
                 } else {
                     log.debug("Received solver solutions for application",
                         keyValue("appId", app_id));
-                    // TODO: check if solution should be deployed (it's a field in the message)
                     app.processSolution(json_body);
                 }
             } catch (Exception e) {
@@ -240,34 +256,32 @@ public class ExnConnector {
      * }
      * }</pre>
      *
-     * @param response The response from exn-middleware.
+     * @param responseMessage The response from exn-middleware.
      * @param appID The application ID, used for logging only.
      * @return The SAL response as a parsed JsonNode, or a node where {@code
      *  isMissingNode()} will return true if SAL reported an error.
      */
-    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> response, String appID) {
-        String body = (String)response.get("body");
-        JsonNode payload = mapper.missingNode();
+    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> responseMessage, String appID) {
+        JsonNode response = mapper.valueToTree(responseMessage);
+        String salRawResponse = response.at("/body").asText(); // it's already a string, asText() is for the type system
+        JsonNode metadata = response.at("/metaData");
+        JsonNode salResponse = mapper.missingNode(); // the data coming from SAL
 	try {
-	    payload = mapper.readTree(body);
+	    salResponse = mapper.readTree(salRawResponse);
 	} catch (JsonProcessingException e) {
-            log.error("Could not read message body as JSON: " + body, keyValue("appId", appID), e);
+            log.error("Could not read message body as JSON: body = '{}'", salRawResponse,
+                keyValue("appId", appID), e);
             return mapper.missingNode();
 	}
-        // These messages are listed in the {@code AbstractProcessor} class of
-        // the exn-middleware project.
-        if (Set.of("generic-exception-error",
-            "gateway-client-exception-error",
-            "gateway-server-exception-error")
-            .contains(payload.at("/key").asText())
-            && !payload.at("/message").isMissingNode()) {
-            log.error("exn-middleware-sal request failed with error type '{}' and message '{}'",
-                payload.at("/key").asText(),
-                payload.at("/message").asText(),
+        if (!metadata.at("/status").asText().startsWith("2")) {
+            // we only accept 200, 202, numbers of that nature
+            log.error("exn-middleware-sal request failed with error code '{}' and message '{}'",
+                metadata.at("/status"),
+                salResponse.at("/message").asText(),
                 keyValue("appId", appID));
             return mapper.missingNode();
         }
-        return payload;
+        return salResponse;
     }
 
     /**
@@ -425,11 +439,32 @@ public class ExnConnector {
      * @return The cluster definition, or null in case of error.
      */
     public JsonNode getCluster(String appID) {
-        Map<String, Object> msg;
-        msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID));
-        Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+        Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID));
+        Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, appID);
         return payload.isMissingNode() ? null : payload;
+    }
+
+    /**
+     * Label the nodes with given names with the given labels.
+     *
+     * @param appID the application ID.
+     * @param clusterID the cluster ID.
+     * @param labels A map from node name to label.
+     */
+    public boolean labelNodes(String appID, String clusterID, JsonNode labels) {
+        Map<String, Object> msg;
+	try {
+	    msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID),
+		"body", mapper.writeValueAsString(labels));
+	} catch (JsonProcessingException e) {
+            log.error("Could not convert JSON to string (this should never happen)",
+                keyValue("appId", appID), e);
+            return false;
+	}
+        Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        return payload.isMissingNode() ? false : true;
     }
 
     /**

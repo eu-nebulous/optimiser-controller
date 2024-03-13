@@ -1,10 +1,13 @@
 package eu.nebulouscloud.optimiser.controller;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.NodeCandidate;
@@ -57,8 +60,10 @@ public class NebulousAppDeployer {
     /**
      * Produce a fresh KubeVela specification with added node affinity traits.
      *
-     * We add the following trait to all components, except those with
-     * a replica count of 0:
+     * During deployment and redeployment, we label all nodes with {@code
+     * nebulouscloud.eu/<componentname>=true}.  (Note that with this scheme, a
+     * node can have labels for multiple components if desired.)  We add the
+     * following trait to all components:
      *
      * <pre>{@code
      * traits:
@@ -68,38 +73,43 @@ public class NebulousAppDeployer {
      *         required:
      *           nodeSelectorTerms:
      *           - matchExpressions:
-     *             - key: "kubernetes.io/hostname"
+     *             - key: "nebulouscloud.eu/<componentname>"
      *               operator: In
-     *               values: ["componentname-1", "componentname-2"]
+     *               values: "true"
      * }</pre>
      *
      * @param kubevela the KubeVela specification to modify. This parameter is
      *  not modified.
-     * @param componentMachineNames Map from component name to node names
-     *  where that component should be deployed.
      * @return a fresh KubeVela specification with added nodeAffinity traits.
      */
-    public static JsonNode addNodeAffinities(JsonNode kubevela, Map<String, Set<String>> componentMachineNames) {
+    public static JsonNode addNodeAffinities(JsonNode kubevela) {
         JsonNode result = kubevela.deepCopy();
         for (final JsonNode c : result.withArray("/spec/components")) {
-            if (componentMachineNames.getOrDefault(c.get("name").asText(), Set.of()).isEmpty()){
-                // Do not generate trait at all if we didn't deploy any
-                // machines.  This happens if replicas is 0
-                continue;
-            }
+            String name = c.get("name").asText();
             ArrayNode traits = c.withArray("traits");
             ObjectNode trait = traits.addObject();
             trait.put("type", "affinity");
             ArrayNode nodeSelectorTerms = trait.withArray("/properties/nodeAffinity/required/nodeSelectorTerms");
             ArrayNode matchExpressions = nodeSelectorTerms.addObject().withArray("matchExpressions");
             ObjectNode term = matchExpressions.addObject();
-            term.put("key", "kubernetes.io/hostname")
-                .put("operator", "In");
-            componentMachineNames
-                .getOrDefault(c.get("name").asText(), Set.of())
-                .forEach(nodename -> term.withArray("values").add(nodename));
+            term.put("key", "nebulouscloud.eu/" + name)
+                .put("operator", "In")
+                .withArray("values").add("true");
         }
         return result;
+    }
+
+    /**
+     * Create a globally-unique node name.
+     *
+     * @param clusterName the unique cluster name.
+     * @param componentName the KubeVela component name.
+     * @param deployGeneration 1 for initial deployment, increasing for each redeployment.
+     * @param nodeNumber the replica number of the component to be deployed on the node.
+     * @return a fresh node name.
+     */
+    private static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
+        return String.format("%s-%s-%s-%s", clusterName, componentName, deployGeneration, nodeNumber);
     }
 
     /**
@@ -117,8 +127,9 @@ public class NebulousAppDeployer {
      */
     public static void deployApplication(NebulousApp app, JsonNode kubevela) {
         String appUUID = app.getUUID();
+        String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
-        Set<NodeCandidate> chosenEdgeCandidates = new HashSet<>();
+        Map<String, NodeCandidate> edgeCandidates = app.getNodeEdgeCandidates();
         log.info("Starting initial deployment for application", keyValue("appId", appUUID));
 
         int deployGeneration = app.getDeployGeneration() + 1;
@@ -148,6 +159,7 @@ public class NebulousAppDeployer {
         Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
         Main.logFile("worker-counts-" + appUUID + ".txt", nodeCounts);
         Main.logFile("controller-requirements-" + appUUID + ".txt", controllerRequirements);
+
         // ----------------------------------------
         // 2. Find node candidates
 
@@ -177,13 +189,14 @@ public class NebulousAppDeployer {
 
         // Controller node
         log.debug("Deciding on controller node candidate", keyValue("appId", appUUID));
+        String masterNodeName = clusterName + "-masternode"; // safe because all component node names end with a number
         NodeCandidate masterNodeCandidate = null;
         if (controllerCandidates.size() > 0) {
             masterNodeCandidate = controllerCandidates.get(0);
             if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE)
                 .contains(masterNodeCandidate.getNodeCandidateType())) {
                 // Mark this candidate as already chosen
-                chosenEdgeCandidates.add(masterNodeCandidate);
+                edgeCandidates.put(masterNodeName, masterNodeCandidate);
             }
         } else {
             log.error("Empty node candidate list for controller, continuing without creating node",
@@ -192,49 +205,55 @@ public class NebulousAppDeployer {
 
         // Component nodes
         log.debug("Collecting worker nodes for {}", appUUID, keyValue("appId", appUUID));
-        Map<String, NodeCandidate> nodeNameToCandidate = new HashMap<>();
+        ArrayNode nodeLabels = mapper.createArrayNode();
+        Map<String, NodeCandidate> clusterNodes = new HashMap<>();;
+        // Here we collect multiple things:
+        // - The node names for each component, in the field
+        //   NebulousApp#componentNodeNames
+        // - Each node name and its candidate (clusterNodes), for
+        //   ExnConnector.createCluster
+        // - Each node name and its label (nodeLabels), for
+        //   ExnConnector.labelNodes
         for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
-            // Here we collect two things: the flat list (hostname ->
-            // candidate) to send to createCluster, and the per-component
-            // hostname sets that we remember in the app object.
             String componentName = e.getKey();
             int numberOfNodes = nodeCounts.get(componentName);
             Set<String> nodeNames = new HashSet<>();
-            for (int i = 1; i <= numberOfNodes; i++) {
-                String nodeName = String.format("%s-%s-%s", componentName, deployGeneration, i);
-                List<NodeCandidate> candidates = workerCandidates.get(componentName);
-
-                if (candidates.size() == 0) {
-                    log.error("Empty node candidate list for component ~s, continuing without creating node", componentName, keyValue("appId", appUUID));
-                    continue;
-                }
-
+            List<NodeCandidate> candidates = workerCandidates.get(componentName);
+            if (candidates.size() == 0) {
+                log.error("Empty node candidate list for component ~s, continuing without creating node", componentName, keyValue("appId", appUUID));
+                continue;
+            }
+            for (int nodeNumber = 1; nodeNumber <= numberOfNodes; nodeNumber++) {
+                String nodeName = createNodeName(clusterName, componentName, deployGeneration, nodeNumber);
                 NodeCandidate candidate = candidates.stream()
-                    .filter(each -> !chosenEdgeCandidates.contains(each))
+                    .filter(each -> !edgeCandidates.values().contains(each))
                     .findFirst()
                     .orElse(null);
-                if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
-                    // We could remove this candidate from `candidates` here,
-                    // to save skipping over already-assigned edge nodes for
-                    // the next replica of this component, but we don't want
-                    // to make assumptions on whether the candidate list can
-                    // be modified.  Note that we have to keep track of all
-                    // assigned edge nodes in any case, since they might be
-                    // candidates in subsequent components.
-                    chosenEdgeCandidates.add(candidate);
+                if (candidate == null) {
+                    log.error("No available node candidate for node {} of component {}", nodeNumber, componentName,
+                        keyValue("appId", appUUID));
+                    continue;
                 }
-                nodeNameToCandidate.put(nodeName, candidate);
+                if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
+                    edgeCandidates.put(nodeName, candidate);
+                }
+                clusterNodes.put(nodeName, candidate);
+                nodeLabels.addObject().put(nodeName, "nebulouscloud.eu/" + componentName + "=true");
                 nodeNames.add(nodeName);
             }
-            app.getComponentMachineNames().put(componentName, nodeNames);
+            app.getComponentNodeNames().put(componentName, nodeNames);
         }
-        Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentMachineNames());
-        Main.logFile("worker-nodes-" + appUUID + ".txt", nodeNameToCandidate);
+        Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentNodeNames());
+        Main.logFile("worker-nodes-" + appUUID + ".txt", clusterNodes);
+        try {
+            Main.logFile("worker-labels-" + appUUID + ".txt", mapper.writeValueAsString(nodeLabels));
+        } catch (JsonProcessingException e1) {
+            // ignore; the labelNodes method will report the same error later
+        }
 
         // ------------------------------------------------------------
         // 4. Create cluster
 
-        String masterNodeName = "masternode"; // safe because all component node names end with a number
         ObjectNode cluster = mapper.createObjectNode();
         cluster.put("name", appUUID)
             .put("master-node", masterNodeName);
@@ -245,21 +264,23 @@ public class NebulousAppDeployer {
                 .put("nodeCandidateId", masterNodeCandidate.getId())
                 .put("cloudId", masterNodeCandidate.getCloud().getId());
         }
-        nodeNameToCandidate.forEach((name, candidate) -> {
+        clusterNodes.forEach((name, candidate) -> {
                 nodes.addObject()
                     .put("nodeName", name)
                     .put("nodeCandidateId", candidate.getId())
                     .put("cloudId", candidate.getCloud().getId());
             });
-        boolean defineClusterSuccess = conn.defineCluster(appUUID, masterNodeName, null);
+        boolean defineClusterSuccess = conn.defineCluster(clusterName, masterNodeName, nodes);
+
+        boolean labelClusterSuccess = conn.labelNodes(appUUID, clusterName, nodeLabels);
 
         // ------------------------------------------------------------
         // 5. Deploy cluster
-        boolean deployClusterSuccess = conn.deployCluster(appUUID);
+        boolean deployClusterSuccess = conn.deployCluster(clusterName);
 
         // ------------------------------------------------------------
         // 6. Rewrite KubeVela
-        JsonNode rewritten = addNodeAffinities(kubevela, app.getComponentMachineNames());
+        JsonNode rewritten = addNodeAffinities(kubevela);
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
             rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
@@ -276,7 +297,9 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 8. Update NebulousApp state
 
-        // TODO: store rewritten KubeVela in application object
+        app.setComponentRequirements(workerRequirements);
+        app.setComponentReplicaCounts(nodeCounts);
+        app.setDeployedKubevela(rewritten);
     }
 
     /**
@@ -293,7 +316,9 @@ public class NebulousAppDeployer {
      */
     public static void redeployApplication(NebulousApp app, ObjectNode kubevela) {
         String appUUID = app.getUUID();
+        String clusterName = app.getClusterName();
         int deployGeneration = app.getDeployGeneration() + 1;
+        ExnConnector conn = app.getExnConnector();
         app.setDeployGeneration(deployGeneration);
 
         log.info("Starting redeployment generation {}", deployGeneration, keyValue("appId", appUUID));
@@ -305,22 +330,139 @@ public class NebulousAppDeployer {
         //    nodes by comparing against previous deployment.
         // 3. Find node candidates for new nodes (from Step 3) according to
         //    their requirements (from Step 1)
-        // 5. Rewrite KubeVela with updated node affinities
-        // 6. Call clusterScaleOut endpoint with list of added nodes
+        // 4. Rewrite KubeVela with updated node affinities
+        // 5. Call clusterScaleOut endpoint with list of added nodes
+        // 6. Call labelNodes for added nodes
         // 7. Call deployApplication with rewritten KubeVela
         // 8. call clusterScaleIn endpoint with list of removed node names
         Main.logFile("kubevela-updated-from-solver-" + appUUID + ".yaml", kubevela);
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> workerRequirements = KubevelaAnalyzer.getRequirements(kubevela);
-        Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getRequirements(kubevela);
+        Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(kubevela);
 
-        
+        Map<String, List<Requirement>> oldComponentRequirements = app.getComponentRequirements();
+        Map<String, Integer> oldComponentReplicaCounts = app.getComponentReplicaCounts();
 
-        Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
-        Main.logFile("worker-counts-" + appUUID + ".txt", nodeCounts);
-        
+        ArrayNode nodeLabels = mapper.createArrayNode();
+        List<String> nodesToRemove = new ArrayList<>();
+        ArrayNode nodesToAdd = mapper.createArrayNode();
+
+        Map<String, NodeCandidate> edgeCandidates = app.getNodeEdgeCandidates();
+
+        // We know that the component names are identical and that the maps
+        // contain all keys, so it's safe to iterate through the keys of one
+        // map and use it in all maps.
+        for (String componentName : componentRequirements.keySet()) {
+            // The variable `allMachineNames` shall, at the end of the loop
+            // body, contain the machine names for this component.
+            Set<String> allMachineNames;
+            List<Requirement> oldR = oldComponentRequirements.get(componentName);
+            List<Requirement> newR = componentRequirements.get(componentName);
+            if (oldR.containsAll(newR) && newR.containsAll(oldR)) {
+                // Requirements did not change
+                int oldCount = oldComponentReplicaCounts.get(componentName);
+                int newCount = componentReplicaCounts.get(componentName);
+                if (newCount > oldCount) {
+                    int nAdd = newCount - oldCount;
+                    allMachineNames = app.getComponentNodeNames().get(componentName);
+                    log.debug("Adding {} nodes to component {}", nAdd, componentName,
+                        keyValue("appId", appUUID));
+                    List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
+                    if (candidates.isEmpty()) {
+                        log.error("Could not find node candidates for requirements: {}",
+                            newR, keyValue("appId", appUUID));
+                        continue;
+                    }
+                    for (int nodeNumber = 1; nodeNumber <= nAdd; nodeNumber++) {
+                        String nodeName = createNodeName(clusterName, componentName, deployGeneration, nodeNumber);
+                        NodeCandidate candidate = candidates.stream()
+                            .filter(each -> !edgeCandidates.values().contains(each))
+                            .findFirst()
+                            .orElse(null);
+                        if (candidate == null) {
+                            log.error("No available node candidate for node {} of component {}", nodeNumber, componentName,
+                                keyValue("appId", appUUID));
+                            continue;
+                        }
+                        if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
+                            edgeCandidates.put(nodeName, candidate);
+                        }
+                        nodesToAdd.addObject()
+                            .put("nodeName", nodeName)
+                            .put("nodeCandidateId", candidate.getId())
+                            .put("cloudId", candidate.getCloud().getId());
+                        nodeLabels.addObject()
+                            .put(nodeName, "nebulouscloud.eu/" + componentName + "=true");
+                        allMachineNames.add(nodeName);
+                    }
+                } else if (newCount < oldCount) {
+                    // We could be smarter and compute all scaleIn operations
+                    // first, which would potentially free edge nodes that we
+                    // could then reassign during subsequent scaleOut.
+                    // Something for version 2.
+                    int nRemove = oldCount - newCount;
+                    log.debug("Removing {} nodes from component {}", nRemove, componentName,
+                        keyValue("appId", appUUID));
+                    // We could be a bit smarter here: remove cloud instances
+                    // first and keep edge nodes in use, on the assumption
+                    // that it's better to keep using edge nodes since cloud
+                    // nodes incur a cost.
+                    allMachineNames = app.getComponentNodeNames().get(componentName);
+                    Set<String> removedInstances = allMachineNames.stream().limit(nRemove).collect(Collectors.toSet());
+                    removedInstances.forEach(edgeCandidates::remove);
+                    allMachineNames.removeAll(removedInstances);
+                    nodesToRemove.addAll(removedInstances);
+                } else {
+                    log.debug("Nothing changed for component {}", componentName, keyValue("appId", appUUID));
+                    allMachineNames = app.getComponentNodeNames().get(componentName);
+                }
+            } else {
+                nodesToRemove.addAll(app.getComponentNodeNames().get(componentName));
+                allMachineNames = new HashSet<>();
+                log.debug("Redeploying all nodes of component {}", componentName,
+                    keyValue("appId", appUUID));
+                List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
+                if (candidates.size() == 0) {
+                    log.error("Empty node candidate list for component ~s, continuing without creating node", componentName,
+                        keyValue("appId", appUUID));
+                    continue;
+                }
+                for (int nodeNumber = 1; nodeNumber <= componentReplicaCounts.get(componentName); nodeNumber++) {
+                    String nodeName = createNodeName(clusterName, componentName, deployGeneration, nodeNumber);
+                    NodeCandidate candidate = candidates.stream()
+                        .filter(each -> !edgeCandidates.values().contains(each))
+                        .findFirst()
+                        .orElse(null);
+                    if (candidate == null) {
+                        log.error("No available node candidate for node {} of component {}", nodeNumber, componentName,
+                            keyValue("appId", appUUID));
+                        continue;
+                    }
+                    if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
+                        edgeCandidates.put(nodeName, candidate);
+                    }
+                    nodesToAdd.addObject()
+                            .put("nodeName", nodeName)
+                            .put("nodeCandidateId", candidate.getId())
+                            .put("cloudId", candidate.getCloud().getId());
+                    allMachineNames.add(nodeName);
+                }
+            }
+            app.getComponentNodeNames().put(componentName, allMachineNames);
+        }
+
+        Main.logFile("worker-requirements-" + appUUID + ".txt", componentRequirements);
+        Main.logFile("worker-counts-" + appUUID + ".txt", componentReplicaCounts);
+
+        // Call `scaleOut` with nodesToAdd
+
+        // Call `labelNodes` with nodeLabels
+
+        // Call `deployApplication`
+
+        // Call `scaleIn` with nodesToRemove
     }
 
 }
