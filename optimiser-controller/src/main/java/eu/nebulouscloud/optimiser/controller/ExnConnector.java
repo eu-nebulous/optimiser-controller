@@ -23,18 +23,23 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 
 /**
  * A class that connects to the EXN middleware and starts listening to
  * messages from the ActiveMQ server.
  *
- * This class will drive the main behavior of the optimiser-controller: the
+ * <p>This class will drive the main behavior of the optimiser-controller: the
  * `Consumer` objects created in {@link ExnConnector#ExnConnector} receive
  * incoming messages and react to them, sending out messages in turn.
+ *
+ * <p>The class also provides methods wrapping the exn-sal middleware
+ * endpoints, converting from raw JSON responses to sal-common datatypes where
+ * possible.
  */
 @Slf4j
 public class ExnConnector {
@@ -67,31 +72,24 @@ public class ExnConnector {
     // ----------------------------------------
     // Communication with SAL
 
-    // We define these publishers here instead of in the `SalConnector`
-    // class since they need to be registered here and I'm afraid I will
-    // forget to do it when adding new endpoints over in another class.
-
     /** The createJob endpoint. */
-    public static final SyncedPublisher createJob
-        = new SyncedPublisher("createJob",
-            "eu.nebulouscloud.exn.sal.job.post", true, true);
+    public final SyncedPublisher createJob;
     /** The findNodeCandidates endpoint.  Should not be used during normal
       * operation--ask the broker instead. */
-    public static final SyncedPublisher findNodeCandidates
-        = new SyncedPublisher("findNodeCandidates",
-            "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
-    /** The findNodeCandidates endpoint (Broker's version). */
-    public static final SyncedPublisher findBrokerNodeCandidates
-        = new SyncedPublisher("findBrokerNodeCandidates",
-            "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
-    /** The addNodes endpoint. */
-    public static final SyncedPublisher addNodes
-        = new SyncedPublisher("addNodes",
-            "eu.nebulouscloud.exn.sal.nodes.add", true, true);
-    /** The submitJob endpoint. */
-    public static final SyncedPublisher submitJob
-        = new SyncedPublisher("submitJob",
-            "eu.nebulouscloud.exn.sal.job.update", true, true);
+    public final SyncedPublisher findSalNodeCandidates;
+    /** The findNodeCandidates endpoint (Broker's version).  This one adds
+      * attributes "score", "rank" to the answer it gets from SAL. */
+    public final SyncedPublisher findBrokerNodeCandidates;
+    /** The defineCluster endpoint. */
+    public final SyncedPublisher defineCluster;
+    /** The deployCluster endpoint. */
+    public final SyncedPublisher deployCluster;
+    /** The deployApplication endpoint. */
+    public final SyncedPublisher deployApplication;
+    /** The scaleOut endpoint. */
+    public final SyncedPublisher scaleOut;
+    /** The scaleIn endpoint. */
+    public final SyncedPublisher scaleIn;
 
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
@@ -107,12 +105,19 @@ public class ExnConnector {
      */
     public ExnConnector(String host, int port, String name, String password, ConnectorHandler callback) {
         amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
+        createJob = new SyncedPublisher("createJob", "eu.nebulouscloud.exn.sal.job.post", true, true);
+        findSalNodeCandidates = new SyncedPublisher("findSalNodeCandidates", "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
+        findBrokerNodeCandidates = new SyncedPublisher("findBrokerNodeCandidates", "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
+        defineCluster = new SyncedPublisher("defineCluster", "eu.nebulouscloud.exn.sal.cluster.define", true, true);
+        deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
+        deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployApplication", true, true);
+        scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
+        scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
 
         conn = new Connector("optimiser_controller",
             callback,
-            // List.of(new Publisher("config", "config", true)),
             List.of(amplMessagePublisher,
-                createJob, findNodeCandidates, findBrokerNodeCandidates, addNodes, submitJob),
+                findSalNodeCandidates, findBrokerNodeCandidates, defineCluster, deployCluster, deployApplication, scaleOut, scaleIn),
             List.of(
                 new Consumer("ui_app_messages", app_creation_channel,
                     new AppCreationMessageHandler(), true, true),
@@ -140,7 +145,7 @@ public class ExnConnector {
     /**
      * Disconnect from ActiveMQ and stop all Consumer processes.  Also count
      * down the countdown latch passed in the {@link
-     * ExnConnector#start(CountDownLatch)} method if applicable.
+     * #start(CountDownLatch)} method if applicable.
      */
     public synchronized void stop() {
         conn.stop();
@@ -149,6 +154,9 @@ public class ExnConnector {
         }
         log.debug("ExnConnector stopped.");
     }
+
+    // ----------------------------------------
+    // Message Handlers
 
     /**
      * A message handler that processes app creation messages coming in via
@@ -215,5 +223,335 @@ public class ExnConnector {
             }
         }
     }
+
+    // ----------------------------------------
+    // Communication with SAL
+
+    /**
+     * Extract and check the SAL response from an exn-middleware response.
+     * The SAL response will be valid JSON encoded as a string in the "body"
+     * field of the response.  If the response is of the following form, log
+     * an error and return a missing node instead:
+     *
+     * <pre>{@code
+     * {
+     *   "key": <known exception key>,
+     *   "message": "some error message"
+     * }
+     * }</pre>
+     *
+     * @param response The response from exn-middleware.
+     * @param appID The application ID, used for logging only.
+     * @return The SAL response as a parsed JsonNode, or a node where {@code
+     *  isMissingNode()} will return true if SAL reported an error.
+     */
+    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> response, String appID) {
+        String body = (String)response.get("body");
+        JsonNode payload = mapper.missingNode();
+	try {
+	    payload = mapper.readTree(body);
+	} catch (JsonProcessingException e) {
+            log.error("Could not read message body as JSON: " + body, keyValue("appId", appID), e);
+            return mapper.missingNode();
+	}
+        // These messages are listed in the {@code AbstractProcessor} class of
+        // the exn-middleware project.
+        if (Set.of("generic-exception-error",
+            "gateway-client-exception-error",
+            "gateway-server-exception-error")
+            .contains(payload.at("/key").asText())
+            && !payload.at("/message").isMissingNode()) {
+            log.error("exn-middleware-sal request failed with error type '{}' and message '{}'",
+                payload.at("/key").asText(),
+                payload.at("/message").asText(),
+                keyValue("appId", appID));
+            return mapper.missingNode();
+        }
+        return payload;
+    }
+
+    /**
+     * Get list of node candidates from the resource broker that fulfill the
+     * given requirements, and sort them by rank and score so that better node
+     * candidates come first in the result.
+     *
+     * <p>A candidate is better than another one if it has a lower rank or, if
+     * the rank is equal, a higher score.
+     *
+     * @param requirements The list of requirements.
+     * @param appID The application ID.
+     * @return A sorted List containing node candidates, better candidates
+     *  first.
+     */
+    public List<NodeCandidate> findNodeCandidates(List<Requirement> requirements, String appID) {
+        Map<String, Object> msg;
+        try {
+            msg = Map.of(
+                "metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(requirements));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert requirements list to JSON string (this should never happen)",
+                keyValue("appId", appID), e);
+            return null;
+        }
+        Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
+        // Note: we do not call extractPayloadFromExnResponse here, since this
+        // response does not come from the exn-middleware.
+        ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+        // Note: what we would really like to do here is something like:
+        //     return Arrays.asList(mapper.readValue(response, NodeCandidate[].class));
+        // But since the broker adds two attributes, the array elements cannot
+        // be deserialized into org.ow2.proactive.sal.model.NodeCandidate
+        // objects.
+        List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body"), JsonNode[].class));
+        result.sort((JsonNode c1, JsonNode c2) -> {
+                long rank1 = c1.at("/rank").longValue();
+                long rank2 = c2.at("/rank").longValue();
+                double score1 = c1.at("/score").doubleValue();
+                double score2 = c2.at("/score").doubleValue();
+                // We return < 0 if c1 < c2.  Since we want to sort better
+                // candidates first, c1 < c2 if rank is lower or rank is equal
+                // and score is higher. (Lower rank = better, higher score =
+                // better.)
+                if (rank1 != rank2) return Math.toIntExact(rank1 - rank2);
+                else return Math.toIntExact(Math.round(score2 - score1));
+            });
+        return result.stream()
+            .map(candidate ->
+                mapper.convertValue(
+                    ((ObjectNode)candidate).deepCopy().remove(List.of("score", "rank")),
+                    NodeCandidate.class))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Get list of node candidates from the resource broker that fulfil the
+     * given requirements.
+     *
+     * <p>Note that we cannot convert the result to a list containing {@code
+     * org.ow2.proactive.sal.model.NodeCandidate} instances, since the broker
+     * adds the additional fields {@code score} and {@code ranking}.  Instead
+     * we return a JSON {@code ArrayNode} containing {@code ObjectNode}s in
+     * the format specified at
+     * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/nodecandidates-endpoints.md#71--filter-node-candidates-endpoint
+     * but with these two additional attributes.
+     *
+     * @param requirements The list of requirements.
+     * @param appID The application ID.
+     * @return A list containing node candidates, or null in case of error.
+     */
+    public List<NodeCandidate> findNodeCandidatesFromSal(List<Requirement> requirements, String appID) {
+        Map<String, Object> msg;
+        try {
+            msg = Map.of(
+                "metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(requirements));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert requirements list to JSON string (this should never happen)",
+                keyValue("appId", appID), e);
+            return null;
+        }
+        Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        if (payload.isMissingNode()) return null;
+        try {
+	    return Arrays.asList(mapper.treeToValue(payload, NodeCandidate[].class));
+	} catch (JsonProcessingException e) {
+            log.error("Could not decode node candidates payload", keyValue("appId", appID), e);
+            return null;
+	}
+    }
+
+    /**
+     * Define a cluster with the given name and node list.
+     *
+     * <p>The nodes are passed in a JSON array containing objects of the
+     * following shape:
+     *
+     * <pre>{@code
+     * {
+     *   "nodeName": "some-component",
+     *   "nodeCandidateId": "some-candidate-id",
+     *   "cloudId": "some-cloud-id"
+     * }
+     * }</pre>
+     *
+     * <p>Each value for {@code nodeName} has to be unique, and should be
+     * either the name of the master node or the name of a node that will
+     * subsequently be referenced in the affinity trait of the modified
+     * kubevela file (see {@link NebulousAppDeployer#addNodeAffinities()}).
+     *
+     * <p>The values for {@code nodeCandidateId} and {@code cloudId} come from
+     * the return value of a call to {@link #findNodeCandidates()}.
+     *
+     * <p>Note that this method could be rewritten to accept the nodes as a
+     * {@code List<org.ow2.proactive.sal.model.IaasNode>} instead, if that is
+     * more convenient.
+     *
+     * @param appID The application's id, used to name the cluster.
+     * @param masterNodeName The name of the master node.
+     * @param nodes A JSON array containing the node definitions.
+     * @return true if the cluster was successfully defined, false otherwise.
+     */
+    public boolean defineCluster(String appID, String masterNodeName, ArrayNode nodes) {
+        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        ObjectNode body = mapper.createObjectNode()
+            .put("name", appID)
+            .put("master-node", masterNodeName);
+        body.putArray("nodes").addAll(nodes);
+        Map<String, Object> msg;
+        try {
+            msg = Map.of("metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(body));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert JSON to string (this should never happen)",
+                keyValue("appId", appID), e);
+            return false;
+        }
+        Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        return payload.asBoolean();
+        // TODO: check if we still need to unwrap this; see
+        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
+        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
+        // https://bugs.launchpad.net/nebulous/+bug/2055053
+        // return payload.at("/success").asBoolean();
+    }
+
+    /**
+     * Get the definition of a cluster created by {@link #defineCluster}.
+     *
+     * @param appID The application ID, as used to define the cluster.
+     * @return The cluster definition, or null in case of error.
+     */
+    public JsonNode getCluster(String appID) {
+        Map<String, Object> msg;
+        msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID));
+        Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        return payload.isMissingNode() ? null : payload;
+    }
+
+    /**
+     * Deploy a cluster created by {@link #defineCluster}.
+     *
+     * @param appID The application's id, used to name the cluster.
+     * @return true if the cluster was successfully deployed, false otherwise.
+     */
+    public boolean deployCluster(String appID) {
+        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        ObjectNode body = mapper.createObjectNode()
+            .put("applicationId", appID);
+        Map<String, Object> msg;
+        try {
+            msg = Map.of("metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(body));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert JSON to string (this should never happen)",
+                keyValue("appId", appID), e);
+            return false;
+        }
+        Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        return payload.asBoolean();
+        // TODO: check if we still need to unwrap this; see
+        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
+        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
+        // https://bugs.launchpad.net/nebulous/+bug/2055053
+        // return payload.at("/success").asBoolean();
+    }
+
+    /**
+     * Submit a KubeVela file to a deployed cluster.
+     *
+     * @param appID The application's id.
+     * @param kubevela The KubeVela file, with node affinity traits
+     *  corresponding to the cluster definintion.
+     * @return true if the application was successfully deployed, false otherwise.
+     */
+    public boolean deployApplication(String appID, String kubevela) {
+        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        ObjectNode body = mapper.createObjectNode()
+            .put("applicationId", appID)
+            .put("KubevelaYaml", kubevela);
+        Map<String, Object> msg;
+        try {
+            msg = Map.of("metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(body));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert JSON to string (this should never happen)",
+                keyValue("appId", appID), e);
+            return false;
+        }
+        Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        return payload.asBoolean();
+        // TODO: check if we still need to unwrap this; see
+        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
+        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
+        // https://bugs.launchpad.net/nebulous/+bug/2055053
+        // return payload.at("/success").asBoolean();
+    }
+
+    /**
+     * Add new nodes to a deployed cluster.
+     *
+     * <p>The new nodes are specified in the same way as in {@link
+     * #defineCluster()}.
+     *
+     * @param appID The application's id.
+     * @param additionalWorkers The additional nodes to add.
+     */
+    // TODO: deserialize response into sal-common `Cluster`
+    public void scaleOut(String appID, ArrayNode additionalNodes) {
+        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        ObjectNode body = mapper.createObjectNode()
+            .put("applicationId", appID);
+        body.putArray("workers").addAll(additionalNodes);
+        Map<String, Object> msg;
+        try {
+            msg = Map.of("metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(body));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert JSON to string (this should never happen)",
+                keyValue("appId", appID), e);
+            return;
+        }
+        Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
+        // Called for side-effect only; we want to log errors
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+    }
+
+    /**
+     * Remove nodes from a deployed cluster.
+     *
+     * @param appID The application's id.
+     * @param superfluousNodes The names of nodes to be removed.
+     * @return true if the call was successful, false otherwise.
+     */
+    public boolean scaleIn(String appID, List<String> superfluousNodes) {
+        // NOTE: not yet defined in
+        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        ArrayNode body = mapper.createArrayNode();
+        superfluousNodes.forEach(nodeName -> body.add(nodeName));
+        Map<String, Object> msg;
+        try {
+            msg = Map.of("metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(body));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert JSON to string (this should never happen)",
+                keyValue("appId", appID), e);
+            return false;
+        }
+        Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        return payload.asBoolean();
+        // TODO: check if we still need to unwrap this; see
+        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
+        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
+        // https://bugs.launchpad.net/nebulous/+bug/2055053
+        // return payload.at("/success").asBoolean();
+    }
+
 
 }

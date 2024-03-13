@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 public class NebulousApps {
-    
+
     /** The global app registry. */
     // (Putting this here until we find a better place.)
     private static final Map<String, NebulousApp> apps = new ConcurrentHashMap<String, NebulousApp>();
