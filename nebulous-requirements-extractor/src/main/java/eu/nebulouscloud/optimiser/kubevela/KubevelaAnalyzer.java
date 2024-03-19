@@ -155,7 +155,7 @@ public class KubevelaAnalyzer {
                 // Fall-through: we rewrote the KubeVela file and didn't add
                 // the "Mi" suffix, but it's a number
                 if (sal_memory != null) {
-                    reqs.add(new AttributeRequirement("hardware", "memory",
+                    reqs.add(new AttributeRequirement("hardware", "ram",
                         RequirementOperator.GEQ, sal_memory));
                 }
             }

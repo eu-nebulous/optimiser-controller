@@ -53,8 +53,8 @@ public class NebulousAppDeployer {
             // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/nc/NodeCandidateUtils.java#L159
             new AttributeRequirement("image", "operatingSystem.family",
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
-            new AttributeRequirement("hardware", "memory", RequirementOperator.GEQ, "4096"),
-            new AttributeRequirement("hardware", "cpu", RequirementOperator.GEQ, "4"));
+            new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "4096"),
+            new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
     }
 
     /**
