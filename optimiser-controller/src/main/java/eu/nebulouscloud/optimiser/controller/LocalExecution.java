@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
 
@@ -30,6 +31,18 @@ public class LocalExecution implements Callable<Integer> {
     @Parameters(description = "The file containing a JSON app creation message")
     private Path app_creation_msg;
 
+    @Option(names = { "--deploy" },
+        description = "Deploy application (default true).",
+        defaultValue = "true", fallbackValue = "true",
+        negatable = true)
+    private boolean deploy;
+
+    @Option(names = { "--ampl" },
+        description = "Send AMPL file to solver (default true).",
+        defaultValue = "true", fallbackValue = "true",
+        negatable = true)
+    private boolean sendAMPL;
+
     @Override public Integer call() {
         ObjectMapper mapper = new ObjectMapper();
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
@@ -46,13 +59,16 @@ public class LocalExecution implements Callable<Integer> {
         }
         NebulousApp app = NebulousApp.newFromAppMessage(msg, connector);
         if (connector != null) {
-            log.debug("Sending AMPL to channel {}", connector.getAmplMessagePublisher());
-            app.sendAMPL();
-            // skip for now until the endpoints are ready and the exn middleware is running
-            // app.deployUnmodifiedApplication();
+            if (sendAMPL) {
+                log.debug("Sending AMPL to channel {}", connector.getAmplMessagePublisher());
+                app.sendAMPL();
+                System.out.println(AMPLGenerator.generateAMPL(app));
+            }
+            if (deploy) {
+                log.debug("Deploying application", connector.getAmplMessagePublisher());
+                app.deployUnmodifiedApplication();
+            }
         }
-        System.out.println(AMPLGenerator.generateAMPL(app));
-        // TODO: wait for solver reply here?
         if (connector != null) {
             connector.stop();
         }

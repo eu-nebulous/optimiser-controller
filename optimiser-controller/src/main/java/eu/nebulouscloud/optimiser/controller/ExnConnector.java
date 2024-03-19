@@ -403,27 +403,24 @@ public class ExnConnector {
      * }
      * }</pre>
      *
-     * <p>Each value for {@code nodeName} has to be unique, and should be
-     * either the name of the master node or the name of a node that will
-     * subsequently be referenced in the affinity trait of the modified
+     * <p>Each value for {@code nodeName} has to be globally unique, and
+     * should be either the name of the master node or the name of a node that
+     * will subsequently be referenced in the affinity trait of the modified
      * kubevela file (see {@link NebulousAppDeployer#addNodeAffinities()}).
      *
      * <p>The values for {@code nodeCandidateId} and {@code cloudId} come from
      * the return value of a call to {@link #findNodeCandidates()}.
      *
-     * <p>Note that this method could be rewritten to accept the nodes as a
-     * {@code List<org.ow2.proactive.sal.model.IaasNode>} instead, if that is
-     * more convenient.
-     *
-     * @param appID The application's id, used to name the cluster.
+     * @param appID The application's id, used only for logging.
+     * @param clusterName The cluster name.
      * @param masterNodeName The name of the master node.
-     * @param nodes A JSON array containing the node definitions.
+     * @param nodes A JSON array containing the node definitions, including the master node.
      * @return true if the cluster was successfully defined, false otherwise.
      */
-    public boolean defineCluster(String appID, String masterNodeName, ArrayNode nodes) {
+    public boolean defineCluster(String appID, String clusterName, String masterNodeName, ArrayNode nodes) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
         ObjectNode body = mapper.createObjectNode()
-            .put("name", appID)
+            .put("name", clusterName)
             .put("master-node", masterNodeName);
         body.putArray("nodes").addAll(nodes);
         Map<String, Object> msg;
@@ -438,11 +435,6 @@ public class ExnConnector {
         Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, appID);
         return payload.asBoolean();
-        // TODO: check if we still need to unwrap this; see
-        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
-        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
-        // https://bugs.launchpad.net/nebulous/+bug/2055053
-        // return payload.at("/success").asBoolean();
     }
 
     /**
@@ -483,62 +475,48 @@ public class ExnConnector {
     /**
      * Deploy a cluster created by {@link #defineCluster}.
      *
-     * @param appID The application's id, used to name the cluster.
+     * @param appID The application's id, used for logging only.
+     * @param clusterName The name of the cluster.
      * @return true if the cluster was successfully deployed, false otherwise.
      */
-    public boolean deployCluster(String appID) {
+    public boolean deployCluster(String appID, String clusterName) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
-        ObjectNode body = mapper.createObjectNode()
-            .put("applicationId", appID);
-        Map<String, Object> msg;
-        try {
-            msg = Map.of("metaData", Map.of("user", "admin"),
-                "body", mapper.writeValueAsString(body));
-        } catch (JsonProcessingException e) {
-            log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), e);
-            return false;
-        }
+        Map<String, Object> msg = Map.of("metaData",
+            Map.of("user", "admin", "clusterName", clusterName));
         Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, appID);
         return payload.asBoolean();
-        // TODO: check if we still need to unwrap this; see
-        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
-        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
-        // https://bugs.launchpad.net/nebulous/+bug/2055053
-        // return payload.at("/success").asBoolean();
     }
 
     /**
      * Submit a KubeVela file to a deployed cluster.
      *
      * @param appID The application's id.
+     * @param clusterName The name of the cluster.
+     * @param appName The name of the application.
      * @param kubevela The KubeVela file, with node affinity traits
-     *  corresponding to the cluster definintion.
-     * @return true if the application was successfully deployed, false otherwise.
+     *  corresponding to the cluster definintion, serialized into a string.
+     * @return the ProActive job ID, or -1 in case of failure.
      */
-    public boolean deployApplication(String appID, String kubevela) {
-        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+    public long deployApplication(String appID, String clusterName, String appName, String kubevela) {
         ObjectNode body = mapper.createObjectNode()
-            .put("applicationId", appID)
-            .put("KubevelaYaml", kubevela);
+            .put("appFile", kubevela)
+            .put("packageManager", "kubevela")
+            .put("appName", appName)
+            .put("action", "apply")
+            .put("flags", "");
         Map<String, Object> msg;
         try {
-            msg = Map.of("metaData", Map.of("user", "admin"),
+            msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName),
                 "body", mapper.writeValueAsString(body));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
                 keyValue("appId", appID), e);
-            return false;
+            return -1;
         }
         Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, appID);
-        return payload.asBoolean();
-        // TODO: check if we still need to unwrap this; see
-        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
-        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
-        // https://bugs.launchpad.net/nebulous/+bug/2055053
-        // return payload.at("/success").asBoolean();
+        return payload.asLong();
     }
 
     /**

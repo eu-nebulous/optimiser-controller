@@ -255,7 +255,7 @@ public class NebulousAppDeployer {
         // 4. Create cluster
 
         ObjectNode cluster = mapper.createObjectNode();
-        cluster.put("name", appUUID)
+        cluster.put("name", clusterName)
             .put("master-node", masterNodeName);
         ArrayNode nodes = cluster.withArray("nodes");
         if (masterNodeCandidate != null) {
@@ -270,13 +270,13 @@ public class NebulousAppDeployer {
                     .put("nodeCandidateId", candidate.getId())
                     .put("cloudId", candidate.getCloud().getId());
             });
-        boolean defineClusterSuccess = conn.defineCluster(clusterName, masterNodeName, nodes);
+        boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, masterNodeName, nodes);
 
         boolean labelClusterSuccess = conn.labelNodes(appUUID, clusterName, nodeLabels);
 
         // ------------------------------------------------------------
         // 5. Deploy cluster
-        boolean deployClusterSuccess = conn.deployCluster(clusterName);
+        boolean deployClusterSuccess = conn.deployCluster(appUUID, clusterName);
 
         // ------------------------------------------------------------
         // 6. Rewrite KubeVela
@@ -292,7 +292,7 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 7. Deploy application
 
-        // TODO: call deployApplication endpoint
+        long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
 
         // ------------------------------------------------------------
         // 8. Update NebulousApp state
