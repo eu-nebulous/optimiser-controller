@@ -323,12 +323,19 @@ public class ExnConnector {
                 long rank2 = c2.at("/rank").longValue();
                 double score1 = c1.at("/score").doubleValue();
                 double score2 = c2.at("/score").doubleValue();
+                int cpu1 = c1.at("/hardware/cores").intValue();
+                int cpu2 = c2.at("/hardware/cores").intValue();
+                int ram1 = c1.at("/hardware/ram").intValue();
+                int ram2 = c2.at("/hardware/ram").intValue();
                 // We return < 0 if c1 < c2.  Since we want to sort better
                 // candidates first, c1 < c2 if rank is lower or rank is equal
                 // and score is higher. (Lower rank = better, higher score =
-                // better.)
+                // better.)  Afterwards we rank lower hardware requirements
+                // better than higher ones.
                 if (rank1 != rank2) return Math.toIntExact(rank1 - rank2);
-                else return Math.toIntExact(Math.round(score2 - score1));
+                else if (score2 != score1) return Math.toIntExact(Math.round(score2 - score1));
+                else if (cpu1 != cpu2) return cpu1 - cpu2;
+                else return ram1 - ram2;
             });
         return result.stream()
             .map(candidate ->
@@ -368,12 +375,18 @@ public class ExnConnector {
         Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, appID);
         if (payload.isMissingNode()) return null;
-        try {
-	    return Arrays.asList(mapper.treeToValue(payload, NodeCandidate[].class));
-	} catch (JsonProcessingException e) {
-            log.error("Could not decode node candidates payload", keyValue("appId", appID), e);
-            return null;
-	}
+        if (!payload.isArray()) return null;
+        List<NodeCandidate> candidates = Arrays.asList(mapper.convertValue(payload, NodeCandidate[].class));
+        // We try to choose candidates with lower hardware requirements; sort by cores, ram
+        candidates.sort((NodeCandidate c1, NodeCandidate c2) -> {
+                int cpu1 = c1.getHardware().getCores();
+                int cpu2 = c2.getHardware().getCores();
+                long ram1 = c1.getHardware().getRam();
+                long ram2 = c2.getHardware().getRam();
+                if (cpu1 != cpu2) return cpu1 - cpu2;
+                else return Math.toIntExact(ram1 - ram2);
+            });
+	return candidates;
     }
 
     /**
