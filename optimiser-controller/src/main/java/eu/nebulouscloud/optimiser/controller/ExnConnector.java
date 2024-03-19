@@ -116,7 +116,7 @@ public class ExnConnector {
         getCluster = new SyncedPublisher("getCluster", "eu.nebulouscloud.exn.sal.cluster", true, true);
         labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
         deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
-        deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployApplication", true, true);
+        deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
         scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
         scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
 
