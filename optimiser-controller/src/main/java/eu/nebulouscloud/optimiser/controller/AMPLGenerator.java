@@ -63,7 +63,7 @@ public class AMPLGenerator {
         out.println("# Constraints. For constraints we don't have name from GUI, must be created");
         int counter = 0;
         for (JsonNode slo : app.getEffectiveConstraints()) {
-            out.format("subject to constraint_{} : ", counter);
+            out.format("subject to constraint_%d : ", counter);
             emitCondition(out, slo);
             out.println(";");
             counter = counter + 1;
