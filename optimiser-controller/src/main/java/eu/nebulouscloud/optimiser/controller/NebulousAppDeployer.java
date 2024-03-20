@@ -269,13 +269,28 @@ public class NebulousAppDeployer {
                     .put("nodeCandidateId", candidate.getId())
                     .put("cloudId", candidate.getCloud().getId());
             });
+        log.info("Calling defineCluster", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, masterNodeName, nodes);
-
-        boolean labelClusterSuccess = conn.labelNodes(appUUID, clusterName, nodeLabels);
+        if (!defineClusterSuccess) {
+            log.error("Call to defineCluster failed, blindly continuing...",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+        }
 
         // ------------------------------------------------------------
         // 5. Deploy cluster
+        log.info("Calling deployCluster", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         boolean deployClusterSuccess = conn.deployCluster(appUUID, clusterName);
+        if (!deployClusterSuccess) {
+            log.error("Call to deployCluster failed, blindly continuing...",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+        }
+
+        log.info("Calling labelCluster", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+        boolean labelClusterSuccess = conn.labelNodes(appUUID, clusterName, nodeLabels);
+        if (!labelClusterSuccess) {
+            log.error("Call to deployCluster failed, blindly continuing...",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+        }
 
         // ------------------------------------------------------------
         // 6. Rewrite KubeVela
@@ -292,7 +307,14 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 7. Deploy application
 
+        log.info("Calling deployApplication", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
+        if (proActiveJobID == 0) {
+            // 0 means conversion from long has failed (because of an invalid
+            // response), OR a ProActive job id of 0.
+            log.warn("Job ID = 0, this means that deployApplication has probably failed.",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+        }
 
         // ------------------------------------------------------------
         // 8. Update NebulousApp state
