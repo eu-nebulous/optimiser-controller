@@ -188,7 +188,7 @@ public class NebulousAppDeployer {
         // 3. Select node candidates
 
         // Controller node
-        log.debug("Deciding on controller node candidate", keyValue("appId", appUUID));
+        log.info("Deciding on controller node candidate", keyValue("appId", appUUID));
         String masterNodeName = clusterName + "-masternode"; // safe because all component node names end with a number
         NodeCandidate masterNodeCandidate = null;
         if (controllerCandidates.size() > 0) {
@@ -204,7 +204,7 @@ public class NebulousAppDeployer {
         }
 
         // Component nodes
-        log.debug("Collecting worker nodes for {}", appUUID, keyValue("appId", appUUID));
+        log.info("Collecting worker nodes for {}", appUUID, keyValue("appId", appUUID));
         ArrayNode nodeLabels = mapper.createArrayNode();
         Map<String, NodeCandidate> clusterNodes = new HashMap<>();;
         // Here we collect multiple things:
@@ -220,7 +220,7 @@ public class NebulousAppDeployer {
             Set<String> nodeNames = new HashSet<>();
             List<NodeCandidate> candidates = workerCandidates.get(componentName);
             if (candidates.size() == 0) {
-                log.error("Empty node candidate list for component ~s, continuing without creating node", componentName, keyValue("appId", appUUID));
+                log.error("Empty node candidate list for component {}, continuing without creating node", componentName, keyValue("appId", appUUID));
                 continue;
             }
             for (int nodeNumber = 1; nodeNumber <= numberOfNodes; nodeNumber++) {
@@ -425,7 +425,7 @@ public class NebulousAppDeployer {
                     keyValue("appId", appUUID));
                 List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                 if (candidates.size() == 0) {
-                    log.error("Empty node candidate list for component ~s, continuing without creating node", componentName,
+                    log.error("Empty node candidate list for component {}, continuing without creating node", componentName,
                         keyValue("appId", appUUID));
                     continue;
                 }

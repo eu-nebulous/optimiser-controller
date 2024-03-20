@@ -188,8 +188,8 @@ public class ExnConnector {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
             try {
-                String app_id = message.property("application").toString(); // should be string already, but don't want to cast
-                if (app_id == null) app_id = message.subject(); // TODO: remove for second version, leaving it in just to be safe
+                Object app_id = message.property("application"); // might be null
+                if (app_id == null) app_id = message.subject();
                 // if app_id is still null, the filename will look a bit funky but it's not a problem
                 log.info("App creation message received", keyValue("appId", app_id));
                 JsonNode appMessage = mapper.valueToTree(body);
@@ -258,10 +258,11 @@ public class ExnConnector {
      *
      * @param responseMessage The response from exn-middleware.
      * @param appID The application ID, used for logging only.
+     * @param caller Caller information, used for logging only.
      * @return The SAL response as a parsed JsonNode, or a node where {@code
      *  isMissingNode()} will return true if SAL reported an error.
      */
-    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> responseMessage, String appID) {
+    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> responseMessage, String appID, String caller) {
         JsonNode response = mapper.valueToTree(responseMessage);
         String salRawResponse = response.at("/body").asText(); // it's already a string, asText() is for the type system
         JsonNode metadata = response.at("/metaData");
@@ -270,7 +271,7 @@ public class ExnConnector {
 	    salResponse = mapper.readTree(salRawResponse);
 	} catch (JsonProcessingException e) {
             log.error("Could not read message body as JSON: body = '{}'", salRawResponse,
-                keyValue("appId", appID), e);
+                keyValue("appId", appID), keyValue("caller", caller), e);
             return mapper.missingNode();
 	}
         if (!metadata.at("/status").asText().startsWith("2")) {
@@ -278,7 +279,7 @@ public class ExnConnector {
             log.error("exn-middleware-sal request failed with error code '{}' and message '{}'",
                 metadata.at("/status"),
                 salResponse.at("/message").asText(),
-                keyValue("appId", appID));
+                keyValue("appId", appID), keyValue("caller", caller));
             return mapper.missingNode();
         }
         return salResponse;
@@ -373,7 +374,7 @@ public class ExnConnector {
             return null;
         }
         Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "findNodeCandidatesFromSal");
         if (payload.isMissingNode()) return null;
         if (!payload.isArray()) return null;
         List<NodeCandidate> candidates = Arrays.asList(mapper.convertValue(payload, NodeCandidate[].class));
@@ -433,7 +434,7 @@ public class ExnConnector {
             return false;
         }
         Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "defineCluster");
         return payload.asBoolean();
     }
 
@@ -446,7 +447,7 @@ public class ExnConnector {
     public JsonNode getCluster(String appID) {
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID));
         Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "getCluster");
         return payload.isMissingNode() ? null : payload;
     }
 
@@ -468,7 +469,7 @@ public class ExnConnector {
             return false;
 	}
         Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "labelNodes");
         return payload.isMissingNode() ? false : true;
     }
 
@@ -484,7 +485,7 @@ public class ExnConnector {
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
         Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "deployCluster");
         return payload.asBoolean();
     }
 
@@ -515,7 +516,7 @@ public class ExnConnector {
             return -1;
         }
         Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "deployApplication");
         return payload.asLong();
     }
 
@@ -545,7 +546,7 @@ public class ExnConnector {
         }
         Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
         // Called for side-effect only; we want to log errors
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "scaleOut");
     }
 
     /**
@@ -570,13 +571,8 @@ public class ExnConnector {
             return false;
         }
         Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "scaleIn");
         return payload.asBoolean();
-        // TODO: check if we still need to unwrap this; see
-        // `AbstractProcessor.groovy#normalizeResponse` and bug 2055053
-        // https://opendev.org/nebulous/exn-middleware/src/commit/ffc2ca7bdf657b3831d2b803ff2b84d5e8e1bdcd/exn-middleware-core/src/main/groovy/eu/nebulouscloud/exn/modules/sal/processors/AbstractProcessor.groovy#L111
-        // https://bugs.launchpad.net/nebulous/+bug/2055053
-        // return payload.at("/success").asBoolean();
     }
 
 
