@@ -45,15 +45,9 @@ public class NebulousAppDeployer {
      */
     public static List<Requirement> getControllerRequirements(String jobID) {
         return List.of(
-            new NodeTypeRequirement(List.of(NodeType.IAAS), jobID, jobID),
-            // TODO: untested; we rely on the fact that SAL has an abstraction
-            // over operating systems.  See
-            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-common/src/main/java/org/ow2/proactive/sal/model/OperatingSystemFamily.java#L39
-            // and
-            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/nc/NodeCandidateUtils.java#L159
             new AttributeRequirement("image", "operatingSystem.family",
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
-            new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "4096"),
+            new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
             new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
     }
 
@@ -244,6 +238,7 @@ public class NebulousAppDeployer {
             app.getComponentNodeNames().put(componentName, nodeNames);
         }
         Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentNodeNames());
+        Main.logFile("master-node-" + appUUID + ".txt", masterNodeCandidate);
         Main.logFile("worker-nodes-" + appUUID + ".txt", clusterNodes);
         try {
             Main.logFile("worker-labels-" + appUUID + ".txt", mapper.writeValueAsString(nodeLabels));
