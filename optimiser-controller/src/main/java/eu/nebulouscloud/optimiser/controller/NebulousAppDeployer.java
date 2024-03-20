@@ -124,7 +124,7 @@ public class NebulousAppDeployer {
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
         Map<String, NodeCandidate> edgeCandidates = app.getNodeEdgeCandidates();
-        log.info("Starting initial deployment for application", keyValue("appId", appUUID));
+        log.info("Starting initial deployment for application", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
 
         int deployGeneration = app.getDeployGeneration() + 1;
         app.setDeployGeneration(deployGeneration);
@@ -157,10 +157,11 @@ public class NebulousAppDeployer {
         // ----------------------------------------
         // 2. Find node candidates
 
+        // TODO: filter by app resources (check enabled: true in resources array)
         List<NodeCandidate> controllerCandidates = conn.findNodeCandidates(controllerRequirements, appUUID);
         if (controllerCandidates.isEmpty()) {
             log.error("Could not find node candidates for requirements: {}",
-                controllerRequirements, keyValue("appId", appUUID));
+                controllerRequirements, keyValue("appId", appUUID), keyValue("clusterName", clusterName));
             // Continue here while we don't really deploy
             // return;
         }
@@ -168,10 +169,11 @@ public class NebulousAppDeployer {
         for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
+            // TODO: filter by app resources (check enabled: true in resources array)
             List<NodeCandidate> candidates = conn.findNodeCandidates(requirements, appUUID);
             if (candidates.isEmpty()) {
-                log.error("Could not find node candidates for requirements: {}", requirements,
-                    keyValue("appId", appUUID));
+                log.error("Could not find node candidates for for node {}, requirements: {}", nodeName, requirements,
+                    keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                 // Continue here while we don't really deploy
                 // return;
             }
@@ -182,7 +184,7 @@ public class NebulousAppDeployer {
         // 3. Select node candidates
 
         // Controller node
-        log.info("Deciding on controller node candidate", keyValue("appId", appUUID));
+        log.info("Deciding on controller node candidate", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         String masterNodeName = clusterName + "-masternode"; // safe because all component node names end with a number
         NodeCandidate masterNodeCandidate = null;
         if (controllerCandidates.size() > 0) {
@@ -194,11 +196,12 @@ public class NebulousAppDeployer {
             }
         } else {
             log.error("Empty node candidate list for controller, continuing without creating node",
-                keyValue("appId", appUUID));
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         }
 
         // Component nodes
-        log.info("Collecting worker nodes for {}", appUUID, keyValue("appId", appUUID));
+        log.info("Collecting worker nodes for {}", appUUID,
+            keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         ArrayNode nodeLabels = mapper.createArrayNode();
         Map<String, NodeCandidate> clusterNodes = new HashMap<>();;
         // Here we collect multiple things:
@@ -214,7 +217,8 @@ public class NebulousAppDeployer {
             Set<String> nodeNames = new HashSet<>();
             List<NodeCandidate> candidates = workerCandidates.get(componentName);
             if (candidates.size() == 0) {
-                log.error("Empty node candidate list for component {}, continuing without creating node", componentName, keyValue("appId", appUUID));
+                log.error("Empty node candidate list for component {}, continuing without creating node", componentName,
+                    keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                 continue;
             }
             for (int nodeNumber = 1; nodeNumber <= numberOfNodes; nodeNumber++) {
@@ -225,7 +229,7 @@ public class NebulousAppDeployer {
                     .orElse(null);
                 if (candidate == null) {
                     log.error("No available node candidate for node {} of component {}", nodeNumber, componentName,
-                        keyValue("appId", appUUID));
+                        keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                     continue;
                 }
                 if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
@@ -238,8 +242,8 @@ public class NebulousAppDeployer {
             app.getComponentNodeNames().put(componentName, nodeNames);
         }
         Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentNodeNames());
-        Main.logFile("master-node-" + appUUID + ".txt", masterNodeCandidate);
-        Main.logFile("worker-nodes-" + appUUID + ".txt", clusterNodes);
+        Main.logFile("master-nodecandidate-" + appUUID + ".txt", masterNodeCandidate);
+        Main.logFile("worker-nodecandidates-" + appUUID + ".txt", clusterNodes);
         try {
             Main.logFile("worker-labels-" + appUUID + ".txt", mapper.writeValueAsString(nodeLabels));
         } catch (JsonProcessingException e1) {
@@ -280,7 +284,8 @@ public class NebulousAppDeployer {
         try {
             rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
         } catch (JsonProcessingException e) {
-            log.error("Failed to convert KubeVela to YAML; this should never happen", keyValue("appId", appUUID), e);
+            log.error("Failed to convert KubeVela to YAML; this should never happen",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName), e);
         }
         Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", rewritten_kubevela);
 
@@ -316,7 +321,8 @@ public class NebulousAppDeployer {
         ExnConnector conn = app.getExnConnector();
         app.setDeployGeneration(deployGeneration);
 
-        log.info("Starting redeployment generation {}", deployGeneration, keyValue("appId", appUUID));
+        log.info("Starting redeployment generation {}", deployGeneration,
+            keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         // The overall flow:
         //
         // 1. Extract node requirements and node counts from the updated
@@ -363,11 +369,12 @@ public class NebulousAppDeployer {
                     int nAdd = newCount - oldCount;
                     allMachineNames = app.getComponentNodeNames().get(componentName);
                     log.debug("Adding {} nodes to component {}", nAdd, componentName,
-                        keyValue("appId", appUUID));
+                        keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+                    // TODO: filter by app resources (check enabled: true in resources array)
                     List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                     if (candidates.isEmpty()) {
                         log.error("Could not find node candidates for requirements: {}",
-                            newR, keyValue("appId", appUUID));
+                            newR, keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                         continue;
                     }
                     for (int nodeNumber = 1; nodeNumber <= nAdd; nodeNumber++) {
@@ -378,7 +385,7 @@ public class NebulousAppDeployer {
                             .orElse(null);
                         if (candidate == null) {
                             log.error("No available node candidate for node {} of component {}", nodeNumber, componentName,
-                                keyValue("appId", appUUID));
+                                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                             continue;
                         }
                         if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
@@ -399,7 +406,7 @@ public class NebulousAppDeployer {
                     // Something for version 2.
                     int nRemove = oldCount - newCount;
                     log.debug("Removing {} nodes from component {}", nRemove, componentName,
-                        keyValue("appId", appUUID));
+                        keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                     // We could be a bit smarter here: remove cloud instances
                     // first and keep edge nodes in use, on the assumption
                     // that it's better to keep using edge nodes since cloud
@@ -410,18 +417,20 @@ public class NebulousAppDeployer {
                     allMachineNames.removeAll(removedInstances);
                     nodesToRemove.addAll(removedInstances);
                 } else {
-                    log.debug("Nothing changed for component {}", componentName, keyValue("appId", appUUID));
+                    log.debug("Nothing changed for component {}", componentName,
+                        keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                     allMachineNames = app.getComponentNodeNames().get(componentName);
                 }
             } else {
                 nodesToRemove.addAll(app.getComponentNodeNames().get(componentName));
                 allMachineNames = new HashSet<>();
                 log.debug("Redeploying all nodes of component {}", componentName,
-                    keyValue("appId", appUUID));
+                    keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+                // TODO: filter by app resources (check enabled: true in resources array)
                 List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                 if (candidates.size() == 0) {
                     log.error("Empty node candidate list for component {}, continuing without creating node", componentName,
-                        keyValue("appId", appUUID));
+                        keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                     continue;
                 }
                 for (int nodeNumber = 1; nodeNumber <= componentReplicaCounts.get(componentName); nodeNumber++) {
@@ -432,7 +441,7 @@ public class NebulousAppDeployer {
                         .orElse(null);
                     if (candidate == null) {
                         log.error("No available node candidate for node {} of component {}", nodeNumber, componentName,
-                            keyValue("appId", appUUID));
+                            keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                         continue;
                     }
                     if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
