@@ -12,8 +12,6 @@ import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.NodeCandidate.NodeCandidateTypeEnum;
-import org.ow2.proactive.sal.model.NodeType;
-import org.ow2.proactive.sal.model.NodeTypeRequirement;
 import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
@@ -103,7 +101,26 @@ public class NebulousAppDeployer {
      * @return a fresh node name.
      */
     private static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
-        return String.format("%s-%s-%s-%s", clusterName, componentName, deployGeneration, nodeNumber);
+        return String.format("N%s-%s-%s-%s", clusterName, componentName, deployGeneration, nodeNumber);
+    }
+
+    /**
+     * Given a cluster definition (as returned by {@link
+     * ExnConnector#getCluster}), return if all nodes are ready, i.e., are in
+     * state {@code "Finished"}.  Once this method returns {@code true}, it is
+     * safe to call {@link ExnConnector#labelNodes} and {@link
+     * ExnConnector#deployApplication}.
+     *
+     * @param clusterStatus The cluster status, as returned by {@link
+     *  ExnConnector#getCluster}.
+     * @return {@code true} if all nodes are in state {@code "Finished"},
+     *  {@code false} otherwise.
+     */
+    private static boolean isClusterDeploymentFinished(JsonNode clusterStatus) {
+        return clusterStatus.withArray("/nodes")
+            .findParents("state")
+            .stream()
+            .allMatch(node -> node.get("state").asText().equals("Finished"));
     }
 
     /**
@@ -123,7 +140,6 @@ public class NebulousAppDeployer {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
-        Map<String, NodeCandidate> edgeCandidates = app.getNodeEdgeCandidates();
         log.info("Starting initial deployment for application", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
 
         int deployGeneration = app.getDeployGeneration() + 1;
@@ -133,7 +149,7 @@ public class NebulousAppDeployer {
         //
         // 1. Extract node requirements and node counts from the KubeVela
         //    definition.
-        // 2. Ask resource broker for node candidates for all workers and the
+        // 2. Ask resource broker for node candidates for all components and the
         //    controller.
         // 3. Select node candidates, making sure to only select edge nodes
         //    once.
@@ -146,12 +162,12 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> workerRequirements = KubevelaAnalyzer.getRequirements(kubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getRequirements(kubevela);
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
 
-        Main.logFile("worker-requirements-" + appUUID + ".txt", workerRequirements);
-        Main.logFile("worker-counts-" + appUUID + ".txt", nodeCounts);
+        Main.logFile("component-requirements-" + appUUID + ".txt", componentRequirements);
+        Main.logFile("component-counts-" + appUUID + ".txt", nodeCounts);
         Main.logFile("controller-requirements-" + appUUID + ".txt", controllerRequirements);
 
         // ----------------------------------------
@@ -165,8 +181,8 @@ public class NebulousAppDeployer {
             // Continue here while we don't really deploy
             // return;
         }
-        Map<String, List<NodeCandidate>> workerCandidates = new HashMap<>();
-        for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
+        Map<String, List<NodeCandidate>> componentCandidates = new HashMap<>();
+        for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
             // TODO: filter by app resources (check enabled: true in resources array)
@@ -177,7 +193,7 @@ public class NebulousAppDeployer {
                 // Continue here while we don't really deploy
                 // return;
             }
-            workerCandidates.put(nodeName, candidates);
+            componentCandidates.put(nodeName, candidates);
         }
 
         // ------------------------------------------------------------
@@ -185,14 +201,14 @@ public class NebulousAppDeployer {
 
         // Controller node
         log.info("Deciding on controller node candidate", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
-        String masterNodeName = clusterName + "-masternode"; // safe because all component node names end with a number
+        String masterNodeName = "N" + clusterName + "-masternode"; // safe because all component node names end with a number
         NodeCandidate masterNodeCandidate = null;
         if (controllerCandidates.size() > 0) {
             masterNodeCandidate = controllerCandidates.get(0);
             if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE)
                 .contains(masterNodeCandidate.getNodeCandidateType())) {
                 // Mark this candidate as already chosen
-                edgeCandidates.put(masterNodeName, masterNodeCandidate);
+                app.getNodeEdgeCandidates().put(masterNodeName, masterNodeCandidate);
             }
         } else {
             log.error("Empty node candidate list for controller, continuing without creating node",
@@ -200,7 +216,7 @@ public class NebulousAppDeployer {
         }
 
         // Component nodes
-        log.info("Collecting worker nodes for {}", appUUID,
+        log.info("Collecting component nodes for {}", appUUID,
             keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         ArrayNode nodeLabels = mapper.createArrayNode();
         Map<String, NodeCandidate> clusterNodes = new HashMap<>();;
@@ -211,11 +227,11 @@ public class NebulousAppDeployer {
         //   ExnConnector.createCluster
         // - Each node name and its label (nodeLabels), for
         //   ExnConnector.labelNodes
-        for (Map.Entry<String, List<Requirement>> e : workerRequirements.entrySet()) {
+        for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String componentName = e.getKey();
             int numberOfNodes = nodeCounts.get(componentName);
             Set<String> nodeNames = new HashSet<>();
-            List<NodeCandidate> candidates = workerCandidates.get(componentName);
+            List<NodeCandidate> candidates = componentCandidates.get(componentName);
             if (candidates.size() == 0) {
                 log.error("Empty node candidate list for component {}, continuing without creating node", componentName,
                     keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -224,7 +240,7 @@ public class NebulousAppDeployer {
             for (int nodeNumber = 1; nodeNumber <= numberOfNodes; nodeNumber++) {
                 String nodeName = createNodeName(clusterName, componentName, deployGeneration, nodeNumber);
                 NodeCandidate candidate = candidates.stream()
-                    .filter(each -> !edgeCandidates.values().contains(each))
+                    .filter(each -> !app.getNodeEdgeCandidates().values().contains(each))
                     .findFirst()
                     .orElse(null);
                 if (candidate == null) {
@@ -233,7 +249,7 @@ public class NebulousAppDeployer {
                     continue;
                 }
                 if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
-                    edgeCandidates.put(nodeName, candidate);
+                    app.getNodeEdgeCandidates().put(nodeName, candidate);
                 }
                 clusterNodes.put(nodeName, candidate);
                 nodeLabels.addObject().put(nodeName, "nebulouscloud.eu/" + componentName + "=true");
@@ -243,9 +259,9 @@ public class NebulousAppDeployer {
         }
         Main.logFile("nodenames-" + appUUID + ".txt", app.getComponentNodeNames());
         Main.logFile("master-nodecandidate-" + appUUID + ".txt", masterNodeCandidate);
-        Main.logFile("worker-nodecandidates-" + appUUID + ".txt", clusterNodes);
+        Main.logFile("component-nodecandidates-" + appUUID + ".txt", clusterNodes);
         try {
-            Main.logFile("worker-labels-" + appUUID + ".txt", mapper.writeValueAsString(nodeLabels));
+            Main.logFile("component-labels-" + appUUID + ".txt", mapper.writeValueAsString(nodeLabels));
         } catch (JsonProcessingException e1) {
             // ignore; the labelNodes method will report the same error later
         }
@@ -285,6 +301,23 @@ public class NebulousAppDeployer {
                 keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         }
 
+        JsonNode clusterState = conn.getCluster(clusterName);
+        while (clusterState == null || !isClusterDeploymentFinished(clusterState)) {
+            // Cluster deployment includes provisioning and booting VMs,
+            // installing various software packages, bringing up a Kubernetes
+            // cluster and installing the NebulOuS runtime.  This can take
+            // some minutes.
+            log.info("Waiting for cluster deployment to finish...",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName),
+                keyValue("clusterState", clusterState));
+            try {
+		Thread.sleep(10000);
+	    } catch (InterruptedException e1) {
+                // ignore
+	    }
+            clusterState = conn.getCluster(clusterName);
+        }
+
         log.info("Calling labelCluster", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         boolean labelClusterSuccess = conn.labelNodes(appUUID, clusterName, nodeLabels);
         if (!labelClusterSuccess) {
@@ -319,7 +352,10 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // 8. Update NebulousApp state
 
-        app.setComponentRequirements(workerRequirements);
+        // TODO: send out AMPL (must be done after deployCluster, once we know
+        // how to pass the application id into the fresh cluster)
+
+        app.setComponentRequirements(componentRequirements);
         app.setComponentReplicaCounts(nodeCounts);
         app.setDeployedKubevela(rewritten);
     }
@@ -372,8 +408,6 @@ public class NebulousAppDeployer {
         List<String> nodesToRemove = new ArrayList<>();
         ArrayNode nodesToAdd = mapper.createArrayNode();
 
-        Map<String, NodeCandidate> edgeCandidates = app.getNodeEdgeCandidates();
-
         // We know that the component names are identical and that the maps
         // contain all keys, so it's safe to iterate through the keys of one
         // map and use it in all maps.
@@ -402,7 +436,7 @@ public class NebulousAppDeployer {
                     for (int nodeNumber = 1; nodeNumber <= nAdd; nodeNumber++) {
                         String nodeName = createNodeName(clusterName, componentName, deployGeneration, nodeNumber);
                         NodeCandidate candidate = candidates.stream()
-                            .filter(each -> !edgeCandidates.values().contains(each))
+                            .filter(each -> !app.getNodeEdgeCandidates().values().contains(each))
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
@@ -411,7 +445,7 @@ public class NebulousAppDeployer {
                             continue;
                         }
                         if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
-                            edgeCandidates.put(nodeName, candidate);
+                            app.getNodeEdgeCandidates().put(nodeName, candidate);
                         }
                         nodesToAdd.addObject()
                             .put("nodeName", nodeName)
@@ -435,7 +469,7 @@ public class NebulousAppDeployer {
                     // nodes incur a cost.
                     allMachineNames = app.getComponentNodeNames().get(componentName);
                     Set<String> removedInstances = allMachineNames.stream().limit(nRemove).collect(Collectors.toSet());
-                    removedInstances.forEach(edgeCandidates::remove);
+                    removedInstances.forEach(app.getNodeEdgeCandidates()::remove);
                     allMachineNames.removeAll(removedInstances);
                     nodesToRemove.addAll(removedInstances);
                 } else {
@@ -458,7 +492,7 @@ public class NebulousAppDeployer {
                 for (int nodeNumber = 1; nodeNumber <= componentReplicaCounts.get(componentName); nodeNumber++) {
                     String nodeName = createNodeName(clusterName, componentName, deployGeneration, nodeNumber);
                     NodeCandidate candidate = candidates.stream()
-                        .filter(each -> !edgeCandidates.values().contains(each))
+                        .filter(each -> !app.getNodeEdgeCandidates().values().contains(each))
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
@@ -467,7 +501,7 @@ public class NebulousAppDeployer {
                         continue;
                     }
                     if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
-                        edgeCandidates.put(nodeName, candidate);
+                        app.getNodeEdgeCandidates().put(nodeName, candidate);
                     }
                     nodesToAdd.addObject()
                             .put("nodeName", nodeName)
@@ -489,6 +523,8 @@ public class NebulousAppDeployer {
         // Call `deployApplication`
 
         // Call `scaleIn` with nodesToRemove
+
+        // Update app status
     }
 
 }

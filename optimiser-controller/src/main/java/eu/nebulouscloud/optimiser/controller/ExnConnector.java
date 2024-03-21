@@ -113,7 +113,7 @@ public class ExnConnector {
         findSalNodeCandidates = new SyncedPublisher("findSalNodeCandidates", "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
         findBrokerNodeCandidates = new SyncedPublisher("findBrokerNodeCandidates", "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
         defineCluster = new SyncedPublisher("defineCluster", "eu.nebulouscloud.exn.sal.cluster.define", true, true);
-        getCluster = new SyncedPublisher("getCluster", "eu.nebulouscloud.exn.sal.cluster", true, true);
+        getCluster = new SyncedPublisher("getCluster", "eu.nebulouscloud.exn.sal.cluster.get", true, true);
         labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
         deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
         deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
@@ -441,13 +441,13 @@ public class ExnConnector {
     /**
      * Get the definition of a cluster created by {@link #defineCluster}.
      *
-     * @param appID The application ID, as used to define the cluster.
+     * @param clusterName The cluster name, as given in {@link defineCluster}.
      * @return The cluster definition, or null in case of error.
      */
-    public JsonNode getCluster(String appID) {
-        Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID));
-        Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "getCluster");
+    public JsonNode getCluster(String clusterName) {
+        Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
+        Map<String, Object> response = getCluster.sendSync(msg, clusterName, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, clusterName, "getCluster");
         return payload.isMissingNode() ? null : payload;
     }
 
