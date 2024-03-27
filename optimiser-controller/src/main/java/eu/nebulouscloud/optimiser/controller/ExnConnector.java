@@ -512,7 +512,7 @@ public class ExnConnector {
                 "body", mapper.writeValueAsString(body));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), e);
+                keyValue("appId", appID), keyValue("clusterName", clusterName), e);
             return -1;
         }
         Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);

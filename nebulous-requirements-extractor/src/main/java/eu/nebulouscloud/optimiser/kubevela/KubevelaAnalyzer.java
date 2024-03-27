@@ -90,7 +90,8 @@ public class KubevelaAnalyzer {
      *
      * Notes:<p>
      *
-     * - We add the requirement that OS family == Ubuntu.<p>
+     * - When asked to, we add the requirement that OS family == Ubuntu and
+     *   memory >= 2GB.<p>
      *
      * - For the first version, we specify all requirements as "greater or
      *   equal", i.e., we might not find precisely the node candidates that
@@ -103,18 +104,24 @@ public class KubevelaAnalyzer {
      *   provided by cloud providers. <p>
      *
      * @param kubevela the parsed KubeVela file.
+     * @param includeNebulousRequirements if true, include requirements for
+     *  minimum memory size, Ubuntu OS.  These requirements ensure that the
+     *  node candidate can run the Nebulous software.
      * @return a map of component name to (potentially empty, except for OS
      *  family) list of requirements for that component.  No requirements mean
      *  any node will suffice.
      */
-    public static Map<String, List<Requirement>> getRequirements(JsonNode kubevela) {
+    public static Map<String, List<Requirement>> getRequirements(JsonNode kubevela, boolean includeNebulousRequirements) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
-            reqs.add(new AttributeRequirement("image", "operatingSystem.family",
-                RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
+            if (includeNebulousRequirements) {
+                reqs.add(new AttributeRequirement("image", "operatingSystem.family",
+                    RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
+                reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
+            }
             JsonNode cpu = c.at("/properties/cpu");
             if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
             if (!cpu.isMissingNode()) {
@@ -125,8 +132,7 @@ public class KubevelaAnalyzer {
                 try {
                     kubevela_cpu = Double.parseDouble(cpu.asText());
                 } catch (NumberFormatException e) {
-                    log.warn("CPU spec in {} is not a number, value seen is {}",
-                        componentName, cpu.asText());
+                    log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
                 }
                 long sal_cores = Math.round(Math.ceil(kubevela_cpu));
                 if (sal_cores > 0) {
@@ -134,22 +140,19 @@ public class KubevelaAnalyzer {
                         RequirementOperator.GEQ, Long.toString(sal_cores)));
                 } else {
                     // floatValue returns 0.0 if node is not numeric
-                    log.warn("CPU of component {} is 0 or not a number, value seen is {}",
-                        componentName, cpu.asText());
+                    log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
                 }
             }
             JsonNode memory = c.at("/properties/memory");
             if (memory.isMissingNode()) cpu = c.at("/properties/resources/requests/memory");
-            if (!memory.isMissingNode()) {;
+            if (!memory.isMissingNode()) {
                 String sal_memory = memory.asText();
                 if (sal_memory.endsWith("Mi")) {
                     sal_memory = sal_memory.substring(0, sal_memory.length() - 2);
                 } else if (sal_memory.endsWith("Gi")) {
                     sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
                 } else if (!memory.isNumber()) {
-                    log.warn("Unsupported memory specification in component {} :{} (wanted 'Mi' or 'Gi') ",
-                        componentName,
-                        memory.asText());
+                    log.warn("Unsupported memory specification in component " + componentName + " : " + memory.asText() + " (wanted 'Mi' or 'Gi') ");
                     sal_memory = null;
                 }
                 // Fall-through: we rewrote the KubeVela file and didn't add
@@ -167,6 +170,17 @@ public class KubevelaAnalyzer {
             result.put(componentName, reqs);
         }
         return result;
+    }
+
+    /**
+     * Get node requirements for app components, including nebulous-specific
+     * requirements.  This method calls {@link #getRequirements(JsonNode,
+     * boolean)} with second parameter {@code true}.
+     *
+     * @see #getRequirements(JsonNode, boolean)
+     */
+    public static Map<String, List<Requirement>> getRequirements(JsonNode kubevela) {
+        return getRequirements(kubevela, true);
     }
 
     /**

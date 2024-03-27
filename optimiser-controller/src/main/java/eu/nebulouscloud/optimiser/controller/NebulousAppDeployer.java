@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.fasterxml.jackson.dataformat.yaml.YAMLGenerator;
 
 import lombok.extern.slf4j.Slf4j;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
@@ -33,7 +34,8 @@ import static net.logstash.logback.argument.StructuredArguments.keyValue;
 @Slf4j
 public class NebulousAppDeployer {
 
-    private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+    private static final ObjectMapper yamlMapper
+        = new ObjectMapper(YAMLFactory.builder().enable(YAMLGenerator.Feature.MINIMIZE_QUOTES).build());
     private static final ObjectMapper mapper = new ObjectMapper();
 
     /**
@@ -53,7 +55,7 @@ public class NebulousAppDeployer {
      * Produce a fresh KubeVela specification with added node affinity traits.
      *
      * During deployment and redeployment, we label all nodes with {@code
-     * nebulouscloud.eu/<componentname>=true}.  (Note that with this scheme, a
+     * nebulouscloud.eu/<componentname>=yes}.  (Note that with this scheme, a
      * node can have labels for multiple components if desired.)  We add the
      * following trait to all components:
      *
@@ -67,7 +69,7 @@ public class NebulousAppDeployer {
      *           - matchExpressions:
      *             - key: "nebulouscloud.eu/<componentname>"
      *               operator: In
-     *               values: "true"
+     *               values: "yes"
      * }</pre>
      *
      * @param kubevela the KubeVela specification to modify. This parameter is
@@ -86,7 +88,7 @@ public class NebulousAppDeployer {
             ObjectNode term = matchExpressions.addObject();
             term.put("key", "nebulouscloud.eu/" + name)
                 .put("operator", "In")
-                .withArray("values").add("true");
+                .withArray("values").add("yes");
         }
         return result;
     }
@@ -252,7 +254,7 @@ public class NebulousAppDeployer {
                     app.getNodeEdgeCandidates().put(nodeName, candidate);
                 }
                 clusterNodes.put(nodeName, candidate);
-                nodeLabels.addObject().put(nodeName, "nebulouscloud.eu/" + componentName + "=true");
+                nodeLabels.addObject().put(nodeName, "nebulouscloud.eu/" + componentName + "=yes");
                 nodeNames.add(nodeName);
             }
             app.getComponentNodeNames().put(componentName, nodeNames);
@@ -315,6 +317,11 @@ public class NebulousAppDeployer {
 	    } catch (InterruptedException e1) {
                 // ignore
 	    }
+            // TODO: distinguish between clusterState==null because SAL hasn't
+            // set up its datastructures yet, and clusterState==null because
+            // the call to getCluster failed.  In the latter case we want to
+            // abort (because someone has deleted the cluster), in the former
+            // case we want to continue.
             clusterState = conn.getCluster(clusterName);
         }
 
@@ -342,6 +349,8 @@ public class NebulousAppDeployer {
 
         log.info("Calling deployApplication", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
+        log.info("deployApplication returned ProActive Job ID {}", proActiveJobID,
+            keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         if (proActiveJobID == 0) {
             // 0 means conversion from long has failed (because of an invalid
             // response), OR a ProActive job id of 0.
@@ -358,6 +367,8 @@ public class NebulousAppDeployer {
         app.setComponentRequirements(componentRequirements);
         app.setComponentReplicaCounts(nodeCounts);
         app.setDeployedKubevela(rewritten);
+        log.info("App deployment finished.",
+            keyValue("appId", appUUID), keyValue("clusterName", clusterName));
     }
 
     /**
