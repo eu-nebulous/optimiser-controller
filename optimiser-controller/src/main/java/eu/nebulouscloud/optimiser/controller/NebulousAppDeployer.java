@@ -274,7 +274,7 @@ public class NebulousAppDeployer {
         ObjectNode cluster = mapper.createObjectNode();
         cluster.put("name", clusterName)
             .put("master-node", masterNodeName);
-        ArrayNode nodes = cluster.withArray("nodes");
+        ArrayNode nodes = cluster.withArray("/nodes");
         if (masterNodeCandidate != null) {
             nodes.addObject()
                 .put("nodeName", masterNodeName)
@@ -287,8 +287,10 @@ public class NebulousAppDeployer {
                     .put("nodeCandidateId", candidate.getId())
                     .put("cloudId", candidate.getCloud().getId());
             });
+        ObjectNode environment = cluster.withObject("/env-var");
+        environment.put("APPLICATION_ID", appUUID);
         log.info("Calling defineCluster", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
-        boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, masterNodeName, nodes);
+        boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, cluster);
         if (!defineClusterSuccess) {
             log.error("Call to defineCluster failed, blindly continuing...",
                 keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -324,6 +326,9 @@ public class NebulousAppDeployer {
             // case we want to continue.
             clusterState = conn.getCluster(clusterName);
         }
+        log.info("Cluster deployment finished, continuing with app deployment",
+            keyValue("appId", appUUID), keyValue("clusterName", clusterName),
+            keyValue("clusterState", clusterState));
 
         log.info("Calling labelCluster", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         boolean labelClusterSuccess = conn.labelNodes(appUUID, clusterName, nodeLabels);

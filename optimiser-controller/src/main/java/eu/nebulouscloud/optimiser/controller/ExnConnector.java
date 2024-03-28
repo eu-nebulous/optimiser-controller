@@ -392,45 +392,52 @@ public class ExnConnector {
 
     /**
      * Define a cluster with the given name and node list.
-     *
-     * <p>The nodes are passed in a JSON array containing objects of the
-     * following shape:
-     *
+     * 
+     * <p>The cluster is passed in a JSON of the following shape:
+     * 
      * <pre>{@code
      * {
-     *   "nodeName": "some-component",
-     *   "nodeCandidateId": "some-candidate-id",
-     *   "cloudId": "some-cloud-id"
+     *     "name":"485d7-1",
+     *     "master-node":"N485d7-1-masternode",
+     *     "nodes":[
+     *         {
+     *             "nodeName":"N485d7-1-masternode",
+     *             "nodeCandidateId":"8a7481018e8572f9018e857ed0c50c53",
+     *             "cloudId":"demo-cloud"
+     *         },
+     *         {
+     *             "nodeName":"N485d7-1-dummy-app-worker-1-1",
+     *             "nodeCandidateId":"8a7481018e8572f9018e857ecfb30c21",
+     *             "cloudId":"demo-cloud"
+     *         }
+     *     ],
+     *     "env-var": {
+     *         "APPLICATION_ID", "the-application-id"
+     *     }
      * }
      * }</pre>
-     *
-     * <p>Each value for {@code nodeName} has to be globally unique, and
-     * should be either the name of the master node or the name of a node that
-     * will subsequently be referenced in the affinity trait of the modified
-     * kubevela file (see {@link NebulousAppDeployer#addNodeAffinities()}).
-     *
+     * 
+     * <p>Each value for {@code nodeName} has to be globally unique, must
+     * start with a letter and contain numbers, letters and hyphens only.
+     * 
      * <p>The values for {@code nodeCandidateId} and {@code cloudId} come from
      * the return value of a call to {@link #findNodeCandidates()}.
-     *
+     * 
      * @param appID The application's id, used only for logging.
-     * @param clusterName The cluster name.
-     * @param masterNodeName The name of the master node.
-     * @param nodes A JSON array containing the node definitions, including the master node.
+     * @param clusterName The cluster name, used only for logging.
+     * @param cluster A JSON object, as detailed above.
      * @return true if the cluster was successfully defined, false otherwise.
      */
-    public boolean defineCluster(String appID, String clusterName, String masterNodeName, ArrayNode nodes) {
+    public boolean defineCluster(String appID, String clusterName, ObjectNode cluster) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
-        ObjectNode body = mapper.createObjectNode()
-            .put("name", clusterName)
-            .put("master-node", masterNodeName);
-        body.putArray("nodes").addAll(nodes);
+        Main.logFile("define-cluster-" + appID + ".json", cluster);
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin"),
-                "body", mapper.writeValueAsString(body));
+                "body", mapper.writeValueAsString(cluster));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), e);
+                keyValue("appId", appID), keyValue("clusterName", clusterName), e);
             return false;
         }
         Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
@@ -506,10 +513,12 @@ public class ExnConnector {
             .put("appName", appName)
             .put("action", "apply")
             .put("flags", "");
+        Main.logFile("deploy-application-" + appID + ".json", body);
         Map<String, Object> msg;
         try {
+            String bodyStr = mapper.writeValueAsString(body);
             msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName),
-                "body", mapper.writeValueAsString(body));
+                "body", bodyStr);
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
                 keyValue("appId", appID), keyValue("clusterName", clusterName), e);
