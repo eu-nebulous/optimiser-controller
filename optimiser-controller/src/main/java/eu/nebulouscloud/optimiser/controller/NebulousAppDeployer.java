@@ -47,6 +47,7 @@ public class NebulousAppDeployer {
         return List.of(
             new AttributeRequirement("image", "operatingSystem.family",
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
+            new AttributeRequirement("image", "name", RequirementOperator.INC, "22"),
             new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
             new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
     }

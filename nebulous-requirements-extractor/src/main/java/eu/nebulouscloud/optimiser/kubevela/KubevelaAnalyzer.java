@@ -118,8 +118,12 @@ public class KubevelaAnalyzer {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
+                // We want Ubuntu, version 22.04, and 2GB of RAM until we know
+                // more about the size / cpu requirements of the nebulous
+                // runtime.
                 reqs.add(new AttributeRequirement("image", "operatingSystem.family",
                     RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
+                reqs.add(new AttributeRequirement("image", "name", RequirementOperator.INC, "22"));
                 reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
             }
             JsonNode cpu = c.at("/properties/cpu");
