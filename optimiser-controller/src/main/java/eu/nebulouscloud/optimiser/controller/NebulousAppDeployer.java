@@ -49,8 +49,8 @@ public class NebulousAppDeployer {
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
             new AttributeRequirement("image", "name", RequirementOperator.INC, "22"),
             new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo"),
-            new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
-            new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
+            new AttributeRequirement("hardware", "ram", RequirementOperator.EQ, "8192"),
+            new AttributeRequirement("hardware", "cores", RequirementOperator.EQ, "4"));
     }
 
     /**
@@ -129,6 +129,7 @@ public class NebulousAppDeployer {
      *  {@code false} otherwise.
      */
     private static boolean isClusterDeploymentFinished(JsonNode clusterStatus) {
+        // FIXME check that it's an object node, otherwise we crash at runtime
         return clusterStatus.withArray("/nodes")
             .findParents("state")
             .stream()
