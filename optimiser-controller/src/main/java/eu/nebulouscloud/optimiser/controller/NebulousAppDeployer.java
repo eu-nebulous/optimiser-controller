@@ -35,7 +35,7 @@ import static net.logstash.logback.argument.StructuredArguments.keyValue;
 public class NebulousAppDeployer {
 
     private static final ObjectMapper yamlMapper
-        = new ObjectMapper(YAMLFactory.builder().enable(YAMLGenerator.Feature.MINIMIZE_QUOTES).build());
+        = new ObjectMapper(YAMLFactory.builder().build());
     private static final ObjectMapper mapper = new ObjectMapper();
 
     /**
