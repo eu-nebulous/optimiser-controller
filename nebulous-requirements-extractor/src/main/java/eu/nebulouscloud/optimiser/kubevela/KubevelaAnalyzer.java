@@ -76,17 +76,98 @@ public class KubevelaAnalyzer {
     }
 
     /**
+     * Add frequirements for Ubuntu version 22.04.  Also add requirement for
+     * 2GB of RAM for now until we know more about the size / cpu requirements
+     * of the nebulous runtime.
+     *
+     * @param reqs The list of requirements to add to.
+     */
+    private static void addNebulousRequirements(List<Requirement> reqs) {
+        reqs.add(new AttributeRequirement("image", "operatingSystem.family",
+            RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
+        reqs.add(new AttributeRequirement("image", "name", RequirementOperator.INC, "22"));
+        reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
+    }
+
+    /**
+     * Get cpu requirement, taken from "cpu" resource requirement in KubeVela
+     * and rounding up to nearest whole number.
+     *
+     * @param c A Component branch of the parsed KubeVela file.
+     * @param componentName the component name, used only for logging.
+     * @return an integer of number of cores required, or -1 in case of no
+     *  requirement.
+     */
+    private static long getCpuRequirement(JsonNode c, String componentName) {
+        JsonNode cpu = c.at("/properties/cpu");
+        if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
+        if (!cpu.isMissingNode()) {
+            // KubeVela has fractional core /cpu requirements, and the
+            // value might be given as a string instead of a number, so
+            // parse string in all cases.
+            double kubevela_cpu = -1;
+            try {
+                kubevela_cpu = Double.parseDouble(cpu.asText());
+            } catch (NumberFormatException e) {
+                log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
+                return -1;
+            }
+            long sal_cores = Math.round(Math.ceil(kubevela_cpu));
+            if (sal_cores > 0) {
+                return sal_cores;
+            } else {
+                // floatValue returns 0.0 if node is not numeric
+                log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
+                return -1;
+            }
+        } else {
+            // no spec given
+            return -1;
+        }
+    }
+
+    /**
+     * Get memory requirement, taken from "memory" resource requirement in KubeVela
+     * and converted to Megabytes.  We currently handle the "Mi" and "Gi"
+     * suffixes that KubeVela uses.
+     *
+     * @param c A Component branch of the parsed KubeVela file.
+     * @param componentName the component name, used only for logging.
+     * @return an integer of memory required in Mb, or -1 in case of no
+     *  requirement.
+     */
+    private static long getMemoryRequirement(JsonNode c, String componentName) {
+        JsonNode memory = c.at("/properties/memory");
+        if (memory.isMissingNode()) memory = c.at("/properties/resources/requests/memory");
+        if (!memory.isMissingNode()) {
+            long sal_memory = -1;
+            String sal_memory_str = memory.asText();
+            if (sal_memory_str.endsWith("Mi")) {
+                sal_memory = Long.parseLong(sal_memory_str.substring(0, sal_memory_str.length() - 2));
+            } else if (sal_memory_str.endsWith("Gi")) {
+                sal_memory = Long.parseLong(sal_memory_str.substring(0, sal_memory_str.length() - 2)) * 1024;
+            } else {
+                log.warn("Unsupported memory specification in component " + componentName + " : " + memory.asText() + " (wanted 'Mi' or 'Gi') ");
+            }
+            return sal_memory;
+        } else {
+            return -1;
+        }
+    }
+
+
+    /**
      * Extract node requirements from a KubeVela file in a form we can send to
      * the SAL `findNodeCandidates` endpoint. <p>
      *
      * We read the following attributes for each component:
      *
-     * - `properties.cpu`, `properties.requests.cpu`: round up to next integer
-     *   and generate requirement `hardware.cores`
+     * - `properties.cpu`, `properties.resources.requests.cpu`: round up to
+     *   next integer and generate requirement `hardware.cores`
      *
-     * - `properties.memory`, `properties.requests.memory`: Handle "200Mi",
-     *   "0.2Gi" and bare number, convert to MB and generate requirement
-     *   `hardware.memory`
+     * - `properties.memory`, `properties.resources.requests.memory`: Handle
+     *   "200Mi", "0.2Gi" and bare number, convert to MB and generate
+     *   requirement `hardware.memory`
      *
      * Notes:<p>
      *
@@ -111,60 +192,24 @@ public class KubevelaAnalyzer {
      *  family) list of requirements for that component.  No requirements mean
      *  any node will suffice.
      */
-    public static Map<String, List<Requirement>> getRequirements(JsonNode kubevela, boolean includeNebulousRequirements) {
+    public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, boolean includeNebulousRequirements) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
-                // We want Ubuntu, version 22.04, and 2GB of RAM until we know
-                // more about the size / cpu requirements of the nebulous
-                // runtime.
-                reqs.add(new AttributeRequirement("image", "operatingSystem.family",
-                    RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
-                reqs.add(new AttributeRequirement("image", "name", RequirementOperator.INC, "22"));
-                reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
+                addNebulousRequirements(reqs);
             }
-            JsonNode cpu = c.at("/properties/cpu");
-            if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
-            if (!cpu.isMissingNode()) {
-                // KubeVela has fractional core /cpu requirements, and the
-                // value might be given as a string instead of a number, so
-                // parse string in all cases.
-                double kubevela_cpu = -1;
-                try {
-                    kubevela_cpu = Double.parseDouble(cpu.asText());
-                } catch (NumberFormatException e) {
-                    log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
-                }
-                long sal_cores = Math.round(Math.ceil(kubevela_cpu));
-                if (sal_cores > 0) {
-                    reqs.add(new AttributeRequirement("hardware", "cores",
-                        RequirementOperator.GEQ, Long.toString(sal_cores)));
-                } else {
-                    // floatValue returns 0.0 if node is not numeric
-                    log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
-                }
+            long cores = getCpuRequirement(c, componentName);
+            if (cores > 0) {
+                reqs.add(new AttributeRequirement("hardware", "cores",
+                    RequirementOperator.GEQ, Long.toString(cores)));
             }
-            JsonNode memory = c.at("/properties/memory");
-            if (memory.isMissingNode()) cpu = c.at("/properties/resources/requests/memory");
-            if (!memory.isMissingNode()) {
-                String sal_memory = memory.asText();
-                if (sal_memory.endsWith("Mi")) {
-                    sal_memory = sal_memory.substring(0, sal_memory.length() - 2);
-                } else if (sal_memory.endsWith("Gi")) {
-                    sal_memory = String.valueOf(Integer.parseInt(sal_memory.substring(0, sal_memory.length() - 2)) * 1024);
-                } else if (!memory.isNumber()) {
-                    log.warn("Unsupported memory specification in component " + componentName + " : " + memory.asText() + " (wanted 'Mi' or 'Gi') ");
-                    sal_memory = null;
-                }
-                // Fall-through: we rewrote the KubeVela file and didn't add
-                // the "Mi" suffix, but it's a number
-                if (sal_memory != null) {
+            long memory = getMemoryRequirement(c, componentName);
+            if (memory > 0) {
                     reqs.add(new AttributeRequirement("hardware", "ram",
-                        RequirementOperator.GEQ, sal_memory));
-                }
+                        RequirementOperator.GEQ, Long.toString(memory)));
             }
             for (final JsonNode t : c.withArray("/traits")) {
                 // TODO: Check for node affinity / geoLocation / country /
@@ -178,27 +223,103 @@ public class KubevelaAnalyzer {
 
     /**
      * Get node requirements for app components, including nebulous-specific
-     * requirements.  This method calls {@link #getRequirements(JsonNode,
+     * requirements.  This method calls {@link #getBoundedRequirements(JsonNode,
      * boolean)} with second parameter {@code true}.
      *
-     * @see #getRequirements(JsonNode, boolean)
+     * @see #getBoundedRequirements(JsonNode, boolean)
      */
-    public static Map<String, List<Requirement>> getRequirements(JsonNode kubevela) {
-        return getRequirements(kubevela, true);
+    public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela) {
+        return getBoundedRequirements(kubevela, true);
+    }
+
+    /**
+     * Get node requirements for app components, including nebulous-specific
+     * requirements.  Like {@link #getBoundedRequirements} but also include an
+     * upper bound of twice the requirement size.  I.e., for cpu=2, we ask for
+     * cpu >= 2, cpu <= 4.  Take care to not ask for less than 2048Mb of
+     * memory since that's the minimum Nebulous requirement for now.
+     */
+    public static Map<String, List<Requirement>> getClampedRequirements(JsonNode kubevela) {
+        Map<String, List<Requirement>> result = new HashMap<>();
+        ArrayNode components = kubevela.withArray("/spec/components");
+        for (final JsonNode c : components) {
+            String componentName = c.get("name").asText();
+            ArrayList<Requirement> reqs = new ArrayList<>();
+            addNebulousRequirements(reqs);
+            long cores = getCpuRequirement(c, componentName);
+            if (cores > 0) {
+                reqs.add(new AttributeRequirement("hardware", "cores",
+                    RequirementOperator.GEQ, Long.toString(cores)));
+                reqs.add(new AttributeRequirement("hardware", "cores",
+                    RequirementOperator.LEQ, Long.toString(cores * 2)));
+            }
+            long memory = getMemoryRequirement(c, componentName);
+            if (memory > 0) {
+                reqs.add(new AttributeRequirement("hardware", "ram",
+                    RequirementOperator.GEQ, Long.toString(memory)));
+                reqs.add(new AttributeRequirement("hardware", "ram",
+                    // See addNebulousRequirements(), don't ask for both more
+                    // and less than 2048
+                    RequirementOperator.LEQ, Long.toString(Math.max(memory * 2, 2048))));
+            }
+            for (final JsonNode t : c.withArray("/traits")) {
+                // TODO: Check for node affinity / geoLocation / country /
+                // node type (edge or cloud)
+            }
+            // Finally, add requirements for this job to the map
+            result.put(componentName, reqs);
+        }
+        return result;
+    }
+
+    /**
+     * Get node requirements for app components, including nebulous-specific
+     * requirements.  Like {@link #getBoundedRequirements} but require precise
+     * amounts, i.e., ask for precisely cpu == 2, memory == 2048 instead of
+     * asking for >= or <=.  Note that we still ask for >= 2048 Mb since
+     * that's the nebulous lower bound for now.
+     */
+    public static Map<String, List<Requirement>> getPreciseRequirements(JsonNode kubevela) {
+        Map<String, List<Requirement>> result = new HashMap<>();
+        ArrayNode components = kubevela.withArray("/spec/components");
+        for (final JsonNode c : components) {
+            String componentName = c.get("name").asText();
+            ArrayList<Requirement> reqs = new ArrayList<>();
+            addNebulousRequirements(reqs);
+            long cores = getCpuRequirement(c, componentName);
+            if (cores > 0) {
+                reqs.add(new AttributeRequirement("hardware", "cores",
+                    RequirementOperator.EQ, Long.toString(cores)));
+            }
+            long memory = getMemoryRequirement(c, componentName);
+            if (memory > 0) {
+                reqs.add(new AttributeRequirement("hardware", "ram",
+                    // See addNebulousRequirements; don't ask for less than
+                    // the other constraint allows
+                    RequirementOperator.EQ, Long.toString(Math.max(memory, 2048))));
+            }
+            for (final JsonNode t : c.withArray("/traits")) {
+                // TODO: Check for node affinity / geoLocation / country /
+                // node type (edge or cloud)
+            }
+            // Finally, add requirements for this job to the map
+            result.put(componentName, reqs);
+        }
+        return result;
     }
 
     /**
      * Extract node requirements from a KubeVela file.
      *
-     * @see #getRequirements(JsonNode)
+     * @see #getBoundedRequirements(JsonNode)
      * @param kubevela The KubeVela file, as a YAML string.
      * @return a map of component name to (potentially empty, except for OS
      *  family) list of requirements for that component.  No requirements mean
      *  any node will suffice.
      * @throws JsonProcessingException if kubevela does not contain valid YAML.
      */
-    public static Map<String, List<Requirement>> getRequirements(String kubevela) throws JsonProcessingException {
-        return getRequirements(parseKubevela(kubevela));
+    public static Map<String, List<Requirement>> getBoundedRequirements(String kubevela) throws JsonProcessingException {
+        return getBoundedRequirements(parseKubevela(kubevela));
     }
 
     /**

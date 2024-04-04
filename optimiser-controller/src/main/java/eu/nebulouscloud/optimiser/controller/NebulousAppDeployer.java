@@ -165,7 +165,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getRequirements(kubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getClampedRequirements(kubevela);
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
 
@@ -177,7 +177,7 @@ public class NebulousAppDeployer {
         // 2. Find node candidates
 
         // TODO: filter by app resources (check enabled: true in resources array)
-        List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesFromSal(controllerRequirements, appUUID);
+        List<NodeCandidate> controllerCandidates = conn.findNodeCandidates(controllerRequirements, appUUID);
         if (controllerCandidates.isEmpty()) {
             log.error("Could not find node candidates for requirements: {}",
                 controllerRequirements, keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -189,7 +189,7 @@ public class NebulousAppDeployer {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
             // TODO: filter by app resources (check enabled: true in resources array)
-            List<NodeCandidate> candidates = conn.findNodeCandidatesFromSal(requirements, appUUID);
+            List<NodeCandidate> candidates = conn.findNodeCandidates(requirements, appUUID);
             if (candidates.isEmpty()) {
                 log.error("Could not find node candidates for for node {}, requirements: {}", nodeName, requirements,
                     keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -415,7 +415,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getRequirements(kubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getClampedRequirements(kubevela);
         Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(kubevela);
 
         Map<String, List<Requirement>> oldComponentRequirements = app.getComponentRequirements();
@@ -444,7 +444,7 @@ public class NebulousAppDeployer {
                     log.debug("Adding {} nodes to component {}", nAdd, componentName,
                         keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                     // TODO: filter by app resources (check enabled: true in resources array)
-                    List<NodeCandidate> candidates = conn.findNodeCandidatesFromSal(newR, appUUID);
+                    List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                     if (candidates.isEmpty()) {
                         log.error("Could not find node candidates for requirements: {}",
                             newR, keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -500,7 +500,7 @@ public class NebulousAppDeployer {
                 log.debug("Redeploying all nodes of component {}", componentName,
                     keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                 // TODO: filter by app resources (check enabled: true in resources array)
-                List<NodeCandidate> candidates = conn.findNodeCandidatesFromSal(newR, appUUID);
+                List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                 if (candidates.size() == 0) {
                     log.error("Empty node candidate list for component {}, continuing without creating node", componentName,
                         keyValue("appId", appUUID), keyValue("clusterName", clusterName));
