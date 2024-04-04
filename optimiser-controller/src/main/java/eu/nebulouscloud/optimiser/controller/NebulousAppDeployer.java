@@ -103,17 +103,27 @@ public class NebulousAppDeployer {
 
     /**
      * Create a globally-unique node name.  The node name has to conform to
-     * Linux hostname rules: lowercase letters, numbers and underscore only,
+     * Linux hostname rules: lowercase letters, numbers and hyphens only,
      * starting with a letter.
+     *
+     * <p>NOTE: if the application includes components whose names only differ
+     * by case or underscore vs hyphen, this method might not create unique
+     * node names, which will lead to failure during cluster creation.
      *
      * @param clusterName the unique cluster name.
      * @param componentName the KubeVela component name.
-     * @param deployGeneration 1 for initial deployment, increasing for each redeployment.
-     * @param nodeNumber the replica number of the component to be deployed on the node.
-     * @return a fresh node name.
+     * @param deployGeneration 1 for initial deployment, increasing for each
+     *  redeployment.
+     * @param nodeNumber the replica number of the component to be deployed on
+     *  the node.
+     * @return a node name, unique if componentNames are "sufficiently unique"
+     *  (see above).
      */
-    private static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
-        return String.format("n%s-%s-%s-%s", clusterName.toLowerCase(), componentName.toLowerCase(), deployGeneration, nodeNumber);
+    public static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
+        String nodename = String.format("n%s-%s-%s-%s", clusterName, componentName, deployGeneration, nodeNumber);
+        nodename = nodename.toLowerCase();
+        nodename = nodename.replaceAll("[^a-z0-9-]", "-");
+        return nodename;
     }
 
     /**
