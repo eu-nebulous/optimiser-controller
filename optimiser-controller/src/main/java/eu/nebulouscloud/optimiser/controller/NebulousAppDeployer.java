@@ -96,7 +96,9 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Create a globally-unique node name.
+     * Create a globally-unique node name.  The node name has to conform to
+     * Linux hostname rules: lowercase letters, numbers and underscore only,
+     * starting with a letter.
      *
      * @param clusterName the unique cluster name.
      * @param componentName the KubeVela component name.
@@ -105,7 +107,7 @@ public class NebulousAppDeployer {
      * @return a fresh node name.
      */
     private static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
-        return String.format("N%s-%s-%s-%s", clusterName, componentName, deployGeneration, nodeNumber);
+        return String.format("n%s-%s-%s-%s", clusterName.toLowerCase(), componentName.toLowerCase(), deployGeneration, nodeNumber);
     }
 
     /**
@@ -207,7 +209,7 @@ public class NebulousAppDeployer {
 
         // Controller node
         log.info("Deciding on controller node candidate", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
-        String masterNodeName = "N" + clusterName + "-masternode"; // safe because all component node names end with a number
+        String masterNodeName = "n" + clusterName.toLowerCase() + "-masternode"; // safe because all component node names end with a number
         NodeCandidate masterNodeCandidate = null;
         if (controllerCandidates.size() > 0) {
             masterNodeCandidate = controllerCandidates.get(0);

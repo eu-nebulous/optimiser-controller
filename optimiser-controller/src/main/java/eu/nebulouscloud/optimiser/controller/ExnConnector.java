@@ -468,7 +468,7 @@ public class ExnConnector {
     public boolean labelNodes(String appID, String clusterID, JsonNode labels) {
         Map<String, Object> msg;
 	try {
-	    msg = Map.of("metaData", Map.of("user", "admin", "clusterName", appID),
+	    msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterID),
 		"body", mapper.writeValueAsString(labels));
 	} catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
