@@ -54,7 +54,8 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Produce a fresh KubeVela specification with added node affinity traits.
+     * Produce a fresh KubeVela specification with added node affinity traits
+     * and without resource specifications.
      *
      * During deployment and redeployment, we label all nodes with {@code
      * nebulouscloud.eu/<componentname>=yes}.  (Note that with this scheme, a
@@ -78,10 +79,11 @@ public class NebulousAppDeployer {
      *  not modified.
      * @return a fresh KubeVela specification with added nodeAffinity traits.
      */
-    public static JsonNode addNodeAffinities(JsonNode kubevela) {
+    public static JsonNode createDeploymentKubevela(JsonNode kubevela) {
         JsonNode result = kubevela.deepCopy();
         for (final JsonNode c : result.withArray("/spec/components")) {
             String name = c.get("name").asText();
+            // Add traits
             ArrayNode traits = c.withArray("traits");
             ObjectNode trait = traits.addObject();
             trait.put("type", "affinity");
@@ -91,6 +93,10 @@ public class NebulousAppDeployer {
             term.put("key", "nebulouscloud.eu/" + name)
                 .put("operator", "In")
                 .withArray("values").add("yes");
+            // Remove resources
+            c.withObject("/properties").remove("memory");
+            c.withObject("/properties").remove("cpu");
+            c.withObject("/properties/resources").remove("requests");
         }
         return result;
     }
@@ -345,7 +351,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 6. Rewrite KubeVela
-        JsonNode rewritten = addNodeAffinities(kubevela);
+        JsonNode rewritten = createDeploymentKubevela(kubevela);
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
             rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
