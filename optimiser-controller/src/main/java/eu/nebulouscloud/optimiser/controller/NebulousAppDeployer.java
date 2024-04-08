@@ -162,6 +162,10 @@ public class NebulousAppDeployer {
     public static void deployApplication(NebulousApp app, JsonNode kubevela) {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
+        // The application name is typed in by the user, and is used
+        // internally by SAL as an unquoted filename in a generated shell
+        // script. It shouldn't be this way but it is what it is.
+        String safeAppName = app.getName().replaceAll("[^a-zA-Z0-9-_]", "_");
         ExnConnector conn = app.getExnConnector();
         log.info("Starting initial deployment for application", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
 
@@ -376,7 +380,7 @@ public class NebulousAppDeployer {
         // 7. Deploy application
 
         log.info("Calling deployApplication", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
-        long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
+        long proActiveJobID = conn.deployApplication(appUUID, clusterName, safeAppName, rewritten_kubevela);
         log.info("deployApplication returned ProActive Job ID {}", proActiveJobID,
             keyValue("appId", appUUID), keyValue("clusterName", clusterName));
         if (proActiveJobID == 0) {
