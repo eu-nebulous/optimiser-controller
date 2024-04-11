@@ -13,6 +13,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import eu.nebulouscloud.exn.core.Publisher;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
@@ -59,6 +60,36 @@ public class NebulousApp {
      * AWS has a length restriction.
      */
     @Getter private String clusterName;
+
+    /**
+     * The application status.
+     *
+     * <p>NEW: The application has been created from the GUI and is waiting
+     * for the performance indicators.
+     *
+     * <p>READY: The application is ready for deployment.
+     *
+     * <p>DEPLOYING: The application is being deployed or redeployed.
+     *
+     * <p>SOLVER_WAITING: The application is deployed, we're waiting for the
+     * solver to be ready so we can send AMPL and performance indicators.
+     *
+     * <p>RUNNING: The application is running, and under redeployment.
+     *
+     * <p>FAILED: The application is in an invalid state: one or more messages
+     * could not be parsed, or deployment or redeployment failed.
+     */
+    public enum State {
+        NEW,
+        READY,
+        DEPLOYING,
+        SOLVER_WAITING,
+        RUNNING,
+        FAILED;
+    }
+
+    @Getter
+    private State state;
 
     // ----------------------------------------
     // App message parsing stuff
@@ -114,37 +145,38 @@ public class NebulousApp {
      * to 1, each subsequent redeployment increases by 1.  This value is used
      * to name node instances generated during that deployment.
      */
-    @Getter @Setter
+    @Getter
     private int deployGeneration = 0;
 
     /**
-     * Map of component name to node name(s) deployed for that component.
-     * Component names are defined in the KubeVela file.  We assume that
-     * component names stay constant during redeployment, i.e., once an
-     * application is deployed, its KubeVela file will not change.
+     * Unmodifiable map of component name to node name(s) deployed for that
+     * component.  Component names are defined in the KubeVela file.  We
+     * assume that component names stay constant during redeployment, i.e.,
+     * once an application is deployed, its KubeVela file will not change.
      *
      * Note that this map does not include the master node, since this is not
      * specified in KubeVela.
      */
     @Getter
-    private Map<String, Set<String>> componentNodeNames = new HashMap<>();
+    private Map<String, Set<String>> componentNodeNames = Map.of();
     /**
-     * Map from node name to deployed edge or BYON node candidate.  We keep
-     * track of assigned edge candidates, since we do not want to
-     * doubly-assign edge nodes.  We also store the node name, so we can
-     * "free" the edge candidate when the current component gets redeployed
-     * and lets go of its edge node.  (We do not track cloud node candidates
-     * since these can be instantiated multiple times.)
+     * Unmodifiable map from node name to deployed edge or BYON node
+     * candidate.  We keep track of assigned edge candidates, since we do not
+     * want to doubly-assign edge nodes.  We also store the node name, so we
+     * can "free" the edge candidate when the current component gets
+     * redeployed and lets go of its edge node.  (We do not track cloud node
+     * candidates since these can be instantiated multiple times.)
      */
     @Getter
-    private Map<String, NodeCandidate> nodeEdgeCandidates = new HashMap<>();
-    /** Map of component name to its requirements, as currently deployed.
-      * Each replica of a component has identical requirements. */
-    @Getter @Setter
-    private Map<String, List<Requirement>> componentRequirements = new HashMap<>();
-    /** Map of component name to its replica count, as currently deployed. */
-    @Getter @Setter
-    private Map<String, Integer> componentReplicaCounts = new HashMap<>();
+    private Map<String, NodeCandidate> nodeEdgeCandidates = Map.of();
+    /** Unmodifiable map of component name to its requirements, as currently
+      * deployed.  Each replica of a component has identical requirements. */
+    @Getter
+    private Map<String, List<Requirement>> componentRequirements = Map.of();
+    /** Unmodifiable map of component name to its replica count, as currently
+      * deployed. */
+    @Getter
+    private Map<String, Integer> componentReplicaCounts = Map.of();
 
     /** When an app gets deployed, this is where we send the AMPL file */
     private Publisher ampl_message_channel;
@@ -153,15 +185,15 @@ public class NebulousApp {
     // private boolean deployed = false;
 
     /** The KubeVela as it was most recently sent to the app's controller. */
-    @Getter @Setter
+    @Getter
     private JsonNode deployedKubevela;
     /** For each KubeVela component, the number of deployed nodes.  All nodes
-      * will be identical wrt machine type etc. */
-    @Getter @Setter
-    private Map<String, Integer> deployedNodeCounts;
-    /** For each KubeVela component, the requirements for its node(s). */
-    @Getter @Setter
-    private Map<String, List<Requirement>> deployedNodeRequirements;
+      * will be identical wrt machine type etc.  Unmodifiable map. */
+    @Getter
+    private Map<String, Integer> deployedNodeCounts = Map.of();
+    /** For each KubeVela component, the requirements for its node(s).  Unmodifiable map. */
+    @Getter
+    private Map<String, List<Requirement>> deployedNodeRequirements = Map.of();
 
     /**
      * The EXN connector for this class.  At the moment all apps share the
@@ -183,6 +215,7 @@ public class NebulousApp {
     public NebulousApp(JsonNode app_message, ObjectNode kubevela, ExnConnector exnConnector) {
         this.UUID = app_message.at(uuid_path).textValue();
         this.name = app_message.at(name_path).textValue();
+        this.state = State.READY;
         this.clusterName = NebulousApps.calculateUniqueClusterName(this.UUID);
         this.originalAppMessage = app_message;
         this.originalKubevela = kubevela;
@@ -284,6 +317,46 @@ public class NebulousApp {
             log.error("Could not read app creation message", e);
             return null;
         }
+    }
+
+    /**
+     * Set the state from READY to DEPLOYING, and increment the generation.
+     *
+     * @return false if deployment could not be started, true otherwise.
+     */
+    @Synchronized
+    public boolean setStateDeploying() {
+        if (state != State.READY) {
+            return false;
+        } else {
+            state = State.DEPLOYING;
+            deployGeneration++;
+            return true;
+        }
+    }
+    /** Set state from DEPLOYING to RUNNING and update app cluster information.
+      * @return false if not in state deploying, otherwise true. */
+    @Synchronized
+    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, NodeCandidate> nodeEdgeCandidates, JsonNode deployedKubevela) {
+        if (state != State.DEPLOYING) {
+            return false;
+        } else {
+            // We keep all state read-only so we cannot modify the app object
+            // before we know deployment is successful
+            this.componentRequirements = Map.copyOf(componentRequirements);
+            this.componentReplicaCounts = Map.copyOf(nodeCounts);
+            this.componentNodeNames = Map.copyOf(componentNodeNames);
+            this.deployedKubevela = deployedKubevela;
+            this.nodeEdgeCandidates = Map.copyOf(nodeEdgeCandidates);
+            state = State.RUNNING;
+            return true;
+        }
+    }
+
+    /** Set state unconditionally to FAILED.  No more state changes will be
+      * possible once the state is set to FAILED. */
+    public void setStateFailed() {
+        state = State.FAILED;
     }
 
     /** Utility function to parse a KubeVela string.  Can be used from jshell. */
@@ -391,6 +464,11 @@ public class NebulousApp {
 
     /**
      * Calculate AMPL file and send it off to the solver.
+     *
+     * <p> TODO: this should be done once from a message handler that listens
+     * for an incoming "solver ready" message
+     *
+     * <p> TODO: also send performance indicators to solver here
      */
     public void sendAMPL() {
         String ampl = AMPLGenerator.generateAMPL(this);

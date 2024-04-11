@@ -94,6 +94,8 @@ public class ExnConnector {
     public final SyncedPublisher scaleOut;
     /** The scaleIn endpoint. */
     public final SyncedPublisher scaleIn;
+    /** The deleteCluster endpoint. */
+    public final SyncedPublisher deleteCluster;
 
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
@@ -119,6 +121,7 @@ public class ExnConnector {
         deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
         scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
         scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
+        deleteCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
 
         conn = new Connector("optimiser_controller",
             callback,
@@ -131,7 +134,8 @@ public class ExnConnector {
                 deployCluster,
                 deployApplication,
                 scaleOut,
-                scaleIn),
+                scaleIn,
+                deleteCluster),
             List.of(
                 new Consumer("ui_app_messages", app_creation_channel,
                     new AppCreationMessageHandler(), true, true),
@@ -481,7 +485,10 @@ public class ExnConnector {
     }
 
     /**
-     * Deploy a cluster created by {@link #defineCluster}.
+     * Deploy a cluster created by {@link #defineCluster}.  Note that the call
+     * will return before the cluster is ready, i.e., {@link #getCluster} must
+     * be checked before trying to call {@link #labelNodes} or {@link
+     * #deployApplication}.
      *
      * @param appID The application's id, used for logging only.
      * @param clusterName The name of the cluster.
@@ -566,7 +573,6 @@ public class ExnConnector {
      * @return true if the call was successful, false otherwise.
      */
     public boolean scaleIn(String appID, List<String> superfluousNodes) {
-        // NOTE: not yet defined in
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
         ArrayNode body = mapper.createArrayNode();
         superfluousNodes.forEach(nodeName -> body.add(nodeName));
@@ -584,5 +590,20 @@ public class ExnConnector {
         return payload.asBoolean();
     }
 
+    /**
+     * Delete a cluster created by {@link #defineCluster}.
+     *
+     * @param appID The application's id, used for logging only.
+     * @param clusterName The name of the cluster.
+     * @return true if the cluster was successfully deleted, false otherwise.
+     */
+    public boolean deleteCluster(String appID, String clusterName) {
+        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        Map<String, Object> msg = Map.of("metaData",
+            Map.of("user", "admin", "clusterName", clusterName));
+        Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
+        JsonNode payload = extractPayloadFromExnResponse(response, appID, "deleteCluster");
+        return payload.asBoolean();
+    }
 
 }
