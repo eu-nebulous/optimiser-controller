@@ -12,7 +12,6 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
 import static net.logstash.logback.argument.StructuredArguments.keyValue;
@@ -125,6 +124,9 @@ public class NebulousApp {
     @Getter private  Map<String, JsonNode> compositeMetrics = new HashMap<>();
     /** The app's performance indicators, a map from key to the defining JSON node. */
     @Getter private Map<String, JsonNode> performanceIndicators = new HashMap<>();
+    /** The app's "relevant" performance indicators, as calculated by the
+     * utility evaluator.  Initialized to empty object for testing purposes. */
+    @Getter private JsonNode relevantPerformanceIndicators = jsonMapper.createObjectNode();
     /** The app's utility functions; the AMPL solver will optimize for one of these. */
     @Getter private Map<String, JsonNode> utilityFunctions = new HashMap<>();
     /**
@@ -215,7 +217,7 @@ public class NebulousApp {
     public NebulousApp(JsonNode app_message, ObjectNode kubevela, ExnConnector exnConnector) {
         this.UUID = app_message.at(uuid_path).textValue();
         this.name = app_message.at(name_path).textValue();
-        this.state = State.READY;
+        this.state = State.NEW;
         this.clusterName = NebulousApps.calculateUniqueClusterName(this.UUID);
         this.originalAppMessage = app_message;
         this.originalKubevela = kubevela;
@@ -316,6 +318,21 @@ public class NebulousApp {
         } catch (Exception e) {
             log.error("Could not read app creation message", e);
             return null;
+        }
+    }
+
+    /**
+     * Set the state from NEW to READY, adding the list of relevant
+     * performance indicators.  Return false if state was not READY.
+     */
+    @Synchronized
+    public boolean setStateReady(JsonNode relevantPerformanceIndicators) {
+        if (state != State.NEW) {
+            return false;
+        } else {
+            state = State.READY;
+            this.relevantPerformanceIndicators = relevantPerformanceIndicators;
+            return true;
         }
     }
 
@@ -471,10 +488,16 @@ public class NebulousApp {
      * <p> TODO: also send performance indicators to solver here
      */
     public void sendAMPL() {
-        String ampl = AMPLGenerator.generateAMPL(this);
+        String ampl_model = AMPLGenerator.generateAMPL(this);
+        String ampl_data = relevantPerformanceIndicators.at("/initialDataFile").textValue();
         ObjectNode msg = jsonMapper.createObjectNode();
-        msg.put("FileName", getUUID() + ".ampl");
-        msg.put("FileContent", ampl);
+
+        msg.put("ModelFileName", getUUID() + ".ampl");
+        msg.put("ModelFileContent", ampl_model);
+        if (ampl_data != null && ampl_data.length() > 0) {
+            msg.put("DataFileName", getUUID() + ".dat");
+            msg.put("DataFileContent", ampl_data);
+        }
         msg.put("ObjectiveFunction", getObjectiveFunction());
         ObjectNode constants = msg.withObject("Constants");
           // Define initial values for constant utility functions:
@@ -499,10 +522,28 @@ public class NebulousApp {
             constant.put("Variable", variableName);
             constant.set("Value", value);
         }
-        log.info("Sending AMPL file to solver", keyValue("amplMessage", msg), keyValue("appId", UUID));
+        log.info("Sending AMPL files to solver", keyValue("amplMessage", msg), keyValue("appId", UUID));
         exnConnector.getAmplMessagePublisher().send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
-        Main.logFile("to-solver-" + getUUID() + ".json", msg.toString());
-        Main.logFile("to-solver-" + getUUID() + ".ampl", ampl);
+        Main.logFile("to-solver-" + getUUID() + ".json", msg.toPrettyString());
+        Main.logFile("to-solver-" + getUUID() + ".ampl", ampl_model);
+    }
+
+    /**
+     * Send the metric list for the given app.  This is done two times: once
+     * before app cluster creation to initialize EMS, once after cluster app
+     * creation to initialize the solver.
+     *
+     * @param app The application under deployment.
+     */
+    public void sendMetricList() {
+        Publisher metricsChannel = exnConnector.getMetricListPublisher();
+        ObjectNode msg = jsonMapper.createObjectNode();
+        ArrayNode metricNames = msg.withArray("/metrics");
+        getRawMetrics().forEach((k, v) -> metricNames.add(k));
+        getCompositeMetrics().forEach((k, v) -> metricNames.add(k));
+        log.info("Sending metric list", keyValue("appId", UUID));
+        metricsChannel.send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
+        Main.logFile("metric-names-" + getUUID() + ".json", msg.toPrettyString());
     }
 
     /**

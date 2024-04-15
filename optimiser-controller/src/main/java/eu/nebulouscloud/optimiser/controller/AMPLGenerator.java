@@ -115,7 +115,33 @@ public class AMPLGenerator {
     }
 
     private static void generateCostParameterSection(NebulousApp app, PrintWriter out) {
-        out.println("# TBD: cost parameters - for all components! and use of node-candidates tensor");
+        out.println("# Cost parameters - for all components, and use of node-candidates tensor");
+        ArrayNode indicators = app.getRelevantPerformanceIndicators().withArray("PerformanceIndicators");
+        if (indicators.size() == 0) return;
+        for (JsonNode performanceIndicator : indicators) {
+            int nVariables = performanceIndicator.withArray("variables").size();
+            String name = performanceIndicator.at("/coefficientsName").textValue();
+            out.format("param %s{1..%s};%n", name, nVariables + 1);
+        }
+        for (JsonNode performanceIndicator : indicators) {
+            int iVariable = 1;
+            String var_name = performanceIndicator.at("/name").textValue();
+            String coeff_name = performanceIndicator.at("/coefficientsName").textValue();
+            out.format("var %s = %s[1]", var_name, coeff_name);
+            for (JsonNode var : performanceIndicator.withArray("/variables")) {
+                iVariable++;
+                out.format(" + %s[%s] * %s", coeff_name, iVariable, var.textValue());
+            }
+            out.println(";");
+        }
+        out.println();
+        out.println("minimize costfunction:");
+        String separator = "    ";
+        for (JsonNode performanceIndicator : indicators) {
+            out.print(separator); separator = " + ";
+            out.print(performanceIndicator.at("/name").textValue());
+        }
+        out.println(";");
         out.println();
     }
 

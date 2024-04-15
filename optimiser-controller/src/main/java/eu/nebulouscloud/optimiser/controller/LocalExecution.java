@@ -66,6 +66,7 @@ public class LocalExecution implements Callable<Integer> {
             }
             if (deploy) {
                 log.debug("Deploying application", connector.getAmplMessagePublisher());
+                app.setStateReady(null); // TODO: insert second file here
                 app.deployUnmodifiedApplication();
             }
         }

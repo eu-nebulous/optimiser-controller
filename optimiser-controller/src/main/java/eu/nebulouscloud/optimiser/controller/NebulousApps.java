@@ -7,15 +7,24 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 /**
- * Class that manages a collection of NebulousApp instances.
+ * Class that manages a collection of NebulousApp instances.  Also used to
+ * temporarily store the relevant performance indicators which are calculated
+ * by the utility evaluator from the same incoming app creation message.
  */
 @Slf4j
 public class NebulousApps {
 
     /** The global app registry. */
-    // (Putting this here until we find a better place.)
-    private static final Map<String, NebulousApp> apps = new ConcurrentHashMap<String, NebulousApp>();
+    private static final Map<String, NebulousApp> apps = new ConcurrentHashMap<>();
+
+    /**
+     * A place to store relevant performance indicator messages if the app
+     * object is not yet available.
+     */
+    public static final Map<String, JsonNode> relevantPerformanceIndicators = new ConcurrentHashMap<>();
 
     /**
      * Add a new application object to the registry.

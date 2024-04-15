@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.NodeCandidate;
@@ -137,6 +138,9 @@ public class NebulousAppDeployer {
      *  {@code false} otherwise.
      */
     private static boolean isClusterDeploymentFinished(JsonNode clusterStatus) {
+        if (clusterStatus == null || !clusterStatus.isObject())
+            // Catch various failure states, e.g., SAL spuriously returning null
+            return false;
         return clusterStatus.withArray("/nodes")
             .findParents("state")
             .stream()
@@ -213,12 +217,15 @@ public class NebulousAppDeployer {
         //   controller.
         // - Select node candidates, making sure to only select edge nodes
         //   once.
+        // - (Before deploying the cluster) send metric name list.
         // - Create a SAL cluster.
         // - Deploy the SAL cluster.
         // - Add node affinity traits to the KubeVela file.
         // - Deploy the SAL application.
         // - Store cluster state (deployed KubeVela file, etc.) in
         //   NebulousApp object.
+        // - Asynchronously, triggered via solver readiness message: wait for
+        //   solver to be ready, send AMPL and re-send metric name list.
 
         // ------------------------------------------------------------
         // Extract node requirements
@@ -355,8 +362,9 @@ public class NebulousAppDeployer {
             return;
         }
 
-        // TODO: send performance indicators (for monitoring system, which
-        // needs it before cluster creation)
+        // ------------------------------------------------------------
+        // Send metrics to EMS
+        app.sendMetricList();
 
         // ------------------------------------------------------------
         // Create cluster
