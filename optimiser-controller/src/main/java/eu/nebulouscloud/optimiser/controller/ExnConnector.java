@@ -132,8 +132,8 @@ public class ExnConnector {
         labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
         deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
         deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
-        scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
-        scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
+        scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.scale.out", true, true);
+        scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.scale.in", true, true);
         deleteCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
 
         conn = new Connector("optimiser_controller",
@@ -512,12 +512,12 @@ public class ExnConnector {
      *     "master-node":"N485d7-1-masternode",
      *     "nodes":[
      *         {
-     *             "nodeName":"N485d7-1-masternode",
+     *             "nodeName":"n485d7-1-masternode",
      *             "nodeCandidateId":"8a7481018e8572f9018e857ed0c50c53",
      *             "cloudId":"demo-cloud"
      *         },
      *         {
-     *             "nodeName":"N485d7-1-dummy-app-worker-1-1",
+     *             "nodeName":"n485d7-1-dummy-app-worker-1-1",
      *             "nodeCandidateId":"8a7481018e8572f9018e857ecfb30c21",
      *             "cloudId":"demo-cloud"
      *         }
@@ -649,37 +649,38 @@ public class ExnConnector {
      * <p>The new nodes are specified in the same way as in {@link
      * #defineCluster()}.
      *
-     * @param appID The application's id.
-     * @param additionalWorkers The additional nodes to add.
+     * @param appID The application's id, used only for logging.
+     * @param clusterName the cluster name.
+     * @param nodesToAdd The additional nodes to add.
      */
-    // TODO: deserialize response into sal-common `Cluster`
-    public void scaleOut(String appID, ArrayNode additionalNodes) {
-        // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
-        ObjectNode body = mapper.createObjectNode()
-            .put("applicationId", appID);
-        body.putArray("workers").addAll(additionalNodes);
+    public void scaleOut(String appID, String clusterName, ArrayNode nodesToAdd) {
         Map<String, Object> msg;
         try {
-            msg = Map.of("metaData", Map.of("user", "admin"),
-                "body", mapper.writeValueAsString(body));
+            msg = Map.of("metaData", Map.of("user", "admin",
+                                            "clusterName", clusterName),
+                         "body", mapper.writeValueAsString(nodesToAdd));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), e);
+                      keyValue("appId", appID), keyValue("clusterName", clusterName), e);
             return;
         }
         Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
-        // Called for side-effect only; we want to log errors
+        // Called for side-effect only; we want to log errors.  The return
+        // value from scaleOut is the same as getCluster, but since we have to
+        // poll for cluster status anyway to make sure the new machines are
+        // running, we do not return it here.
         JsonNode payload = extractPayloadFromExnResponse(response, appID, "scaleOut");
     }
 
     /**
      * Remove nodes from a deployed cluster.
      *
-     * @param appID The application's id.
+     * @param appID The application's id, used only for logging.
+     * @param clusterName the cluster name.
      * @param superfluousNodes The names of nodes to be removed.
      * @return true if the call was successful, false otherwise.
      */
-    public boolean scaleIn(String appID, List<String> superfluousNodes) {
+    public boolean scaleIn(String appID, String clusterName, List<String> superfluousNodes) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
         ArrayNode body = mapper.createArrayNode();
         superfluousNodes.forEach(nodeName -> body.add(nodeName));
@@ -689,7 +690,7 @@ public class ExnConnector {
                 "body", mapper.writeValueAsString(body));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), e);
+                keyValue("appId", appID), keyValue("clusterName", clusterName), e);
             return false;
         }
         Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);

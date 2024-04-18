@@ -153,10 +153,10 @@ public class NebulousApp {
     /**
      * Unmodifiable map of component name to node name(s) deployed for that
      * component.  Component names are defined in the KubeVela file.  We
-     * assume that component names stay constant during redeployment, i.e.,
-     * once an application is deployed, its KubeVela file will not change.
+     * assume that component names stay constant during the app's lifecycle,
+     * i.e., once an application is deployed, its components will not change.
      *
-     * Note that this map does not include the master node, since this is not
+     * <p>Note that this map does not include the master node, since this is not
      * specified in KubeVela.
      */
     @Getter
@@ -351,6 +351,7 @@ public class NebulousApp {
             return true;
         }
     }
+
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
       * @return false if not in state deploying, otherwise true. */
     @Synchronized
@@ -369,6 +370,23 @@ public class NebulousApp {
             return true;
         }
     }
+
+    /**
+     * Set the state from RUNNING to DEPLOYING, and increment the generation.
+     *
+     * @return false if redeployment could not be started, true otherwise.
+     */
+    @Synchronized
+    public boolean setStateRedeploying() {
+        if (state != State.RUNNING) {
+            return false;
+        } else {
+            state = State.DEPLOYING;
+            deployGeneration++;
+            return true;
+        }
+    }
+
 
     /** Set state unconditionally to FAILED.  No more state changes will be
       * possible once the state is set to FAILED. */

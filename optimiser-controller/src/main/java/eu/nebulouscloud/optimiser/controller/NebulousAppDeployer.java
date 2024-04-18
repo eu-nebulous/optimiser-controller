@@ -132,6 +132,12 @@ public class NebulousAppDeployer {
      * safe to call {@link ExnConnector#labelNodes} and {@link
      * ExnConnector#deployApplication}.
      *
+     * <p>Note that this approach will not detect when a call to the scaleIn
+     * endpoint has finished, since there are no nodes to start in that case.
+     * But for our workflow this does not matter, since scaling in is done
+     * after scaling out, relabeling and redeploying the application, so there
+     * is no other step that needs to wait for scaleIn to finishh.
+     *
      * @param clusterStatus The cluster status, as returned by {@link
      *  ExnConnector#getCluster}.
      * @return {@code true} if all nodes are in state {@code "Finished"},
@@ -139,7 +145,9 @@ public class NebulousAppDeployer {
      */
     private static boolean isClusterDeploymentFinished(JsonNode clusterStatus) {
         if (clusterStatus == null || !clusterStatus.isObject())
-            // Catch various failure states, e.g., SAL spuriously returning null
+            // Catch various failure states, e.g., SAL spuriously returning
+            // null.  Persistent getClusterStatus failures need to be handled outside
+            // this method.
             return false;
         return clusterStatus.withArray("/nodes")
             .findParents("state")
@@ -157,23 +165,26 @@ public class NebulousAppDeployer {
     private static boolean waitForClusterDeploymentFinished(ExnConnector conn, String clusterName, String appUUID) {
         // TODO: find out what state node(s) or the whole cluster are in when
         // cluster start fails, and return false in that case.
+        try {
+            // Sleep a little at the beginning so that SAL has a chance to
+            // initialize its data structures etc. -- don't want to call
+            // getCluster immediately after deployCluster
+            Thread.sleep(10000);
+        } catch (InterruptedException e1) {
+            // ignore
+        }
         JsonNode clusterState = conn.getCluster(clusterName);
         while (clusterState == null || !isClusterDeploymentFinished(clusterState)) {
             log.info("Waiting for cluster deployment to finish...",
                 keyValue("appId", appUUID), keyValue("clusterName", clusterName),
                 keyValue("clusterState", clusterState));
             try {
-		Thread.sleep(10000);
-	    } catch (InterruptedException e1) {
+                Thread.sleep(10000);
+            } catch (InterruptedException e1) {
                 // ignore
-	    }
-            // TODO: distinguish between clusterState==null because SAL hasn't
-            // set up its datastructures yet, and clusterState==null because
-            // the call to getCluster failed.  In the latter case we want to
-            // abort (because someone has deleted the cluster), in the former
-            // case we want to continue.
+            }
             clusterState = conn.getCluster(clusterName);
-        }        
+        }
         return true;
     }
 
@@ -457,21 +468,26 @@ public class NebulousAppDeployer {
 
     /**
      * Given a KubeVela file, adapt the running application to its
-       specification.
+     * specification.
      *
-     * The KubeVela file will have been rewritten with updated information
-     * from the solver.
-     *
-     * NOTE: this method is under development, pending the new endpoints.
+     * The KubeVela file is already rewritten with updated information from
+     * the solver when this method is called, so reflects the desired new
+     * state of the application cluster.
      *
      * @param app the NebulOuS app object.
-     * @param kubevela the KubeVela file to deploy.
+     * @param updatedKubevela the KubeVela file to deploy.
      */
-    public static void redeployApplication(NebulousApp app, ObjectNode kubevela) {
+    public static void redeployApplication(NebulousApp app, ObjectNode updatedKubevela) {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
-        app.setStateDeploying();
+        if (!app.setStateRedeploying()) {
+            log.error("Trying to redeploy app that is in state {} (should be RUNNING), aborting",
+                app.getState().name(),
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName));
+            app.setStateFailed();
+            return;
+        }
 
         log.info("Starting redeployment generation {}", app.getDeployGeneration(),
             keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -481,22 +497,23 @@ public class NebulousAppDeployer {
         //    KubeVela definition.
         // 2. Calculate new (to be started) and superfluous (to be shutdown)
         //    nodes by comparing against previous deployment.
-        // 3. Find node candidates for new nodes (from Step 3) according to
+        // 3. Find node candidates for new nodes (from Step 2) according to
         //    their requirements (from Step 1)
-        // 4. Rewrite KubeVela with updated node affinities
-        // 5. Call clusterScaleOut endpoint with list of added nodes
-        // 6. Call labelNodes for added nodes
-        // 7. Call deployApplication with rewritten KubeVela
-        // 8. call clusterScaleIn endpoint with list of removed node names
-        Main.logFile("kubevela-updated-from-solver-" + appUUID + ".yaml", kubevela);
+        // 4. Call scaleOut endpoint with list of added nodes
+        // 5. Call labelNodes for added nodes, to-be-removed nodes
+        // 6. Call deployApplication
+        // 7. call scaleIn endpoint with list of removed node names
+        Main.logFile("redeploy-kubevela-" + appUUID + ".yaml", updatedKubevela);
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getClampedRequirements(kubevela);
-        Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(kubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getClampedRequirements(updatedKubevela);
+        Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(updatedKubevela);
 
         Map<String, List<Requirement>> oldComponentRequirements = app.getComponentRequirements();
         Map<String, Integer> oldComponentReplicaCounts = app.getComponentReplicaCounts();
+        Map<String, Set<String>> componentNodeNames = new HashMap<>(app.getComponentNodeNames());
+        Map<String, NodeCandidate> nodeEdgeCandidates = new HashMap<>(app.getNodeEdgeCandidates());
 
         ArrayNode nodeLabels = mapper.createArrayNode();
         List<String> nodesToRemove = new ArrayList<>();
@@ -517,7 +534,7 @@ public class NebulousAppDeployer {
                 int newCount = componentReplicaCounts.get(componentName);
                 if (newCount > oldCount) {
                     int nAdd = newCount - oldCount;
-                    allMachineNames = app.getComponentNodeNames().get(componentName);
+                    allMachineNames = componentNodeNames.get(componentName);
                     log.debug("Adding {} nodes to component {}", nAdd, componentName,
                         keyValue("appId", appUUID), keyValue("clusterName", clusterName));
                     // TODO: filter by app resources (check enabled: true in resources array)
@@ -530,7 +547,7 @@ public class NebulousAppDeployer {
                     for (int nodeNumber = 1; nodeNumber <= nAdd; nodeNumber++) {
                         String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                         NodeCandidate candidate = candidates.stream()
-                            .filter(each -> !app.getNodeEdgeCandidates().values().contains(each))
+                            .filter(each -> !nodeEdgeCandidates.values().contains(each))
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
@@ -539,14 +556,14 @@ public class NebulousAppDeployer {
                             continue;
                         }
                         if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
-                            app.getNodeEdgeCandidates().put(nodeName, candidate);
+                            nodeEdgeCandidates.put(nodeName, candidate);
                         }
                         nodesToAdd.addObject()
                             .put("nodeName", nodeName)
                             .put("nodeCandidateId", candidate.getId())
                             .put("cloudId", candidate.getCloud().getId());
                         nodeLabels.addObject()
-                            .put(nodeName, "nebulouscloud.eu/" + componentName + "=true");
+                            .put(nodeName, "nebulouscloud.eu/" + componentName + "=yes");
                         allMachineNames.add(nodeName);
                     }
                 } else if (newCount < oldCount) {
@@ -561,18 +578,21 @@ public class NebulousAppDeployer {
                     // first and keep edge nodes in use, on the assumption
                     // that it's better to keep using edge nodes since cloud
                     // nodes incur a cost.
-                    allMachineNames = app.getComponentNodeNames().get(componentName);
+                    allMachineNames = componentNodeNames.get(componentName);
                     Set<String> removedInstances = allMachineNames.stream().limit(nRemove).collect(Collectors.toSet());
-                    removedInstances.forEach(app.getNodeEdgeCandidates()::remove);
+                    removedInstances.forEach(nodeEdgeCandidates::remove);
                     allMachineNames.removeAll(removedInstances);
                     nodesToRemove.addAll(removedInstances);
+                    removedInstances.forEach((nodeName) -> nodeLabels.addObject().put(nodeName, "nebulouscloud.eu/" + componentName + "=no"));
                 } else {
                     log.debug("Nothing changed for component {}", componentName,
                         keyValue("appId", appUUID), keyValue("clusterName", clusterName));
-                    allMachineNames = app.getComponentNodeNames().get(componentName);
+                    allMachineNames = componentNodeNames.get(componentName);
                 }
             } else {
-                nodesToRemove.addAll(app.getComponentNodeNames().get(componentName));
+                // Node requirements have changed: need to shut down all
+                // current machines and start fresh ones
+                nodesToRemove.addAll(componentNodeNames.get(componentName));
                 allMachineNames = new HashSet<>();
                 log.debug("Redeploying all nodes of component {}", componentName,
                     keyValue("appId", appUUID), keyValue("clusterName", clusterName));
@@ -586,7 +606,7 @@ public class NebulousAppDeployer {
                 for (int nodeNumber = 1; nodeNumber <= componentReplicaCounts.get(componentName); nodeNumber++) {
                     String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                     NodeCandidate candidate = candidates.stream()
-                        .filter(each -> !app.getNodeEdgeCandidates().values().contains(each))
+                        .filter(each -> !nodeEdgeCandidates.values().contains(each))
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
@@ -595,7 +615,7 @@ public class NebulousAppDeployer {
                         continue;
                     }
                     if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
-                        app.getNodeEdgeCandidates().put(nodeName, candidate);
+                        nodeEdgeCandidates.put(nodeName, candidate);
                     }
                     nodesToAdd.addObject()
                             .put("nodeName", nodeName)
@@ -604,21 +624,37 @@ public class NebulousAppDeployer {
                     allMachineNames.add(nodeName);
                 }
             }
-            app.getComponentNodeNames().put(componentName, allMachineNames);
+            componentNodeNames.put(componentName, allMachineNames);
         }
 
-        Main.logFile("worker-requirements-" + appUUID + ".txt", componentRequirements);
-        Main.logFile("worker-counts-" + appUUID + ".txt", componentReplicaCounts);
+        Main.logFile("redeploy-worker-requirements-" + appUUID + ".txt", componentRequirements);
+        Main.logFile("redeploy-worker-counts-" + appUUID + ".txt", componentReplicaCounts);
 
-        // Call `scaleOut` with nodesToAdd
+        if (!nodesToAdd.isEmpty()) {
+            conn.scaleOut(appUUID, clusterName, nodesToAdd);
+            waitForClusterDeploymentFinished(conn, clusterName, appUUID);
+        }
 
-        // Call `labelNodes` with nodeLabels
+        conn.labelNodes(appUUID, clusterName, nodeLabels);
 
-        // Call `deployApplication`
+        String kubevelaString = "---\n# Did not manage to create rewritten KubeVela";
+        try {
+            kubevelaString = yamlMapper.writeValueAsString(updatedKubevela);
+            Main.logFile("redeploy-rewritten-kubevela-" + appUUID + ".yaml", kubevelaString);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to convert KubeVela to YAML; this should never happen",
+                keyValue("appId", appUUID), keyValue("clusterName", clusterName), e);
+            app.setStateFailed();
+            return;
+        }
+        conn.deployApplication(appUUID, clusterName, app.getName(), kubevelaString);
 
-        // Call `scaleIn` with nodesToRemove
+        if (!nodesToRemove.isEmpty()) {
+            conn.scaleIn(appUUID, clusterName, nodesToRemove);
+        }
 
-        // Update app status
+        app.setStateDeploymentFinished(componentRequirements, componentReplicaCounts,
+            componentNodeNames, nodeEdgeCandidates, updatedKubevela);
     }
 
 }
