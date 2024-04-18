@@ -153,6 +153,7 @@ public class ExnConnector {
                 // asynchronous topics for sending out controller status
                 amplMessagePublisher,
                 metricListPublisher,
+                appStatusPublisher,
                 // synchronous communication with SAL via exn-middleware
                 findSalNodeCandidates,
                 findBrokerNodeCandidates,
@@ -324,6 +325,7 @@ public class ExnConnector {
                     keyValue("appId", appId));
             } else {
                 app.sendAMPL();
+                app.sendMetricList(); // re-send for solver
             }
         }
     }
