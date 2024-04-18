@@ -70,6 +70,9 @@ public class ExnConnector {
      * "started" message from a solver. */
     public static final String solver_status_channel = "eu.nebulouscloud.solver.state";
 
+    /** The per-app status channel, read by at least the UI and the solver. */
+    public static final String app_status_channel = "eu.nebulouscloud.optimiser.controller.app_state";
+
     /**
       * The Message producer for sending AMPL files, shared between all
       * NebulousApp instances.
@@ -83,6 +86,13 @@ public class ExnConnector {
       * creation. */
     @Getter
     private final Publisher metricListPublisher;
+
+    /**
+     * The publisher for broadcasting the current status of each application
+     * (new, ready, deploying, running, failed).
+     */
+    @Getter
+    private final Publisher appStatusPublisher;
 
     // ----------------------------------------
     // Communication with SAL
@@ -125,6 +135,7 @@ public class ExnConnector {
     public ExnConnector(String host, int port, String name, String password, ConnectorHandler callback) {
         amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
         metricListPublisher = new Publisher("controller_metric_list", metric_list_channel, true, true);
+        appStatusPublisher = new Publisher("app_status", app_status_channel, true, true);
         findSalNodeCandidates = new SyncedPublisher("findSalNodeCandidates", "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
         findBrokerNodeCandidates = new SyncedPublisher("findBrokerNodeCandidates", "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
         defineCluster = new SyncedPublisher("defineCluster", "eu.nebulouscloud.exn.sal.cluster.define", true, true);
@@ -712,6 +723,33 @@ public class ExnConnector {
         Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, appID, "deleteCluster");
         return payload.asBoolean();
+    }
+
+    // ----------------------------------------
+    // Other messages
+
+    /**
+     * Broadcast an application's state.  Messages are of the following form:
+     *
+     * <pre>{@code
+     * {
+     *   "when": "2024-04-17T07:54:00.169580700Z",
+     *   "state": "RUNNING"
+     * }
+     * }</pre>
+     *
+     * Possible values for the {@code state} field are in the enumeration
+     * {@link NebulousApp#State}.  Note that the application id is transmitted
+     * in the message property {@code application}.
+     *
+     * @param appID the application id.
+     * @param state the state of the application.
+     */
+    public void sendAppStatus(String appID, NebulousApp.State state) {
+        Map<String, Object> msg = Map.of("state", state.toString());
+        // The documented "when": field is added by the middleware since we do
+        // not ask for raw messages via the third optional parameter.
+        appStatusPublisher.send(msg, appID);
     }
 
 }

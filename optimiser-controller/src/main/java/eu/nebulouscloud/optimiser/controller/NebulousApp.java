@@ -63,26 +63,23 @@ public class NebulousApp {
     /**
      * The application status.
      *
-     * <p>NEW: The application has been created from the GUI and is waiting
-     * for the performance indicators.
+     * <ul><li>NEW: The application has been created from the GUI and is
+     * waiting for the performance indicators from the utility evaluator.
      *
-     * <p>READY: The application is ready for deployment.
+     * <li>READY: The application is ready for deployment.
      *
-     * <p>DEPLOYING: The application is being deployed or redeployed.
+     * <li>DEPLOYING: The application is being deployed or redeployed.
      *
-     * <p>SOLVER_WAITING: The application is deployed, we're waiting for the
-     * solver to be ready so we can send AMPL and performance indicators.
+     * <li>RUNNING: The application is running.
      *
-     * <p>RUNNING: The application is running, and under redeployment.
-     *
-     * <p>FAILED: The application is in an invalid state: one or more messages
-     * could not be parsed, or deployment or redeployment failed.
+     * <li>FAILED: The application is in an invalid state: one or more
+     * messages could not be parsed, or deployment or redeployment failed.
+     * </ul>
      */
     public enum State {
         NEW,
         READY,
         DEPLOYING,
-        SOLVER_WAITING,
         RUNNING,
         FAILED;
     }
@@ -332,6 +329,7 @@ public class NebulousApp {
         } else {
             state = State.READY;
             this.relevantPerformanceIndicators = relevantPerformanceIndicators;
+            exnConnector.sendAppStatus(UUID, state);
             return true;
         }
     }
@@ -348,6 +346,7 @@ public class NebulousApp {
         } else {
             state = State.DEPLOYING;
             deployGeneration++;
+            exnConnector.sendAppStatus(UUID, state);
             return true;
         }
     }
@@ -367,6 +366,7 @@ public class NebulousApp {
             this.deployedKubevela = deployedKubevela;
             this.nodeEdgeCandidates = Map.copyOf(nodeEdgeCandidates);
             state = State.RUNNING;
+            exnConnector.sendAppStatus(UUID, state);
             return true;
         }
     }
@@ -383,6 +383,7 @@ public class NebulousApp {
         } else {
             state = State.DEPLOYING;
             deployGeneration++;
+            exnConnector.sendAppStatus(UUID, state);
             return true;
         }
     }
@@ -392,6 +393,7 @@ public class NebulousApp {
       * possible once the state is set to FAILED. */
     public void setStateFailed() {
         state = State.FAILED;
+        exnConnector.sendAppStatus(UUID, state);
     }
 
     /** Utility function to parse a KubeVela string.  Can be used from jshell. */
