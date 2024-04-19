@@ -143,9 +143,9 @@ public class ExnConnector {
         labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
         deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
         deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
-        scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.scale.out", true, true);
-        scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.scale.in", true, true);
-        deleteCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
+        scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
+        scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
+        deleteCluster = new SyncedPublisher("deleteCluster", "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
 
         conn = new Connector("optimiser_controller",
             callback,
@@ -699,7 +699,7 @@ public class ExnConnector {
         superfluousNodes.forEach(nodeName -> body.add(nodeName));
         Map<String, Object> msg;
         try {
-            msg = Map.of("metaData", Map.of("user", "admin"),
+            msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName),
                 "body", mapper.writeValueAsString(body));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",

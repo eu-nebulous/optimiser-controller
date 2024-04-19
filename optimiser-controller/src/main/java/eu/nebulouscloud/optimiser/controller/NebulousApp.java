@@ -106,6 +106,7 @@ public class NebulousApp {
     private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
 
     /** General-purpose object mapper */
+    @Getter
     private static final ObjectMapper jsonMapper = new ObjectMapper();
 
     // ----------------------------------------
@@ -559,8 +560,7 @@ public class NebulousApp {
         Publisher metricsChannel = exnConnector.getMetricListPublisher();
         ObjectNode msg = jsonMapper.createObjectNode();
         ArrayNode metricNames = msg.withArray("/metrics");
-        getRawMetrics().forEach((k, v) -> metricNames.add(k));
-        getCompositeMetrics().forEach((k, v) -> metricNames.add(k));
+        AMPLGenerator.getMetricList(this).forEach(metricNames::add);
         log.info("Sending metric list", keyValue("appId", UUID));
         metricsChannel.send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("metric-names-" + getUUID() + ".json", msg.toPrettyString());

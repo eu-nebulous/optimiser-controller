@@ -2,6 +2,7 @@ package eu.nebulouscloud.optimiser.controller;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -25,6 +26,17 @@ import static net.logstash.logback.argument.StructuredArguments.keyValue;
  */
 @Slf4j
 public class AMPLGenerator {
+
+    /**
+     * Generate the app's metric list.
+     */
+    public static List<String> getMetricList(NebulousApp app) {
+        List<String> metrics = new ArrayList<>();
+        app.getRawMetrics().forEach((k, v) -> metrics.add(k));
+        app.getCompositeMetrics().forEach((k, v) -> metrics.add(k));
+        return metrics;
+    }
+
     /**
      * Generate AMPL code for the app, based on the parameter definition(s).
      * Public for testability, not because we'll be calling it outside of its
@@ -172,7 +184,7 @@ public class AMPLGenerator {
                 out.format("param %s;	# %s%n", name, m.get("name").asText());
             }
         }
-        
+
         out.println("## Composite metrics");
         for (final JsonNode m : app.getCompositeMetrics().values()) {
             String name = m.get("name").asText();
@@ -216,7 +228,7 @@ public class AMPLGenerator {
                     if (allMetrics.contains(name)) result.add(name);
                 });
         }
-            
+
         return result;
     }
 
@@ -282,7 +294,7 @@ public class AMPLGenerator {
         int lengthDiff = 0;
         while (matcher.find()) {
             String var = matcher.group(1);
-            
+
             JsonNode re = StreamSupport.stream(Spliterators.spliteratorUnknownSize(mappings.elements(), Spliterator.ORDERED), false)
                 .filter(v -> v.at("/name").asText().equals(var))
                 .findFirst().orElse(null);
