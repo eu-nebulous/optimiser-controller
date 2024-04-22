@@ -31,9 +31,9 @@ public class LocalExecution implements Callable<Integer> {
     @Parameters(description = "The file containing a JSON app creation message, as sent by the GUI")
     private Path appCreationMessage;
 
-    @Parameters(description = "The file containing a JSON performance indicator message, as sent by the utility evaluator")
+    @Option(names = {"--pe"},
+        description = "The file containing a JSON performance indicator message, as sent by the utility evaluator.  If not supplied and --keepalive is given, wait for a message from the utility evaluator instead.  Note that the utility evaluator must somehow receive the same app creation message.")
     private Path perfIndicatorMessage;
-
 
     @Option(names = { "--deploy" },
         description = "Deploy application (default true).",
@@ -56,20 +56,23 @@ public class LocalExecution implements Callable<Integer> {
         }
         JsonNode app_msg = null;
         JsonNode perf_msg = null;
-	try {
-	    app_msg = mapper.readTree(Files.readString(appCreationMessage, StandardCharsets.UTF_8));
-	    perf_msg = mapper.readTree(Files.readString(perfIndicatorMessage, StandardCharsets.UTF_8));
-	} catch (IOException e) {
+        try {
+            app_msg = mapper.readTree(Files.readString(appCreationMessage, StandardCharsets.UTF_8));
+            if (perfIndicatorMessage != null)
+                perf_msg = mapper.readTree(Files.readString(perfIndicatorMessage, StandardCharsets.UTF_8));
+        } catch (IOException e) {
             log.error("Could not read an input file: {}",
                 app_msg == null ? appCreationMessage : perfIndicatorMessage, e);
             return 1;
         }
         NebulousApp app = NebulousApp.newFromAppMessage(app_msg, connector);
-        app.setStateReady(perf_msg);
+        if (perf_msg != null)
+            app.setStateReady(perf_msg);
         if (connector != null) {
             if (deploy) {
                 log.debug("Deploying application", connector.getAmplMessagePublisher());
-                app.deployUnmodifiedApplication();
+                if (perf_msg != null)
+                    app.deployUnmodifiedApplication();
             } else {
                 String ampl = AMPLGenerator.generateAMPL(app);
                 System.out.println("--------------------");

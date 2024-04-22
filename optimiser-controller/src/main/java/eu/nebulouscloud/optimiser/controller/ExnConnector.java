@@ -435,14 +435,12 @@ public class ExnConnector {
         }
         Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
         // Note: we do not call extractPayloadFromExnResponse here, since this
-        // response does not come from the exn-middleware.
+        // response does not come from the exn-middleware, so will not be
+        // packaged into a string.
         ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
-        // Note: what we would really like to do here is something like:
-        //     return Arrays.asList(mapper.readValue(response, NodeCandidate[].class));
-        // But since the broker adds two attributes, the array elements cannot
-        // be deserialized into org.ow2.proactive.sal.model.NodeCandidate
-        // objects.
-        List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body"), JsonNode[].class));
+        // Note: If the result is empty, the body will be an empty object
+        // instead of an empty array, so we use `JsonNode.OverwriteMode.ALL`
+        List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body", JsonNode.OverwriteMode.ALL, true), JsonNode[].class));
         result.sort((JsonNode c1, JsonNode c2) -> {
                 long rank1 = c1.at("/rank").longValue();
                 long rank2 = c2.at("/rank").longValue();
