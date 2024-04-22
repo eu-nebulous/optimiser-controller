@@ -41,6 +41,12 @@ public class LocalExecution implements Callable<Integer> {
         negatable = true)
     private boolean deploy;
 
+    @Option(names = { "--keepalive"},
+        description = "Stay alive and process messages from other components after initial deployment (default true).",
+        defaultValue = "true", fallbackValue = "true",
+        negatable = true)
+    private boolean keepalive;
+
     @Override public Integer call() {
         ObjectMapper mapper = new ObjectMapper();
         CountDownLatch exn_synchronizer = new CountDownLatch(1);
@@ -77,6 +83,13 @@ public class LocalExecution implements Callable<Integer> {
             }
         }
         if (connector != null) {
+            if (keepalive) {
+                try {
+                    exn_synchronizer.await();
+                } catch (InterruptedException e) {
+                    // ignore
+                }
+            }
             connector.stop();
         }
         return 0;
