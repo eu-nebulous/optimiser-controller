@@ -443,6 +443,10 @@ public class NebulousAppDeployer {
         }
 
         // ------------------------------------------------------------
+        // Send metrics to Solver
+        app.sendMetricList();
+
+        // ------------------------------------------------------------
         // Deploy application
 
         log.info("Calling deployApplication", keyValue("appId", appUUID), keyValue("clusterName", clusterName));
