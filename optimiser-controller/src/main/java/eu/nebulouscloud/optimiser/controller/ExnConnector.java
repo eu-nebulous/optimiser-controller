@@ -654,6 +654,7 @@ public class ExnConnector {
             .put("action", "apply")
             .put("flags", "");
         Main.logFile("deploy-application-" + appID + ".json", body.toPrettyString());
+        Main.logFile("deploy-application-" + appID + ".yaml", kubevela);
         Map<String, Object> msg;
         try {
             String bodyStr = mapper.writeValueAsString(body);
