@@ -10,12 +10,12 @@ import eu.nebulouscloud.exn.handlers.ConnectorHandler;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.Requirement;
+import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -227,17 +227,14 @@ public class ExnConnector {
         public void onMessage(String key, String address, Map body, Message message, Context context) {
             NebulousApp app = null;
             try {
-                Object app_id = message.property("application"); // might be null
-                if (app_id == null) app_id = message.subject();
-                // if app_id is still null, the filename will look a bit funky but it's not a problem
-                log.info("App creation message received, registering app and waiting for performance indicator message", keyValue("appId", app_id));
+                log.info("App creation message received");
                 JsonNode appMessage = mapper.valueToTree(body);
-                Main.logFile("app-message-" + app_id + ".json", appMessage.toPrettyString());
-                app = NebulousApp.newFromAppMessage(
-                    // TODO create a new ExnConnector here?
-                    mapper.valueToTree(body), ExnConnector.this);
-                NebulousApps.add(app);
+                Main.logFile("app-message-" + appMessage.at("/uuid").asText() + ".json", appMessage.toPrettyString());
+                app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ExnConnector.this);
                 String appIdFromMessage = app.getUUID();
+                MDC.put("appId", appIdFromMessage);
+                MDC.put("clusterName", app.getClusterName());
+                NebulousApps.add(app);
                 if (NebulousApps.relevantPerformanceIndicators.containsKey(appIdFromMessage)) {
                     // If the performance indicators haven't arrived yet, this
                     // will happen in PerformanceIndicatorMessageHandler below.
@@ -250,6 +247,8 @@ public class ExnConnector {
             } catch (Exception e) {
                 log.error("Error while receiving app creation message", e);
                 if (app != null) app.setStateFailed();
+            } finally {
+                MDC.clear();
             }
         }
     }
@@ -263,36 +262,41 @@ public class ExnConnector {
     public class PerformanceIndicatorMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
-            Object appIdObject = null;
             try {
-                appIdObject = message.property("application");
-                if (appIdObject == null) appIdObject = message.subject();
-            } catch (ClientException e) {
-                log.error("Received performance indicator message without application property, aborting");
-                return;
-            }
-            String appId = null;
-            if (appIdObject == null) {
-                log.error("Received performance indicator message without application property, aborting");
-            } else {
-                appId = appIdObject.toString(); // should be a string already
-                log.info("Received performance indicator message", keyValue("appId", appId));
-            }
-            JsonNode appMessage = mapper.valueToTree(body);
-            Main.logFile("performance-indicators-" + appIdObject + ".json", appMessage.toPrettyString());
-            NebulousApp app = NebulousApps.get(appId);
-            if (app == null) {
-                NebulousApps.relevantPerformanceIndicators.put(appId, appMessage);
-                log.info("Received performance indicator message for unregistered app, storing and awaiting app creation message",
-                    keyValue("appId", appId));
-            } else {
-                if (app.getState().equals(NebulousApp.State.NEW)) {
-                    app.setStateReady(appMessage);
-                    app.deployUnmodifiedApplication();
-                } else {
-                    log.warn("Received duplicate performance indicator message for app, ignoring",
-                        keyValue("appId", appId));
+                Object appIdObject = null;
+                try {
+                    appIdObject = message.property("application");
+                    if (appIdObject == null) appIdObject = message.subject();
+                } catch (ClientException e) {
+                    log.error("Received performance indicator message without application property, aborting");
+                    return;
                 }
+                String appId = null;
+                if (appIdObject == null) {
+                    log.error("Received performance indicator message without application property, aborting");
+                    return;
+                } else {
+                    appId = appIdObject.toString(); // should be a string already
+                }
+                MDC.put("appId", appId);
+                NebulousApp app = NebulousApps.get(appId);
+                JsonNode appMessage = mapper.valueToTree(body);
+                Main.logFile("performance-indicators-" + appIdObject + ".json", appMessage.toPrettyString());
+                if (app == null) {
+                    NebulousApps.relevantPerformanceIndicators.put(appId, appMessage);
+                    log.info("Received performance indicator message for unknown app, storing and awaiting app creation message");
+                } else {
+                    MDC.put("clusterName", app.getClusterName());
+                    if (app.getState().equals(NebulousApp.State.NEW)) {
+                        log.info("Received performance indicator message, deploying");
+                        app.setStateReady(appMessage);
+                        app.deployUnmodifiedApplication();
+                    } else {
+                        log.warn("Received duplicate performance indicator message for app, ignoring");
+                    }
+                }
+            } finally {
+                MDC.clear();
             }
         }
     }
@@ -304,33 +308,38 @@ public class ExnConnector {
     public class SolverStatusMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
-            Object appIdObject = null;
-            String appId = null;
             try {
-                appIdObject = message.property("application");
-            } catch (ClientException e) {
-                log.error("Received solver ready message {} without application property, aborting", body);
-                return;
-            }
-            if (appIdObject == null) {
-                log.error("Received solver ready message {} without application property, aborting", body);
-                return;
-            } else {
+                Object appIdObject = null;
+                String appId = null;
+                try {
+                    appIdObject = message.property("application");
+                } catch (ClientException e) {
+                    log.error("Received solver ready message {} without application property, aborting", body);
+                    return;
+                }
+                if (appIdObject == null) {
+                    log.error("Received solver ready message {} without application property, aborting", body);
+                    return;
+                }
                 appId = appIdObject.toString(); // should be a string already
-                log.info("Received solver status message {}", body, keyValue("appId", appId));
-            }
+                MDC.put("appId", appId);
 
-            JsonNode appMessage = mapper.valueToTree(body);
-            String status = appMessage.at("/state").textValue();
-            if (status == null || !status.equals("started")) return;
+                JsonNode appMessage = mapper.valueToTree(body);
+                String status = appMessage.at("/state").textValue();
+                if (status == null || !status.equals("started")) {
+                    return;
+                }
 
-            NebulousApp app = NebulousApps.get(appId);
-            if (app == null) {
-                log.info("Received solver status message for unknown app object, this should not happen",
-                    keyValue("appId", appId));
-            } else {
-                app.sendAMPL();
-                app.sendMetricList(); // re-send for solver
+                NebulousApp app = NebulousApps.get(appId);
+                if (app == null) {
+                    log.info("Received solver status message {} for unknown app object, this should not happen", body);
+                } else {
+                    MDC.put("clusterName", app.getClusterName());
+                    app.sendAMPL();
+                    app.sendMetricList(); // re-send for solver
+                }
+            } finally {
+                MDC.clear();
             }
         }
     }
@@ -352,19 +361,21 @@ public class ExnConnector {
                     log.warn("Received solver solution without 'application' message property, discarding it");
                     return;
                 }
+                MDC.put("appId", app_id);
                 Main.logFile("solver-solution-" + app_id + ".json", json_body.toPrettyString());
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
-                    log.warn("Received solver solutions for non-existant application, discarding.",
-                        keyValue("appId", app_id));
+                    log.warn("Received solver solutions for non-existant application, discarding.");
                     return;
                 } else {
-                    log.debug("Received solver solutions for application",
-                        keyValue("appId", app_id));
+                    MDC.put("clusterName", app.getClusterName());
+                    log.debug("Received solver solutions for application");
                     app.processSolution(json_body);
                 }
             } catch (Exception e) {
                 log.error("Error while processing solver solutions message", e);
+            } finally {
+                MDC.clear();
             }
         }
     }
@@ -399,16 +410,15 @@ public class ExnConnector {
         try {
             salResponse = mapper.readTree(salRawResponse);
         } catch (JsonProcessingException e) {
-            log.error("Could not read message body as JSON: body = '{}'", salRawResponse,
-                keyValue("appId", appID), keyValue("caller", caller), e);
+            log.error("Could not read message body as JSON: body = '{}', caller = '{}'", salRawResponse, caller, e);
             return mapper.missingNode();
         }
         if (!metadata.at("/status").asText().startsWith("2")) {
             // we only accept 200, 202, numbers of that nature
-            log.error("exn-middleware-sal request failed with error code '{}' and message '{}'",
+            log.error("exn-middleware-sal request failed with error code '{}' and message '{}', caller '{}'",
                 metadata.at("/status"),
                 salResponse.at("/message").asText(),
-                keyValue("appId", appID), keyValue("caller", caller));
+                caller);
             return mapper.missingNode();
         }
         return salResponse;
@@ -435,7 +445,7 @@ public class ExnConnector {
                 "body", mapper.writeValueAsString(requirements));
         } catch (JsonProcessingException e) {
             log.error("Could not convert requirements list to JSON string (this should never happen)",
-                keyValue("appId", appID), e);
+                e);
             return null;
         }
         Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
@@ -497,7 +507,7 @@ public class ExnConnector {
                 "body", mapper.writeValueAsString(requirements));
         } catch (JsonProcessingException e) {
             log.error("Could not convert requirements list to JSON string (this should never happen)",
-                keyValue("appId", appID), e);
+                e);
             return null;
         }
         Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
@@ -564,7 +574,7 @@ public class ExnConnector {
                 "body", mapper.writeValueAsString(cluster));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), keyValue("clusterName", clusterName), e);
+                e);
             return false;
         }
         Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
@@ -599,7 +609,7 @@ public class ExnConnector {
                 "body", mapper.writeValueAsString(labels));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), e);
+                e);
             return false;
         }
         Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
@@ -650,8 +660,7 @@ public class ExnConnector {
             msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName),
                 "body", bodyStr);
         } catch (JsonProcessingException e) {
-            log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), keyValue("clusterName", clusterName), e);
+            log.error("Could not convert JSON to string (this should never happen)", e);
             return -1;
         }
         Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
@@ -676,8 +685,7 @@ public class ExnConnector {
                                             "clusterName", clusterName),
                          "body", mapper.writeValueAsString(nodesToAdd));
         } catch (JsonProcessingException e) {
-            log.error("Could not convert JSON to string (this should never happen)",
-                      keyValue("appId", appID), keyValue("clusterName", clusterName), e);
+            log.error("Could not convert JSON to string (this should never happen)", e);
             return;
         }
         Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
@@ -705,8 +713,7 @@ public class ExnConnector {
             msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName),
                 "body", mapper.writeValueAsString(body));
         } catch (JsonProcessingException e) {
-            log.error("Could not convert JSON to string (this should never happen)",
-                keyValue("appId", appID), keyValue("clusterName", clusterName), e);
+            log.error("Could not convert JSON to string (this should never happen)", e);
             return false;
         }
         Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);

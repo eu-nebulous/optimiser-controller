@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 
+import org.slf4j.MDC;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -66,14 +68,20 @@ public class LocalExecution implements Callable<Integer> {
             return 1;
         }
         NebulousApp app = NebulousApp.newFromAppMessage(app_msg, connector);
+        MDC.put("appId", app.getUUID());
+        MDC.put("clusterName", app.getClusterName());
         if (perf_msg != null)
             app.setStateReady(perf_msg);
         if (connector != null) {
             if (deploy) {
-                log.debug("Deploying application", connector.getAmplMessagePublisher());
-                if (perf_msg != null)
+                if (perf_msg != null) {
+                    log.info("Deploying application", connector.getAmplMessagePublisher());
                     app.deployUnmodifiedApplication();
+                } else {
+                    log.warn("Performance indicators not supplied, cannot deploy");
+                }
             } else {
+                log.info("No deploy requested, printing AMPL and performance metric list");
                 String ampl = AMPLGenerator.generateAMPL(app);
                 System.out.println("--------------------");
                 System.out.println("AMPL");
@@ -92,8 +100,15 @@ public class LocalExecution implements Callable<Integer> {
                 } catch (InterruptedException e) {
                     // ignore
                 }
+            } else {
+                log.info("No keepalive requested, exiting");
             }
-            connector.stop();
+            try {
+                connector.stop();
+            } catch (Exception e) {
+                // exn-connector-java throws spurious Groovy-internal error
+                // when stopping; let's not crash in the end
+            }
         }
         return 0;
     }

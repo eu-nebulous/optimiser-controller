@@ -1,7 +1,6 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import lombok.extern.slf4j.Slf4j;
-import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 import java.util.Collection;
 import java.util.Map;
@@ -35,7 +34,7 @@ public class NebulousApps {
     public static synchronized void add(NebulousApp app) {
         String uuid = app.getUUID();
         apps.put(uuid, app);
-        log.debug("Added application", keyValue("appId", uuid));
+        log.debug("Added application");
     }
 
     /**
@@ -57,9 +56,9 @@ public class NebulousApps {
     public static synchronized NebulousApp remove(String uuid) {
         NebulousApp app = apps.remove(uuid);
         if (app != null) {
-            log.debug("Removed application", keyValue("appId", uuid));
+            log.debug("Removed application");
         } else {
-            log.error("Trying to remove unknown application", keyValue("appId", uuid));
+            log.error("Trying to remove unknown application");
         }
         return app;
     }

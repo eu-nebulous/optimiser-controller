@@ -17,7 +17,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import lombok.extern.slf4j.Slf4j;
-import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 /**
  * Generate AMPL from an app message.  This class could live as a couple of
@@ -268,8 +267,7 @@ public class AMPLGenerator {
             } else if (paramType.equals("array")) {
                 out.format("# TODO generate entries for map '%s' at %s%n", paramName, paramPath);
             } else {
-                log.info("Unknown variable parameter type: {}", paramType,
-                    keyValue("appId", app.getUUID()));
+                log.info("Unknown variable parameter type: {}", paramType);
             }
         }
         out.println();

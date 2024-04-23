@@ -14,7 +14,6 @@ import eu.nebulouscloud.exn.core.Publisher;
 import lombok.Getter;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
-import static net.logstash.logback.argument.StructuredArguments.keyValue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -228,8 +227,7 @@ public class NebulousApp {
                     JsonPointer.compile(p.get("path").asText()));
             }
         } else {
-            log.error("Cannot read parameters from app message, continuing without parameters",
-                keyValue("appId", UUID));
+            log.error("Cannot read parameters from app message, continuing without parameters");
         }
         for (JsonNode f : originalAppMessage.withArray(utility_function_path)) {
             utilityFunctions.put(f.get("name").asText(), f);
@@ -286,7 +284,7 @@ public class NebulousApp {
                 break;
             }
         }
-        log.debug("New App instantiated.", keyValue("appName", name), keyValue("appId", UUID));
+        log.debug("New App instantiated.");
     }
 
     /**
@@ -305,8 +303,7 @@ public class NebulousApp {
             String UUID = app_message.at(uuid_path).textValue();
             JsonNode parameters = app_message.at(variables_path);
             if (kubevela_string == null || !parameters.isArray()) {
-                log.error("Could not find kubevela or parameters in app creation message",
-                    keyValue("appId", UUID));
+                log.error("Could not find kubevela or parameters in app creation message");
                 return null;
             } else {
                 Main.logFile("incoming-kubevela-" + UUID + ".yaml", kubevela_string);
@@ -475,12 +472,12 @@ public class NebulousApp {
             if (nodeToBeReplaced == null) {
                 // Didn't find location in KubeVela file (should never happen)
                 log.warn("Location {} not found in KubeVela, cannot replace with value {}",
-                    key, replacementValue, keyValue("appId", UUID));
+                    key, replacementValue);
                 doReplacement = false;
             } else if (param == null) {
                 // Didn't find parameter definition (should never happen)
                 log.warn("Variable {} not found in user input, cannot replace with value {}",
-                    key, replacementValue, keyValue("appId", UUID));
+                    key, replacementValue);
                 doReplacement = false;
             } else if (param.at("/meaning").asText().equals("memory")) {
                 // Special case: the solver delivers a number for memory, but
@@ -543,7 +540,7 @@ public class NebulousApp {
             constant.put("Variable", variableName);
             constant.set("Value", value);
         }
-        log.info("Sending AMPL files to solver", keyValue("amplMessage", msg), keyValue("appId", UUID));
+        log.info("Sending AMPL files to solver");
         exnConnector.getAmplMessagePublisher().send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("to-solver-" + getUUID() + ".json", msg.toPrettyString());
         Main.logFile("to-solver-" + getUUID() + ".ampl", ampl_model);
@@ -561,7 +558,7 @@ public class NebulousApp {
         ObjectNode msg = jsonMapper.createObjectNode();
         ArrayNode metricNames = msg.withArray("/metrics");
         AMPLGenerator.getMetricList(this).forEach(metricNames::add);
-        log.info("Sending metric list", keyValue("appId", UUID));
+        log.info("Sending metric list");
         metricsChannel.send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
         Main.logFile("metric-names-" + getUUID() + ".json", msg.toPrettyString());
     }
@@ -581,8 +578,7 @@ public class NebulousApp {
                 return function.get("name").asText();
             }
         }
-        log.warn("No non-constant utility function specified for application; solver will likely complain",
-            keyValue("appId", UUID));
+        log.warn("No non-constant utility function specified for application; solver will likely complain");
         return "";
     }
 
