@@ -47,7 +47,7 @@ public class NebulousAppDeployer {
             new AttributeRequirement("image", "operatingSystem.family",
                 RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()),
             new AttributeRequirement("image", "name", RequirementOperator.INC, "22"),
-            new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo"),
+            // new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo"),
             new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
             new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
     }
@@ -243,9 +243,9 @@ public class NebulousAppDeployer {
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getClampedRequirements(kubevela);
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
-        // HACK: do this only when cloud id = nrec
-        componentRequirements.forEach(
-            (k, reqs) -> reqs.add(new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo")));
+        // // HACK: do this only when cloud id = nrec
+        // componentRequirements.forEach(
+        //     (k, reqs) -> reqs.add(new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo")));
 
         Main.logFile("component-requirements-" + appUUID + ".txt", componentRequirements);
         Main.logFile("component-counts-" + appUUID + ".txt", nodeCounts);
