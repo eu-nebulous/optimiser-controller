@@ -230,7 +230,7 @@ public class ExnConnector {
                 Object app_id = message.property("application"); // might be null
                 if (app_id == null) app_id = message.subject();
                 // if app_id is still null, the filename will look a bit funky but it's not a problem
-                log.info("App creation message received", keyValue("appId", app_id));
+                log.info("App creation message received, registering app and waiting for performance indicator message", keyValue("appId", app_id));
                 JsonNode appMessage = mapper.valueToTree(body);
                 Main.logFile("app-message-" + app_id + ".json", appMessage.toPrettyString());
                 app = NebulousApp.newFromAppMessage(
@@ -283,11 +283,16 @@ public class ExnConnector {
             NebulousApp app = NebulousApps.get(appId);
             if (app == null) {
                 NebulousApps.relevantPerformanceIndicators.put(appId, appMessage);
-                log.info("Received performance indicator message for unknown app object, storing",
+                log.info("Received performance indicator message for unregistered app, storing and awaiting app creation message",
                     keyValue("appId", appId));
             } else {
-                app.setStateReady(appMessage);
-                app.deployUnmodifiedApplication();
+                if (app.getState().equals(NebulousApp.State.NEW)) {
+                    app.setStateReady(appMessage);
+                    app.deployUnmodifiedApplication();
+                } else {
+                    log.warn("Received duplicate performance indicator message for app, ignoring",
+                        keyValue("appId", appId));
+                }
             }
         }
     }
