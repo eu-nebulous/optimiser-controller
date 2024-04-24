@@ -488,7 +488,16 @@ public class NebulousAppDeployer {
         // 5. Call labelNodes for added nodes, to-be-removed nodes
         // 6. Call deployApplication
         // 7. call scaleIn endpoint with list of removed node names
-        Main.logFile("redeploy-kubevela-" + appUUID + ".yaml", updatedKubevela);
+
+        String kubevelaString = "---\n# Did not manage to create rewritten KubeVela";
+        try {
+            kubevelaString = yamlMapper.writeValueAsString(updatedKubevela);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to convert KubeVela to YAML; this should never happen", e);
+            app.setStateFailed();
+            return;
+        }
+        Main.logFile("redeploy-rewritten-kubevela-" + appUUID + ".yaml", kubevelaString);
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
@@ -520,12 +529,11 @@ public class NebulousAppDeployer {
                 if (newCount > oldCount) {
                     int nAdd = newCount - oldCount;
                     allMachineNames = componentNodeNames.get(componentName);
-                    log.debug("Adding {} nodes to component {}", nAdd, componentName);
+                    log.info("Node requirements unchanged but need to add {} nodes to component {}", nAdd, componentName);
                     // TODO: filter by app resources (check enabled: true in resources array)
                     List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                     if (candidates.isEmpty()) {
-                        log.error("Could not find node candidates for requirements: {}",
-                            newR);
+                        log.error("Could not find node candidates for requirements: {}", newR);
                         continue;
                     }
                     for (int nodeNumber = 1; nodeNumber <= nAdd; nodeNumber++) {
@@ -555,7 +563,7 @@ public class NebulousAppDeployer {
                     // could then reassign during subsequent scaleOut.
                     // Something for version 2.
                     int nRemove = oldCount - newCount;
-                    log.debug("Removing {} nodes from component {}", nRemove, componentName);
+                    log.info("Node requirements unchanged but need to remove {} nodes from component {}", nRemove, componentName);
                     // We could be a bit smarter here: remove cloud instances
                     // first and keep edge nodes in use, on the assumption
                     // that it's better to keep using edge nodes since cloud
@@ -567,7 +575,7 @@ public class NebulousAppDeployer {
                     nodesToRemove.addAll(removedInstances);
                     removedInstances.forEach((nodeName) -> nodeLabels.addObject().put(nodeName, "nebulouscloud.eu/" + componentName + "=no"));
                 } else {
-                    log.debug("Nothing changed for component {}", componentName);
+                    log.info("Node requirements and replica count unchanged, nothing to do for component {}", componentName);
                     allMachineNames = componentNodeNames.get(componentName);
                 }
             } else {
@@ -575,7 +583,7 @@ public class NebulousAppDeployer {
                 // current machines and start fresh ones
                 nodesToRemove.addAll(componentNodeNames.get(componentName));
                 allMachineNames = new HashSet<>();
-                log.debug("Redeploying all nodes of component {}", componentName);
+                log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
                 // TODO: filter by app resources (check enabled: true in resources array)
                 List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
                 if (candidates.size() == 0) {
@@ -609,29 +617,32 @@ public class NebulousAppDeployer {
         Main.logFile("redeploy-worker-counts-" + appUUID + ".txt", componentReplicaCounts);
 
         if (!nodesToAdd.isEmpty()) {
+            log.info("Starting scaleout: {}", nodesToAdd);
+            Main.logFile("redeploy-scaleout-" + appUUID + ".json", nodesToAdd.toPrettyString());
             conn.scaleOut(appUUID, clusterName, nodesToAdd);
             waitForClusterDeploymentFinished(conn, clusterName, appUUID);
+        } else {
+            log.info("No nodes added, skipping scaleout");
         }
 
+        log.info("Labeling nodes: {}", nodeLabels);
+        Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
         conn.labelNodes(appUUID, clusterName, nodeLabels);
 
-        String kubevelaString = "---\n# Did not manage to create rewritten KubeVela";
-        try {
-            kubevelaString = yamlMapper.writeValueAsString(updatedKubevela);
-            Main.logFile("redeploy-rewritten-kubevela-" + appUUID + ".yaml", kubevelaString);
-        } catch (JsonProcessingException e) {
-            log.error("Failed to convert KubeVela to YAML; this should never happen", e);
-            app.setStateFailed();
-            return;
-        }
+        log.info("Redeploying application: {}", kubevelaString);
         conn.deployApplication(appUUID, clusterName, app.getName(), kubevelaString);
 
         if (!nodesToRemove.isEmpty()) {
+            Main.logFile("redeploy-scalein-" + appUUID + ".json", nodesToRemove);
+            log.info("Starting scalein: {}", nodesToRemove);
             conn.scaleIn(appUUID, clusterName, nodesToRemove);
+        } else {
+            log.info("No nodes removed, skipping scalein");
         }
 
         app.setStateDeploymentFinished(componentRequirements, componentReplicaCounts,
             componentNodeNames, nodeEdgeCandidates, updatedKubevela);
+        log.info("Redeployment finished");
     }
 
 }
