@@ -68,6 +68,7 @@ public class LocalExecution implements Callable<Integer> {
             return 1;
         }
         NebulousApp app = NebulousApp.newFromAppMessage(app_msg, connector);
+        NebulousApps.add(app);
         MDC.put("appId", app.getUUID());
         MDC.put("clusterName", app.getClusterName());
         if (perf_msg != null)
