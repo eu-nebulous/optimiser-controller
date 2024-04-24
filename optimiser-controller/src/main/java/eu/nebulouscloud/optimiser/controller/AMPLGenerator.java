@@ -30,10 +30,7 @@ public class AMPLGenerator {
      * Generate the app's metric list.
      */
     public static List<String> getMetricList(NebulousApp app) {
-        List<String> metrics = new ArrayList<>();
-        app.getRawMetrics().forEach((k, v) -> metrics.add(k));
-        app.getCompositeMetrics().forEach((k, v) -> metrics.add(k));
-        return metrics;
+        return new ArrayList<>(usedMetrics(app));
     }
 
     /**
