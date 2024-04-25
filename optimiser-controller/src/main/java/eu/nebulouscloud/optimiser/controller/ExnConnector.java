@@ -397,12 +397,11 @@ public class ExnConnector {
      * }</pre>
      *
      * @param responseMessage The response from exn-middleware.
-     * @param appID The application ID, used for logging only.
      * @param caller Caller information, used for logging only.
      * @return The SAL response as a parsed JsonNode, or a node where {@code
      *  isMissingNode()} will return true if SAL reported an error.
      */
-    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> responseMessage, String appID, String caller) {
+    private static JsonNode extractPayloadFromExnResponse(Map<String, Object> responseMessage, String caller) {
         JsonNode response = mapper.valueToTree(responseMessage);
         String salRawResponse = response.at("/body").asText(); // it's already a string, asText() is for the type system
         JsonNode metadata = response.at("/metaData");
@@ -511,7 +510,7 @@ public class ExnConnector {
             return null;
         }
         Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "findNodeCandidatesFromSal");
+        JsonNode payload = extractPayloadFromExnResponse(response, "findNodeCandidatesFromSal");
         if (payload.isMissingNode()) return null;
         if (!payload.isArray()) return null;
         List<NodeCandidate> candidates = Arrays.asList(mapper.convertValue(payload, NodeCandidate[].class));
@@ -578,7 +577,7 @@ public class ExnConnector {
             return false;
         }
         Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "defineCluster");
+        JsonNode payload = extractPayloadFromExnResponse(response, "defineCluster");
         return payload.asBoolean();
     }
 
@@ -591,7 +590,7 @@ public class ExnConnector {
     public JsonNode getCluster(String clusterName) {
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
         Map<String, Object> response = getCluster.sendSync(msg, clusterName, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, clusterName, "getCluster");
+        JsonNode payload = extractPayloadFromExnResponse(response, "getCluster");
         return payload.isMissingNode() ? null : payload;
     }
 
@@ -613,7 +612,7 @@ public class ExnConnector {
             return false;
         }
         Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "labelNodes");
+        JsonNode payload = extractPayloadFromExnResponse(response, "labelNodes");
         return payload.isMissingNode() ? false : true;
     }
 
@@ -632,7 +631,7 @@ public class ExnConnector {
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
         Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "deployCluster");
+        JsonNode payload = extractPayloadFromExnResponse(response, "deployCluster");
         return payload.asBoolean();
     }
 
@@ -665,7 +664,7 @@ public class ExnConnector {
             return -1;
         }
         Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "deployApplication");
+        JsonNode payload = extractPayloadFromExnResponse(response, "deployApplication");
         return payload.asLong();
     }
 
@@ -694,7 +693,7 @@ public class ExnConnector {
         // value from scaleOut is the same as getCluster, but since we have to
         // poll for cluster status anyway to make sure the new machines are
         // running, we do not return it here.
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "scaleOut");
+        JsonNode payload = extractPayloadFromExnResponse(response, "scaleOut");
     }
 
     /**
@@ -718,7 +717,7 @@ public class ExnConnector {
             return false;
         }
         Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "scaleIn");
+        JsonNode payload = extractPayloadFromExnResponse(response, "scaleIn");
         return payload.asBoolean();
     }
 
@@ -734,7 +733,7 @@ public class ExnConnector {
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
         Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, appID, "deleteCluster");
+        JsonNode payload = extractPayloadFromExnResponse(response, "deleteCluster");
         return payload.asBoolean();
     }
 

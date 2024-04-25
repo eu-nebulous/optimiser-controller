@@ -125,64 +125,82 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Given a cluster definition (as returned by {@link
-     * ExnConnector#getCluster}), return if all nodes are ready, i.e., are in
-     * state {@code "Finished"}.  Once this method returns {@code true}, it is
-     * safe to call {@link ExnConnector#labelNodes} and {@link
-     * ExnConnector#deployApplication}.
-     *
-     * <p>Note that this approach will not detect when a call to the scaleIn
-     * endpoint has finished, since there are no nodes to start in that case.
-     * But for our workflow this does not matter, since scaling in is done
-     * after scaling out, relabeling and redeploying the application, so there
-     * is no other step that needs to wait for scaleIn to finishh.
-     *
-     * @param clusterStatus The cluster status, as returned by {@link
-     *  ExnConnector#getCluster}.
-     * @return {@code true} if all nodes are in state {@code "Finished"},
-     *  {@code false} otherwise.
-     */
-    private static boolean isClusterDeploymentFinished(JsonNode clusterStatus) {
-        if (clusterStatus == null || !clusterStatus.isObject())
-            // Catch various failure states, e.g., SAL spuriously returning
-            // null.  Persistent getClusterStatus failures need to be handled outside
-            // this method.
-            return false;
-        return clusterStatus.withArray("/nodes")
-            .findParents("state")
-            .stream()
-            .allMatch(node -> node.get("state").asText().equals("Finished"));
-    }
-
-    /**
-     * Wait until all nodes in cluster are in state "Finished".
+     * Wait until cluster deployment is finished.
      *
      * <p>Note: Cluster deployment includes provisioning and booting VMs,
      * installing various software packages, bringing up a Kubernetes cluster
      * and installing the NebulOuS runtime.  This can take some minutes.
+     * Depending on the status of the {@code status} field in the getCluster
+     * endpoint return value, we do the following:
+     *
+     * <ul>
+     * <li> {@code submited}: wait 10 seconds, then poll again.
+     * <li> {@code deployed}: return {@code true}.
+     * <li> {@code failed}: return {@code false}.
+     * <li> others: warn for unknown value and handle like {@code submited}.
+     * <li> getCluster returns {@code null}: If more than 3 times in a row,
+     *      return {@code false}.  Else wait 10 seconds, then poll again.
+     * </ul>
+     *
+     * @param conn The exn connector.
+     * @param clusterName The name of the cluster to poll.
      */
-    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, String clusterName, String appUUID) {
-        // TODO: find out what state node(s) or the whole cluster are in when
-        // cluster start fails, and return false in that case.
-        try {
-            // Sleep a little at the beginning so that SAL has a chance to
-            // initialize its data structures etc. -- don't want to call
-            // getCluster immediately after deployCluster
-            Thread.sleep(10000);
-        } catch (InterruptedException e1) {
-            // ignore
-        }
-        JsonNode clusterState = conn.getCluster(clusterName);
-        while (clusterState == null || !isClusterDeploymentFinished(clusterState)) {
-            log.info("Waiting for cluster deployment to finish, cluster state = {}", clusterState);
+    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, String clusterName) {
+        final int pollInterval = 10000; // Check status every 10s
+        int callsSincePrinting = 0; // number of intervals since we last logged what we're doing
+        int failedCalls = 0;
+        final int maxFailedCalls = 3; // number of retries if getCluster returns null
+        while (true) {
+            // Note: values for the "status" field come from SAL source:
+            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/887b19b1c1f991b517a3983133bd8857e7e9cc2b/sal-service/src/main/java/org/ow2/proactive/sal/service/service/ClusterService.java#L200
+
             try {
-                Thread.sleep(10000);
+                // Immediately sleep on first loop iteration, so SAL has a chance to catch up
+                Thread.sleep(pollInterval);
             } catch (InterruptedException e1) {
                 // ignore
             }
-            clusterState = conn.getCluster(clusterName);
+            JsonNode clusterState = conn.getCluster(clusterName);
+            final String status;
+            if (clusterState != null) {
+                JsonNode jsonState = clusterState.at("/status");
+                status = jsonState.isMissingNode() ? null : jsonState.asText();
+            } else {
+                status = null;
+            }
+            if (status == null) {
+                failedCalls++;
+                if (failedCalls >= maxFailedCalls) {
+                    log.warn("getCluster returned invalid result (null or structure without 'status' field) too many times, giving up");
+                    return false;
+                } else {
+                    log.warn("getCluster returned invalid result (null or structure without 'status' field), retrying");
+                    continue;
+                }
+            } else {
+                // Forget about intermittent failures
+                failedCalls = 0;
+            }
+            if (status.equals("deployed")) {
+                log.info("Cluster deployment finished successfully");
+                return true;
+            } else if (status.equals("failed")) {
+                log.warn("Cluster deployment failed");
+                return false;
+            } else {
+                if (!status.equals("submited" /* [sic] */)) {
+                    // Better paranoid than sorry
+                    log.warn("Unknown 'status' value in getCluster result: {}", status);
+                }
+                // still waiting, log every minute
+                if (callsSincePrinting < 5) {
+                    callsSincePrinting++;
+                } else {
+                    log.info("Waiting for cluster deployment to finish, cluster state = {}", clusterState);
+                    callsSincePrinting = 0;
+                }
+            }
         }
-        return true;
     }
 
     /**
@@ -409,7 +427,7 @@ public class NebulousAppDeployer {
             return;
         }
 
-        if (!waitForClusterDeploymentFinished(conn, clusterName, appUUID)) {
+        if (!waitForClusterDeploymentFinished(conn, clusterName)) {
             log.error("Error while waiting for deployCluster to finish, trying to delete cluster {} and aborting deployment",
                 cluster);
             app.setStateFailed();
@@ -620,7 +638,7 @@ public class NebulousAppDeployer {
             log.info("Starting scaleout: {}", nodesToAdd);
             Main.logFile("redeploy-scaleout-" + appUUID + ".json", nodesToAdd.toPrettyString());
             conn.scaleOut(appUUID, clusterName, nodesToAdd);
-            waitForClusterDeploymentFinished(conn, clusterName, appUUID);
+            waitForClusterDeploymentFinished(conn, clusterName);
         } else {
             log.info("No nodes added, skipping scaleout");
         }
