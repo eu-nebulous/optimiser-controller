@@ -584,12 +584,13 @@ public class ExnConnector {
     /**
      * Get the definition of a cluster created by {@link #defineCluster}.
      *
+     * @param appID The application ID.
      * @param clusterName The cluster name, as given in {@link defineCluster}.
      * @return The cluster definition, or null in case of error.
      */
-    public JsonNode getCluster(String clusterName) {
+    public JsonNode getCluster(String appID, String clusterName) {
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
-        Map<String, Object> response = getCluster.sendSync(msg, clusterName, null, false);
+        Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
         JsonNode payload = extractPayloadFromExnResponse(response, "getCluster");
         return payload.isMissingNode() ? null : payload;
     }
