@@ -140,6 +140,13 @@ public class NebulousApp {
     private ObjectNode originalKubevela;
 
     /**
+     * The cloud IDs to be used.  These are given in the `resources` section
+     * of the app message; we collect all cloud IDs where `enabled:true`
+     * holds.
+     */
+    @Getter private Set<String> cloudIDs;
+
+    /**
      * The current "generation" of deployment.  Initial deployment sets this
      * to 1, each subsequent redeployment increases by 1.  This value is used
      * to name node instances generated during that deployment.
@@ -237,7 +244,9 @@ public class NebulousApp {
         // are performance indicators in disguise.
         boolean done = false;
         Set<JsonNode> metrics = StreamSupport.stream(
-            Spliterators.spliteratorUnknownSize(app_message.withArray("/metrics").elements(), Spliterator.ORDERED), false)
+            Spliterators.spliteratorUnknownSize(
+                app_message.withArray("/metrics").elements(),
+                Spliterator.ORDERED), false)
             .collect(Collectors.toSet());
         while (!done) {
             // Pick out all raw metrics.  Then pick out all composite metrics
@@ -283,6 +292,16 @@ public class NebulousApp {
                 effectiveConstraints.add(app_message.withObject(constraints_path));
                 break;
             }
+        }
+        cloudIDs = StreamSupport.stream(
+            Spliterators.spliteratorUnknownSize(
+                app_message.withArray("/resources").elements(),
+                Spliterator.ORDERED), false)
+            .filter((c) -> c.get("enabled").asBoolean())
+            .map((c) -> c.get("uuid").asText())
+            .collect(Collectors.toSet());
+        if (cloudIDs.isEmpty()) {
+            log.warn("No clouds enabled or specified in app creation message, will try to deploy only on edge nodes.");
         }
         log.debug("New App instantiated.");
     }

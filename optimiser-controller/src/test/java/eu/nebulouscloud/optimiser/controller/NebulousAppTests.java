@@ -91,7 +91,7 @@ public class NebulousAppTests {
         String kubevela_str = Files.readString(getResourcePath("vela-deployment-v2.yml"),
             StandardCharsets.UTF_8);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
-        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, null);
         // We could compare the requirements with what is contained in
         // KubeVela, or compare keys with component names, but this would
         // essentially duplicate the method code--so we just make sure the
@@ -111,7 +111,7 @@ public class NebulousAppTests {
         ObjectNode replacements = solutions.withObject("VariableValues");
         ObjectNode kubevela1 = app.rewriteKubevelaWithSolution(replacements);
 
-        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela1);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela1, null);
         // We could compare the requirements with what is contained in
         // KubeVela, or compare keys with component names, but this would
         // essentially duplicate the method code--so we just make sure the

@@ -229,7 +229,9 @@ public class ExnConnector {
             try {
                 log.info("App creation message received");
                 JsonNode appMessage = mapper.valueToTree(body);
-                Main.logFile("app-message-" + appMessage.at("/uuid").asText() + ".json", appMessage.toPrettyString());
+                String appID = appMessage.at("/uuid").asText();
+                MDC.put("appId", appID);
+                Main.logFile("app-message-" + appID + ".json", appMessage.toPrettyString());
                 app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ExnConnector.this);
                 String appIdFromMessage = app.getUUID();
                 MDC.put("appId", appIdFromMessage);

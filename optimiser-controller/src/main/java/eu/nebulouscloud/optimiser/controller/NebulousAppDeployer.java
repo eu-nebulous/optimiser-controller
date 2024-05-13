@@ -254,7 +254,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, app.getCloudIDs());
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
         // // HACK: do this only when cloud id = nrec
@@ -520,7 +520,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(updatedKubevela);
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(updatedKubevela, app.getCloudIDs());
         Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(updatedKubevela);
 
         Map<String, List<Requirement>> oldComponentRequirements = app.getComponentRequirements();

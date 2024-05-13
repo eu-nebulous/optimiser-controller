@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A collection of methods to extract node requirements from KubeVela files.
@@ -76,17 +77,27 @@ public class KubevelaAnalyzer {
     }
 
     /**
-     * Add frequirements for Ubuntu version 22.04.  Also add requirement for
-     * 2GB of RAM for now until we know more about the size / cpu requirements
-     * of the nebulous runtime.
+     * Add the following requirements:
+     * <ul>
+     * <li> Ubuntu version 22.04
+     * <li> 2GB of RAM (until we know more about the size / cpu requirements
+     * of the nebulous runtime.)
+     * <li> Cloud IDs, if given.
+     * </ul>
      *
      * @param reqs The list of requirements to add to.
+     * @param cloudIDs the Cloud IDs to filter for.
      */
-    private static void addNebulousRequirements(List<Requirement> reqs) {
+    private static void addNebulousRequirements(List<Requirement> reqs, Set<String> cloudIDs) {
         reqs.add(new AttributeRequirement("image", "operatingSystem.family",
             RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
         reqs.add(new AttributeRequirement("image", "name", RequirementOperator.INC, "22"));
         reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
+        if (cloudIDs != null && !cloudIDs.isEmpty()) {
+            reqs.add(new AttributeRequirement("cloud", "id",
+                RequirementOperator.IN, String.join(" ", cloudIDs)));
+        }
+
     }
 
     /**
@@ -188,18 +199,21 @@ public class KubevelaAnalyzer {
      * @param includeNebulousRequirements if true, include requirements for
      *  minimum memory size, Ubuntu OS.  These requirements ensure that the
      *  node candidate can run the Nebulous software.
+     * @param cloudIDs The IDs of the clouds that the node candidates should
+     *  come from.  Will only be handled if non-null and
+     *  includeNebulousRequirements is true.
      * @return a map of component name to (potentially empty, except for OS
      *  family) list of requirements for that component.  No requirements mean
      *  any node will suffice.
      */
-    public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, boolean includeNebulousRequirements) {
+    public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, boolean includeNebulousRequirements, Set<String> cloudIDs) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
-                addNebulousRequirements(reqs);
+                addNebulousRequirements(reqs, cloudIDs);
             }
             long cores = getCpuRequirement(c, componentName);
             if (cores > 0) {
@@ -228,8 +242,8 @@ public class KubevelaAnalyzer {
      *
      * @see #getBoundedRequirements(JsonNode, boolean)
      */
-    public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela) {
-        return getBoundedRequirements(kubevela, true);
+    public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, Set<String> cloudIDs) {
+        return getBoundedRequirements(kubevela, true, cloudIDs);
     }
 
     /**
@@ -239,13 +253,13 @@ public class KubevelaAnalyzer {
      * cpu >= 2, cpu <= 4.  Take care to not ask for less than 2048Mb of
      * memory since that's the minimum Nebulous requirement for now.
      */
-    public static Map<String, List<Requirement>> getClampedRequirements(JsonNode kubevela) {
+    public static Map<String, List<Requirement>> getClampedRequirements(JsonNode kubevela, Set<String> cloudIDs) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
-            addNebulousRequirements(reqs);
+            addNebulousRequirements(reqs, cloudIDs);
             long cores = getCpuRequirement(c, componentName);
             if (cores > 0) {
                 reqs.add(new AttributeRequirement("hardware", "cores",
@@ -279,13 +293,13 @@ public class KubevelaAnalyzer {
      * asking for >= or <=.  Note that we still ask for >= 2048 Mb since
      * that's the nebulous lower bound for now.
      */
-    public static Map<String, List<Requirement>> getPreciseRequirements(JsonNode kubevela) {
+    public static Map<String, List<Requirement>> getPreciseRequirements(JsonNode kubevela, Set<String> cloudIDs) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
-            addNebulousRequirements(reqs);
+            addNebulousRequirements(reqs, cloudIDs);
             long cores = getCpuRequirement(c, componentName);
             if (cores > 0) {
                 reqs.add(new AttributeRequirement("hardware", "cores",
@@ -313,13 +327,16 @@ public class KubevelaAnalyzer {
      *
      * @see #getBoundedRequirements(JsonNode)
      * @param kubevela The KubeVela file, as a YAML string.
+     * @param cloudIDs The IDs of the clouds that the node candidates should
+     *  come from.  Will only be handled if non-null and
+     *  includeNebulousRequirements is true.
      * @return a map of component name to (potentially empty, except for OS
      *  family) list of requirements for that component.  No requirements mean
      *  any node will suffice.
      * @throws JsonProcessingException if kubevela does not contain valid YAML.
      */
-    public static Map<String, List<Requirement>> getBoundedRequirements(String kubevela) throws JsonProcessingException {
-        return getBoundedRequirements(parseKubevela(kubevela));
+    public static Map<String, List<Requirement>> getBoundedRequirements(String kubevela, Set<String> cloudIDs) throws JsonProcessingException {
+        return getBoundedRequirements(parseKubevela(kubevela), cloudIDs);
     }
 
     /**
