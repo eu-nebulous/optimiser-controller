@@ -511,15 +511,18 @@ public class NebulousAppDeployer {
         // 6. Call deployApplication
         // 7. call scaleIn endpoint with list of removed node names
 
-        String kubevelaString = "---\n# Did not manage to create rewritten KubeVela";
+        // ------------------------------------------------------------
+        // Rewrite KubeVela
+        JsonNode rewritten = createDeploymentKubevela(updatedKubevela);
+        String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
-            kubevelaString = yamlMapper.writeValueAsString(updatedKubevela);
+            rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
         } catch (JsonProcessingException e) {
             log.error("Failed to convert KubeVela to YAML; this should never happen", e);
             app.setStateFailed();
             return;
         }
-        Main.logFile("redeploy-rewritten-kubevela-" + appUUID + ".yaml", kubevelaString);
+        Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", rewritten_kubevela);
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
@@ -651,8 +654,8 @@ public class NebulousAppDeployer {
         Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
         conn.labelNodes(appUUID, clusterName, nodeLabels);
 
-        log.info("Redeploying application: {}", kubevelaString);
-        conn.deployApplication(appUUID, clusterName, app.getName(), kubevelaString);
+        log.info("Redeploying application: {}", rewritten_kubevela);
+        conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
 
         if (!nodesToRemove.isEmpty()) {
             Main.logFile("redeploy-scalein-" + appUUID + ".json", nodesToRemove);
