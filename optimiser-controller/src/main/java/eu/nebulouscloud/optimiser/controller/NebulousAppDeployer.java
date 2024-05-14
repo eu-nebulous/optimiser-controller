@@ -406,9 +406,16 @@ public class NebulousAppDeployer {
             });
         ObjectNode environment = cluster.withObject("/env-var");
         environment.put("APPLICATION_ID", appUUID);
-        // TODO: pre-parse environment variables, put them into NebulousApp
+        // TODO: consider pre-parsing environment variables and storing them
+        // in the app object instead of reading them from the raw dsl message
+        // here
         for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
-            v.fields().forEachRemaining (field -> environment.put(field.getKey(), field.getValue().asText()));
+            if (v.has("name") && v.has("value") && v.get("name").isTextual()) {
+                // TODO: figure out what to do with the `"secret":true` field
+                environment.put(v.get("name").asText(), v.get("value").asText());
+            } else {
+                log.warn("Invalid environmentVariables entry: {}", v);
+            }
         }
         log.info("Calling defineCluster");
         boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, cluster);
