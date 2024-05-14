@@ -405,8 +405,10 @@ public class NebulousAppDeployer {
             });
         ObjectNode environment = cluster.withObject("/env-var");
         environment.put("APPLICATION_ID", appUUID);
-        // TODO: add other environment variables, also from app creation
-        // message (it has an "env" array)
+        // TODO: pre-parse environment variables, put them into NebulousApp
+        for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
+            v.fields().forEachRemaining (field -> environment.put(field.getKey(), field.getValue().asText()));
+        }
         log.info("Calling defineCluster");
         boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, cluster);
         if (!defineClusterSuccess) {
