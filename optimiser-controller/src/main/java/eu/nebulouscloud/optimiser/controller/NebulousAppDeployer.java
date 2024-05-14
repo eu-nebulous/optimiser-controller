@@ -189,7 +189,8 @@ public class NebulousAppDeployer {
                 log.warn("Cluster deployment failed");
                 return false;
             } else {
-                if (!status.equals("submited" /* [sic] */)) {
+                if (!status.equals("submited" /* [sic] */)
+                    && !status.equals("scaling")) {
                     // Better paranoid than sorry
                     log.warn("Unknown 'status' value in getCluster result: {}", status);
                 }
