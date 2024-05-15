@@ -51,6 +51,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "nebulous-optimiser-controller.fullname" . }}-secrets
                   key: ACTIVEMQ_PASSWORD
+            - name: APP_ACTIVEMQ_HOST
+              value: "{{ .Values.app.ACTIVEMQ_HOST }}"
+            - name: APP_ACTIVEMQ_PORT
+              value: "{{ .Values.app.ACTIVEMQ_PORT }}"
+            - name: ONM_IP
+              value: "{{ .Values.app.ONM_IP }}"
+            - name: ONM_URL
+              value: "{{ .Values.app.ONM_URL }}"
           # livenessProbe:
           #   httpGet:
           #     path: /

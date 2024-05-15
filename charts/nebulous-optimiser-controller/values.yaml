@@ -89,5 +89,11 @@ activemq:
   ACTIVEMQ_PORT: 5672
   ACTIVEMQ_USER: admin
 
+app:
+  ONM_IP: '123'
+  ONM_URL: onm-url''
+  ACTIVEMQ_HOST: 'nebulous-activemq'
+  ACTIVEMQ_PORT: '131'
+
 secrets:
   ACTIVEMQ_PASSWORD: nebulous

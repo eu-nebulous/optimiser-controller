@@ -405,10 +405,32 @@ public class NebulousAppDeployer {
                     .put("cloudId", candidate.getCloud().getId());
             });
         ObjectNode environment = cluster.withObject("/env-var");
+        // See https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/env-variables-necessary-for-nebulous-application-deployment-scripts
         environment.put("APPLICATION_ID", appUUID);
-        // TODO: consider pre-parsing environment variables and storing them
-        // in the app object instead of reading them from the raw dsl message
-        // here
+        if (Main.getAppBrokerAddress() == null || Main.getAppBrokerAddress().equals("")) {
+            log.warn("ActiveMQ broker address for app (APP_ACTIVEMQ_HOST) is not set, optimistically continuing with 'localhost'");
+            environment.put("BROKER_ADDRESS", "localhost");
+            environment.put("ACTIVEMQ_HOST", "localhost");
+        } else {
+            environment.put("BROKER_ADDRESS", Main.getAppBrokerAddress());
+            environment.put("ACTIVEMQ_HOST", Main.getAppBrokerAddress());
+        }
+        // Don't warn when those are unset, 5672 is usually the right call
+        environment.put("BROKER_PORT", Main.getAppBrokerPort());
+        environment.put("ACTIVEMQ_PORT", Main.getAppBrokerPort());
+        if (Main.getOnmIp() == null || Main.getOnmIp().equals("")) {
+            log.warn("Overlay Network Manager address (ONM_IP) is not set, continuing without setting ONM_IP for the app");
+        } else {
+            environment.put("ONM_IP", Main.getOnmIp());
+        }
+        if (Main.getOnmUrl() == null || Main.getOnmUrl().equals("")) {
+            log.warn("Overlay Network Manager address (ONM_URL) is not set, continuing without setting ONM_URL for the app");
+        } else {
+            environment.put("ONM_URL", Main.getOnmUrl());
+        }
+        // TODO: consider pre-parsing environment variables from the app
+        // message and storing them in the app object instead of reading them
+        // from the raw JSON here -- but it's not that important
         for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
             if (v.has("name") && v.has("value") && v.get("name").isTextual()) {
                 // TODO: figure out what to do with the `"secret":true` field

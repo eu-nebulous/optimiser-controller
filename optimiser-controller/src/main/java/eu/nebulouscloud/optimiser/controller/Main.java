@@ -69,6 +69,34 @@ public class Main implements Callable<Integer> {
     @Getter
     private static Path logDirectory;
 
+    @Option(names = {"--app-activemq-host"},
+        description = "The hostname of the ActiveMQ server in a deployed app.  Can also be set via the @|bold APP_ACTIVEMQ_HOST|@ environment variable.",
+        paramLabel = "APP_ACTIVEMQ_HOST",
+        defaultValue = "${APP_ACTIVEMQ_HOST}")
+    @Getter
+    private static String appBrokerAddress;
+
+    @Option(names = {"--app-activemq-port"},
+        description = "The port of the ActiveMQ server in a deployed app.  Can also be set via the @|bold APP_ACTIVEMQ_PORT|@ environment variable.",
+        paramLabel = "APP_ACTIVEMQ_PORT",
+        defaultValue = "${APP_ACTIVEMQ_PORT:-5672}")
+    @Getter
+    private static int appBrokerPort;
+
+    @Option(names = {"--onm-ip"},
+        description = "The IP address of the ONM server in a deployed app.  Can also be set via the @|bold ONM_IP|@ environment variable.  NOTE: will be deprecated soon.",
+        paramLabel = "ONM_IP",
+        defaultValue = "${ONM_IP}")
+    @Getter
+    private static String onmIp;
+
+    @Option(names = {"--onm-url"},
+        description = "The URL of the ONM server in a deployed app.  Can also be set via the @|bold ONM_URL|@ environment variable.",
+        paramLabel = "ONM_URL",
+        defaultValue = "${ONM_URL}")
+    @Getter
+    private static String onmUrl;
+
     @Option(names = {"--verbose", "-v"},
             description = "Turn on more verbose logging output. Can be given multiple times. When not given, print only warnings and error messages. With @|underline -v|@, print status messages. With @|underline -vvv|@, print everything.",
         scope = ScopeType.INHERIT)
