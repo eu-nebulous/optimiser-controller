@@ -301,9 +301,11 @@ public class NebulousApp {
             .map((c) -> c.get("uuid").asText())
             .collect(Collectors.toSet());
         if (cloudIDs.isEmpty()) {
-            log.warn("No clouds enabled or specified in app creation message, will try to deploy only on edge nodes.");
+            log.error("No enabled clouds given in app creation message, setting app status to FAILED and aborting deployment.");
+            this.setStateFailed();
+        } else {
+            log.debug("New App instantiated.");
         }
-        log.debug("New App instantiated.");
     }
 
     /**
