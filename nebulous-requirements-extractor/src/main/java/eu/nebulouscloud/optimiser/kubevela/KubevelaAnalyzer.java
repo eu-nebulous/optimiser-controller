@@ -89,9 +89,6 @@ public class KubevelaAnalyzer {
      * @param cloudIDs the Cloud IDs to filter for.
      */
     private static void addNebulousRequirements(List<Requirement> reqs, Set<String> cloudIDs) {
-        reqs.add(new AttributeRequirement("image", "operatingSystem.family",
-            RequirementOperator.IN, OperatingSystemFamily.UBUNTU.toString()));
-        reqs.add(new AttributeRequirement("image", "name", RequirementOperator.INC, "22"));
         reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
         if (cloudIDs != null && !cloudIDs.isEmpty()) {
             reqs.add(new AttributeRequirement("cloud", "id",
