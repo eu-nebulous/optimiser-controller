@@ -8,7 +8,7 @@
       - nebulous-optimiser-controller-container-images
     description: Build the container images.
     files: &image_files
-      - ^/
+      - ^
     vars: &image_vars
       promote_container_image_job: nebulous-optimiser-controller-upload-container-images
       container_images:
