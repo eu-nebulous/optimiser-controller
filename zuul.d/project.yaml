@@ -19,5 +19,5 @@
         - nox-linters
     promote:
       jobs:
-        - nebulous-optimiser-controller-java-upload-java-libraries
+        #- nebulous-optimiser-controller-java-upload-java-libraries
         - nebulous-optimiser-controller-promote-container-images
