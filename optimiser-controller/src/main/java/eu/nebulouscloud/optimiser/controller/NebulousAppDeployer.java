@@ -412,8 +412,8 @@ public class NebulousAppDeployer {
             environment.put("ACTIVEMQ_HOST", Main.getAppBrokerAddress());
         }
         // Don't warn when those are unset, 5672 is usually the right call
-        environment.put("BROKER_PORT", Main.getAppBrokerPort());
-        environment.put("ACTIVEMQ_PORT", Main.getAppBrokerPort());
+        environment.put("BROKER_PORT", Integer.toString(Main.getAppBrokerPort()));
+        environment.put("ACTIVEMQ_PORT", Integer.toString(Main.getAppBrokerPort()));
         if (Main.getOnmIp() == null || Main.getOnmIp().equals("")) {
             log.warn("Overlay Network Manager address (ONM_IP) is not set, continuing without setting ONM_IP for the app");
         } else {
