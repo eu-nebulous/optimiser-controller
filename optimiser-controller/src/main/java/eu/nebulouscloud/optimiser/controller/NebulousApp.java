@@ -213,17 +213,25 @@ public class NebulousApp {
      * Creates a NebulousApp object.
      *
      * @param app_message The whole app creation message (JSON)
-     * @param kubevela A parsed representation of the deployable KubeVela App model (YAML)
+     * @param kubevela_string The deployable KubeVela App model (YAML string)
      * @param ampl_message_channel A publisher for sending the generated AMPL file, or null
      */
     // Note that example KubeVela and parameter files can be found at
     // optimiser-controller/src/test/resources/
-    public NebulousApp(JsonNode app_message, ObjectNode kubevela, ExnConnector exnConnector) {
+    public NebulousApp(JsonNode app_message, String kubevela_string, ExnConnector exnConnector) {
         this.UUID = app_message.at(uuid_path).textValue();
         this.name = app_message.at(name_path).textValue();
         this.state = State.NEW;
         this.clusterName = NebulousApps.calculateUniqueClusterName(this.UUID);
         this.originalAppMessage = app_message;
+        ObjectNode kubevela = null;
+	try {
+	    kubevela = (ObjectNode)readKubevelaString(kubevela_string);
+	} catch (JsonProcessingException e) {
+            this.state = State.FAILED;
+            log.error("Could not parse KubeVela YAML in app creation message: " + e.getMessage());
+            return;
+	}
         this.originalKubevela = kubevela;
         this.exnConnector = exnConnector;
         JsonNode parameters = app_message.at(variables_path);
@@ -328,8 +336,7 @@ public class NebulousApp {
                 return null;
             } else {
                 Main.logFile("incoming-kubevela-" + UUID + ".yaml", kubevela_string);
-                return new NebulousApp(app_message,
-                    (ObjectNode)readKubevelaString(kubevela_string), exnConnector);
+                return new NebulousApp(app_message, kubevela_string, exnConnector);
             }
         } catch (Exception e) {
             log.error("Could not read app creation message", e);
