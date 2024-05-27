@@ -19,6 +19,7 @@
           namespace: nebulous
           repo_shortname: optimiser-controller
           repo_description: ""
+          tags: ["r1-latest"]
 
 - job:
     name: nebulous-optimiser-controller-upload-container-images
