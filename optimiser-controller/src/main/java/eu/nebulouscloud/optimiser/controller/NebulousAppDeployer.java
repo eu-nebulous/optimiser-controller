@@ -8,12 +8,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.NodeCandidate.NodeCandidateTypeEnum;
-import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -501,6 +499,16 @@ public class NebulousAppDeployer {
     }
 
     /**
+     * Given an app, deploy the Kubevela file as specified in the initial app
+     * creation message.
+     *
+     * @param app the NebulOuS app object to deploy.
+     */
+    public static void deployUnmodifiedApplication(NebulousApp app) {
+        deployApplication(app, app.getOriginalKubevela());
+    }
+
+    /**
      * Given a KubeVela file, adapt the running application to its
      * specification.
      *
@@ -695,4 +703,33 @@ public class NebulousAppDeployer {
         log.info("Redeployment finished");
     }
 
+    /**
+     * "Undeploy" an application.  This means telling SAL to delete the app's
+     * cluster and modify the application's state as if the app creation
+     * message had just come in.  After this method finishes, the app object
+     * is in state READY and can perform an initial deployment.
+     *
+     * Note: no effort is being made to check the success of deleting the
+     * cluster, since the app could have been not deployed at all,
+     * half-deployed, unsuccessfully redeployed, or running successfully.
+     *
+     * @see #deleteApplication
+     */
+    public static void undeployApplication(NebulousApp app) {
+        ExnConnector conn = app.getExnConnector();
+        conn.deleteCluster(app.getUUID(), app.getClusterName());
+        app.resetState();
+    }
+    /**
+     * Delete an application.  In addition to undeploying, also deregister the
+     * application object.  After this method finishes, the UI can re-send an
+     * initial deployment message for an application with the same UUID as the
+     * one passed to this method without that message resulting in an error.
+     *
+     * @see #undeployApplication
+     */
+    public static void deleteApplication(NebulousApp app) {
+        undeployApplication(app);
+        app.setStateDeletedAndUnregister();
+    }
 }

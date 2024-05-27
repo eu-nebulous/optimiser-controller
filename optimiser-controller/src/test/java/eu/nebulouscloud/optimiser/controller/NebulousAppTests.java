@@ -61,9 +61,7 @@ public class NebulousAppTests {
     @Test
     void readMultipleAppCreationMessages() throws IOException, URISyntaxException {
         NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
-        NebulousApps.add(app);
         NebulousApp app2 = appFromTestFile("app-message-2.json");
-        NebulousApps.add(app2);
         assertTrue(NebulousApps.values().size() == 2);
     }
 
