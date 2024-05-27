@@ -68,7 +68,6 @@ public class LocalExecution implements Callable<Integer> {
             return 1;
         }
         NebulousApp app = NebulousApp.newFromAppMessage(app_msg, connector);
-        NebulousApps.add(app);
         MDC.put("appId", app.getUUID());
         MDC.put("clusterName", app.getClusterName());
         if (perf_msg != null)
@@ -77,7 +76,7 @@ public class LocalExecution implements Callable<Integer> {
             if (deploy) {
                 if (perf_msg != null) {
                     log.info("Deploying application", connector.getAmplMessagePublisher());
-                    app.deployUnmodifiedApplication();
+                    NebulousAppDeployer.deployUnmodifiedApplication(app);
                 } else {
                     log.warn("Performance indicators not supplied, cannot deploy");
                 }
