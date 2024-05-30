@@ -1,6 +1,7 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -39,10 +40,13 @@ public class NebulousAppDeployer {
      * This machine runs the Kubernetes cluster and KubeVela.  For
      * now, we ask for 8GB memory and 4 cores.
      */
-    public static List<Requirement> getControllerRequirements(String jobID) {
-        return List.of(
-            new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
-            new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
+    public static List<Requirement> getControllerRequirements(String jobID, Set<String> cloudIDs) {
+        List<Requirement> reqs = new ArrayList<>(
+            Arrays.asList(
+                new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
+                new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4")));
+        KubevelaAnalyzer.addNebulousRequirements(reqs, cloudIDs);
+        return reqs;
     }
 
     /**
@@ -251,7 +255,7 @@ public class NebulousAppDeployer {
         // Extract node requirements
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, app.getCloudIDs());
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
-        List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
+        List<Requirement> controllerRequirements = getControllerRequirements(appUUID, app.getCloudIDs());
         // // HACK: do this only when cloud id = nrec
         // componentRequirements.forEach(
         //     (k, reqs) -> reqs.add(new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo")));
