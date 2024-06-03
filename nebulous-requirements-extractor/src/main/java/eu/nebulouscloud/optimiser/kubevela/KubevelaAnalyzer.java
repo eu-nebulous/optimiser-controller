@@ -51,6 +51,8 @@ public class KubevelaAnalyzer {
         Map<String, Integer> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
+            // Skip components that define a volume
+            if (c.at("/type").asText().equals("raw")) continue;
             result.put(c.get("name").asText(), 1); // default value; might get overwritten
             for (final JsonNode t : c.withArray("/traits")) {
                 if (t.at("/type").asText().equals("scaler")
@@ -179,8 +181,9 @@ public class KubevelaAnalyzer {
      *
      * Notes:<p>
      *
-     * - When asked to, we add the requirement that OS family == Ubuntu and
-     *   memory >= 2GB.<p>
+     * - When asked to, we add the requirement that memory >= 2GB.<p>
+     *
+     * - We skip components with `type: raw`, since these define volumes.<p>
      *
      * - For the first version, we specify all requirements as "greater or
      *   equal", i.e., we might not find precisely the node candidates that
@@ -199,14 +202,17 @@ public class KubevelaAnalyzer {
      * @param cloudIDs The IDs of the clouds that the node candidates should
      *  come from.  Will only be handled if non-null and
      *  includeNebulousRequirements is true.
-     * @return a map of component name to (potentially empty, except for OS
-     *  family) list of requirements for that component.  No requirements mean
-     *  any node will suffice.
+     * @return a map of component name to (potentially empty) list of
+     *  requirements for that component.  No requirements mean any node will
+     *  suffice.  No requirements are generated for components with
+     *  `type:raw`.
      */
     public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, boolean includeNebulousRequirements, Set<String> cloudIDs) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
+            // Skip components that define a volume
+            if (c.at("/type").asText().equals("raw")) continue;
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
