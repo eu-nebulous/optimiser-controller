@@ -10,7 +10,6 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import lombok.extern.slf4j.Slf4j;
 
 import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import java.util.ArrayList;
@@ -18,6 +17,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.stream.StreamSupport;
 
 /**
  * A collection of methods to extract node requirements from KubeVela files.
@@ -26,6 +28,54 @@ import java.util.Set;
 public class KubevelaAnalyzer {
 
     private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+
+    /**
+     * Return true if a component is a volume storage node.  If true, such a
+     * node should not be rewritten during deployment, and no virtual machine
+     * should be created.<p>
+     *
+     * We currently look for one of the following structures in a component:
+     *
+     * <pre>{@code
+     * type: raw
+     * properties:
+     *   apiVersion: v1
+     *   kind: PersistentVolumeClaim
+     * }</pre>
+     *
+     * or
+     *
+     * <pre>{@code
+     * type: k8s-objects
+     * properties:
+     *   objects:
+     *   - apiVersion: v1
+     *     kind: PersistentVolumeClaim
+     * }</pre>
+     *
+     * Note: In the two samples above, the objects will have other attributes
+     * as well, which we omit for brevity.<p>
+     *
+     * Note: This method should be redesigned once we discover other kinds of
+     * nodes (currently we have compute nodes and volume storage nodes).<p>
+     *
+     * @param component The component; should be a child of the {@code spec:}
+     *  top-level array in the KubeVela YAML.
+     *
+     * @return true if component is a volume storage node.
+     */
+    public static final boolean isVolumeStorageComponent(JsonNode component) {
+        boolean form1 = component.at("/type").asText().equals("raw")
+            && component.at("/properties/kind").asText().equals("PersistentVolumeClaim");
+        boolean form2 = component.at("/type").asText().equals("k8s-objects")
+            && StreamSupport.stream(
+                Spliterators.spliteratorUnknownSize(
+                    component.withArray("/properties/objects")
+                        .elements(), Spliterator.ORDERED), false)
+                .anyMatch((o) -> o.at("/kind").asText()
+                    .equals("PersistentVolumeClaim"));
+        return form1 || form2;
+    }
 
     /**
      * Given a KubeVela file, extract how many nodes to deploy for each
@@ -51,8 +101,7 @@ public class KubevelaAnalyzer {
         Map<String, Integer> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
-            // Skip components that define a volume
-            if (c.at("/type").asText().equals("raw")) continue;
+            if (isVolumeStorageComponent(c)) continue;
             result.put(c.get("name").asText(), 1); // default value; might get overwritten
             for (final JsonNode t : c.withArray("/traits")) {
                 if (t.at("/type").asText().equals("scaler")
@@ -183,7 +232,8 @@ public class KubevelaAnalyzer {
      *
      * - When asked to, we add the requirement that memory >= 2GB.<p>
      *
-     * - We skip components with `type: raw`, since these define volumes.<p>
+     * - We skip volume storage components, since there is no virtual machine
+     *   created for those.<p>
      *
      * - For the first version, we specify all requirements as "greater or
      *   equal", i.e., we might not find precisely the node candidates that
@@ -204,15 +254,13 @@ public class KubevelaAnalyzer {
      *  includeNebulousRequirements is true.
      * @return a map of component name to (potentially empty) list of
      *  requirements for that component.  No requirements mean any node will
-     *  suffice.  No requirements are generated for components with
-     *  `type:raw`.
+     *  suffice.  No requirements are generated for volume storage components.
      */
     public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, boolean includeNebulousRequirements, Set<String> cloudIDs) {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
-            // Skip components that define a volume
-            if (c.at("/type").asText().equals("raw")) continue;
+            if (isVolumeStorageComponent(c)) continue;
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
