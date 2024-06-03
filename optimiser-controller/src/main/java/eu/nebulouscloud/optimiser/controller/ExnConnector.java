@@ -52,6 +52,9 @@ public class ExnConnector {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     /** The topic where we listen for app creation messages. */
+    // Note that there is another, earlier app creation message sent via the
+    // channel `eu.nebulouscloud.ui.application.new`, but its format is not
+    // yet defined as of 2024-01-08.
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic";
     /** The topic where we listen for app reset messages. */
     public static final String app_reset_channel = "eu.nebulouscloud.optimiser.controller.app_reset";
@@ -227,9 +230,6 @@ public class ExnConnector {
      * object.  If we already received the performance indicators from the
      * utility evaluator, perform initial deployment; otherwise, wait.
      */
-    // Note that there is another, earlier app creation message sent via the
-    // channel `eu.nebulouscloud.ui.application.new`, but its format is not
-    // yet defined as of 2024-01-08.
     public class AppCreationMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {

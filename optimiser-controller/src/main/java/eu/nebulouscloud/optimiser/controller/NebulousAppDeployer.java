@@ -78,6 +78,8 @@ public class NebulousAppDeployer {
     public static JsonNode createDeploymentKubevela(JsonNode kubevela) {
         JsonNode result = kubevela.deepCopy();
         for (final JsonNode c : result.withArray("/spec/components")) {
+            // Do not add trait to components that define a volume
+            if (c.at("/type").asText().equals("raw")) continue;
             String name = c.get("name").asText();
             // Add traits
             ArrayNode traits = c.withArray("traits");
