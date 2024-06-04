@@ -223,15 +223,16 @@ public class Main implements Callable<Integer> {
      * Log a file into the given log directory.  Does nothing if {@link
      * Main#logDirectory} is not set.
      *
-     * @param name The filename.  Note that the file that is written will have
-     *  a longer name including a timestamp, so this argument does not need to
-     *  be unique.
+     * @param name A string that can be used as part of a filename, does not
+     *  need to be unique.  Should not contain characters that are illegal in
+     *  file names, e.g., avoid colons (:) or slashes (/).
      * @param contents The content of the file to be written.  Will be
-     *  converted to String via `toString`.
+     *  converted to a String via `toString`.
      */
     public static void logFile(String name, Object contents) {
         if (Main.logDirectory == null) return;
-        String prefix = LocalDateTime.now().toString();
+        String prefix = LocalDateTime.now().toString()
+            .replace(":", "-"); // make Windows less unhappy
         Path path = logDirectory.resolve(prefix + "--" + name);
         try (FileWriter out = new FileWriter(path.toFile())) {
             out.write(contents.toString());
