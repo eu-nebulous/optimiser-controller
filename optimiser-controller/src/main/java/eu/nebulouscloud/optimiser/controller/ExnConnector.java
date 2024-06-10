@@ -110,6 +110,11 @@ public class ExnConnector {
     /** The findNodeCandidates endpoint (Broker's version).  This one adds
       * attributes "score", "rank" to the answer it gets from SAL. */
     public final SyncedPublisher findBrokerNodeCandidates;
+    /** The findNodeCandidatesMultiple endpoint offered by the cloud-fog
+      * service broker.  Like findBrokerNodeCandidates but we send multiple
+      * requirement lists that the broker then aggregates into a unified
+      * ranked node candidate list. */
+    public final SyncedPublisher findBrokerNodeCandidatesMultiple;
     /** The defineCluster endpoint. */
     public final SyncedPublisher defineCluster;
     /** The getCluster endpoint. */
@@ -145,6 +150,7 @@ public class ExnConnector {
         appStatusPublisher = new Publisher("app_status", app_status_channel, true, true);
         findSalNodeCandidates = new SyncedPublisher("findSalNodeCandidates", "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
         findBrokerNodeCandidates = new SyncedPublisher("findBrokerNodeCandidates", "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
+        findBrokerNodeCandidatesMultiple = new SyncedPublisher("findBrokerNodeCandidatesMultiple", "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true);
         defineCluster = new SyncedPublisher("defineCluster", "eu.nebulouscloud.exn.sal.cluster.define", true, true);
         getCluster = new SyncedPublisher("getCluster", "eu.nebulouscloud.exn.sal.cluster.get", true, true);
         labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
@@ -164,6 +170,7 @@ public class ExnConnector {
                 // synchronous communication with SAL via exn-middleware
                 findSalNodeCandidates,
                 findBrokerNodeCandidates,
+                findBrokerNodeCandidatesMultiple,
                 defineCluster,
                 getCluster,
                 labelNodes,
@@ -508,6 +515,71 @@ public class ExnConnector {
             return null;
         }
         Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
+        // Note: we do not call extractPayloadFromExnResponse here, since this
+        // response does not come from the exn-middleware, so will not be
+        // packaged into a string.
+        ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+        // Note: If the result is empty, the body will be an empty object
+        // instead of an empty array, so we use `JsonNode.OverwriteMode.ALL`
+        List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body", JsonNode.OverwriteMode.ALL, true), JsonNode[].class));
+        result.sort((JsonNode c1, JsonNode c2) -> {
+                long rank1 = c1.at("/rank").longValue();
+                long rank2 = c2.at("/rank").longValue();
+                double score1 = c1.at("/score").doubleValue();
+                double score2 = c2.at("/score").doubleValue();
+                int cpu1 = c1.at("/hardware/cores").intValue();
+                int cpu2 = c2.at("/hardware/cores").intValue();
+                int ram1 = c1.at("/hardware/ram").intValue();
+                int ram2 = c2.at("/hardware/ram").intValue();
+                // We return < 0 if c1 < c2.  Since we want to sort better
+                // candidates first, c1 < c2 if rank is lower or rank is equal
+                // and score is higher. (Lower rank = better, higher score =
+                // better.)  Afterwards we rank lower hardware requirements
+                // better than higher ones.
+                if (rank1 != rank2) return Math.toIntExact(rank1 - rank2);
+                else if (score2 != score1) return Math.toIntExact(Math.round(score2 - score1));
+                else if (cpu1 != cpu2) return cpu1 - cpu2;
+                else return ram1 - ram2;
+            });
+        return result.stream()
+            .map(candidate ->
+                mapper.convertValue(
+                    ((ObjectNode)candidate).deepCopy().remove(List.of("score", "rank")),
+                    NodeCandidate.class))
+            .collect(Collectors.toList());
+    }
+
+    /**
+     * Get list of node candidates from the resource broker that fulfill one
+     * of the given lists of requirements, and sort them by rank and score so
+     * that better node candidates come first in the result.  This method lets
+     * us specify multiple queries, e.g., with cloud-specific attributes and
+     * still get a unified ranked list of candidates, but otherwise works the
+     * same as {@link #findNodeCandidates}.
+     *
+     * <p>A candidate is better than another one if it has a lower rank or, if
+     * the rank is equal, a higher score.
+     *
+     * @param requirements The list of requirement lists.
+     * @param appID The application ID.
+     * @return A sorted List containing node candidates, better candidates
+     *  first.
+     */
+    public List<NodeCandidate> findNodeCandidatesMultiple(List<List<Requirement>> requirements, String appID) {
+        // This is an almost literal copy of `findNodeCandidates`; if there's
+        // a third method with the same functionality I'll start thinking
+        // about unifying them.
+        Map<String, Object> msg;
+        try {
+            msg = Map.of(
+                "metaData", Map.of("user", "admin"),
+                "body", mapper.writeValueAsString(requirements));
+        } catch (JsonProcessingException e) {
+            log.error("Could not convert requirements list list to JSON string (this should never happen)",
+                e);
+            return null;
+        }
+        Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
         // Note: we do not call extractPayloadFromExnResponse here, since this
         // response does not come from the exn-middleware, so will not be
         // packaged into a string.
