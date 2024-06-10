@@ -1,0 +1,18 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+      - r[1-9]
+  pull_request:
+    branches:
+      - main
+      - r[1-9]
+jobs:
+  build-and-push-optimiser-controller:
+    name: Build and push optimiser-controller
+    uses: eu-nebulous/github-actions/.github/workflows/build-and-push-container-image.yml@main
+    with:
+      context: .
+      image-name: optimiser-controller
+    secrets: inherit
