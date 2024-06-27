@@ -1,6 +1,7 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -8,12 +9,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.NodeCandidate.NodeCandidateTypeEnum;
-import org.ow2.proactive.sal.model.OperatingSystemFamily;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -41,10 +40,13 @@ public class NebulousAppDeployer {
      * This machine runs the Kubernetes cluster and KubeVela.  For
      * now, we ask for 8GB memory and 4 cores.
      */
-    public static List<Requirement> getControllerRequirements(String jobID) {
-        return List.of(
-            new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
-            new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4"));
+    public static List<Requirement> getControllerRequirements(String jobID, Set<String> cloudIDs) {
+        List<Requirement> reqs = new ArrayList<>(
+            Arrays.asList(
+                new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
+                new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4")));
+        KubevelaAnalyzer.addNebulousRequirements(reqs, cloudIDs);
+        return reqs;
     }
 
     /**
@@ -76,6 +78,8 @@ public class NebulousAppDeployer {
     public static JsonNode createDeploymentKubevela(JsonNode kubevela) {
         JsonNode result = kubevela.deepCopy();
         for (final JsonNode c : result.withArray("/spec/components")) {
+            // Do not add trait to components that define a volume
+            if (c.at("/type").asText().equals("raw")) continue;
             String name = c.get("name").asText();
             // Add traits
             ArrayNode traits = c.withArray("traits");
@@ -253,7 +257,7 @@ public class NebulousAppDeployer {
         // Extract node requirements
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, app.getCloudIDs());
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
-        List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
+        List<Requirement> controllerRequirements = getControllerRequirements(appUUID, app.getCloudIDs());
         // // HACK: do this only when cloud id = nrec
         // componentRequirements.forEach(
         //     (k, reqs) -> reqs.add(new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo")));
@@ -501,6 +505,16 @@ public class NebulousAppDeployer {
     }
 
     /**
+     * Given an app, deploy the Kubevela file as specified in the initial app
+     * creation message.
+     *
+     * @param app the NebulOuS app object to deploy.
+     */
+    public static void deployUnmodifiedApplication(NebulousApp app) {
+        deployApplication(app, app.getOriginalKubevela());
+    }
+
+    /**
      * Given a KubeVela file, adapt the running application to its
      * specification.
      *
@@ -695,4 +709,33 @@ public class NebulousAppDeployer {
         log.info("Redeployment finished");
     }
 
+    /**
+     * "Undeploy" an application.  This means telling SAL to delete the app's
+     * cluster and modify the application's state as if the app creation
+     * message had just come in.  After this method finishes, the app object
+     * is in state READY and can perform an initial deployment.
+     *
+     * Note: no effort is being made to check the success of deleting the
+     * cluster, since the app could have been not deployed at all,
+     * half-deployed, unsuccessfully redeployed, or running successfully.
+     *
+     * @see #deleteApplication
+     */
+    public static void undeployApplication(NebulousApp app) {
+        ExnConnector conn = app.getExnConnector();
+        conn.deleteCluster(app.getUUID(), app.getClusterName());
+        app.resetState();
+    }
+    /**
+     * Delete an application.  In addition to undeploying, also deregister the
+     * application object.  After this method finishes, the UI can re-send an
+     * initial deployment message for an application with the same UUID as the
+     * one passed to this method without that message resulting in an error.
+     *
+     * @see #undeployApplication
+     */
+    public static void deleteApplication(NebulousApp app) {
+        undeployApplication(app);
+        app.setStateDeletedAndUnregister();
+    }
 }

@@ -52,7 +52,14 @@ public class ExnConnector {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     /** The topic where we listen for app creation messages. */
+    // Note that there is another, earlier app creation message sent via the
+    // channel `eu.nebulouscloud.ui.application.new`, but its format is not
+    // yet defined as of 2024-01-08.
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic";
+    /** The topic where we listen for app reset messages. */
+    public static final String app_reset_channel = "eu.nebulouscloud.optimiser.controller.app_reset";
+    /** The topic where we listen for app deletion messages. */
+    public static final String app_delete_channel = "eu.nebulouscloud.optimiser.controller.app_delete";
     /** The topic with an application's relevant performance indicators. */
     public static final String performance_indicators_channel =
         "eu.nebulouscloud.optimiser.utilityevaluator.performanceindicators";
@@ -170,6 +177,10 @@ public class ExnConnector {
                     new SolverStatusMessageHandler(), true, true),
                 new Consumer("ui_app_messages", app_creation_channel,
                     new AppCreationMessageHandler(), true, true),
+                new Consumer("app_message_reset", app_reset_channel,
+                    new AppResetMessageHandler(), true, true),
+                new Consumer("app_message_delete", app_delete_channel,
+                    new AppDeletionMessageHandler(), true, true),
                 new Consumer("performance_indicator_messages", performance_indicators_channel,
                     new PerformanceIndicatorMessageHandler(), true, true),
                 new Consumer("solver_solution_messages", solver_solution_channel,
@@ -219,9 +230,6 @@ public class ExnConnector {
      * object.  If we already received the performance indicators from the
      * utility evaluator, perform initial deployment; otherwise, wait.
      */
-    // Note that there is another, earlier app creation message sent via the
-    // channel `eu.nebulouscloud.ui.application.new`, but its format is not
-    // yet defined as of 2024-01-08.
     public class AppCreationMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
@@ -236,12 +244,11 @@ public class ExnConnector {
                 String appIdFromMessage = app.getUUID();
                 MDC.put("appId", appIdFromMessage);
                 MDC.put("clusterName", app.getClusterName());
-                NebulousApps.add(app);
                 if (NebulousApps.relevantPerformanceIndicators.containsKey(appIdFromMessage)) {
                     // If the performance indicators haven't arrived yet, this
                     // will happen in PerformanceIndicatorMessageHandler below.
                     app.setStateReady(NebulousApps.relevantPerformanceIndicators.get(appIdFromMessage));
-                    app.deployUnmodifiedApplication();
+                    NebulousAppDeployer.deployUnmodifiedApplication(app);
                     // Not strictly necessary to remove the performance
                     // indicators, but let's not leave unneeded data around
                     NebulousApps.relevantPerformanceIndicators.remove(appIdFromMessage);
@@ -254,6 +261,57 @@ public class ExnConnector {
             }
         }
     }
+
+    /**
+     * A handler that resets the application requested in the body.
+     */
+    public class AppResetMessageHandler extends Handler {
+        @Override
+        public void onMessage(String key, String address, Map body, Message message, Context context) {
+            if (body.get("uuid") == null) {
+                log.error("Received app reset message without 'uuid' attribute, ignoring.");
+                return;
+            }
+            String appId = body.get("uuid").toString();
+            NebulousApp app = NebulousApps.get(appId);
+            if (app == null) {
+                log.error("App with uuid {} not found, ignoring app reset message.", appId);
+                return;
+            }
+            try (MDC.MDCCloseable a = MDC.putCloseable("appId", appId); MDC.MDCCloseable b = MDC.putCloseable("clusterName", app.getClusterName())) {
+                log.info("Starting to undeploy and redeploy cluster.");
+                NebulousAppDeployer.undeployApplication(app);
+                NebulousAppDeployer.deployUnmodifiedApplication(app);
+                log.info("App redeploy finished.");
+            }
+        }
+    }
+
+    /**
+     * A handler that deletes the application requested in the body.
+     */
+    public class AppDeletionMessageHandler extends Handler {
+        @Override
+        public void onMessage(String key, String address, Map body, Message message, Context context) {
+            if (body.get("uuid") == null) {
+                log.error("Received app reset message without 'uuid' attribute, ignoring.");
+                return;
+            }
+            String appId = body.get("uuid").toString();
+            NebulousApp app = NebulousApps.get(appId);
+            if (app == null) {
+                log.error("App with uuid {} not found, ignoring app reset message.", appId);
+                return;
+            }
+            try (MDC.MDCCloseable a = MDC.putCloseable("appId", appId); MDC.MDCCloseable b = MDC.putCloseable("clusterName", app.getClusterName())) {
+                log.info("Starting to undeploy cluster and remove app.");
+                NebulousAppDeployer.undeployApplication(app);
+                NebulousApps.remove(appId);
+                log.info("Finished removing app.");
+            }
+        }
+    }
+
 
     /**
      * A handler that receives the performance indicators that the utility
@@ -292,7 +350,7 @@ public class ExnConnector {
                     if (app.getState().equals(NebulousApp.State.NEW)) {
                         log.info("Received performance indicator message, deploying");
                         app.setStateReady(appMessage);
-                        app.deployUnmodifiedApplication();
+                        NebulousAppDeployer.deployUnmodifiedApplication(app);
                     } else {
                         log.warn("Received duplicate performance indicator message for app, ignoring");
                     }

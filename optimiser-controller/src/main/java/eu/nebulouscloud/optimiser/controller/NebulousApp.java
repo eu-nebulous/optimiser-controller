@@ -74,13 +74,19 @@ public class NebulousApp {
      * <li>FAILED: The application is in an invalid state: one or more
      * messages could not be parsed, or deployment or redeployment failed.
      * </ul>
+     *
+     * <li>DELETED: The application has been deleted and is from now on
+     * unknown to the optimiser-controller.  It is possible to send an app
+     * creation message with the same UUID as the one that has been deleted.
+     * </ul>
      */
     public enum State {
         NEW,
         READY,
         DEPLOYING,
         RUNNING,
-        FAILED;
+        FAILED,
+        DELETED;
     }
 
     @Getter
@@ -136,7 +142,10 @@ public class NebulousApp {
     // ----------------------------------------
     // Deployment stuff
     /** The original app message. */
-    @Getter private JsonNode originalAppMessage;
+    @Getter
+    private JsonNode originalAppMessage;
+    /** The original kubevela. */
+    @Getter
     private ObjectNode originalKubevela;
 
     /**
@@ -193,13 +202,6 @@ public class NebulousApp {
     /** The KubeVela as it was most recently sent to the app's controller. */
     @Getter
     private JsonNode deployedKubevela;
-    /** For each KubeVela component, the number of deployed nodes.  All nodes
-      * will be identical wrt machine type etc.  Unmodifiable map. */
-    @Getter
-    private Map<String, Integer> deployedNodeCounts = Map.of();
-    /** For each KubeVela component, the requirements for its node(s).  Unmodifiable map. */
-    @Getter
-    private Map<String, List<Requirement>> deployedNodeRequirements = Map.of();
 
     /**
      * The EXN connector for this class.  At the moment all apps share the
@@ -317,7 +319,8 @@ public class NebulousApp {
     }
 
     /**
-     * Create a NebulousApp object given an app creation message parsed into JSON.
+     * Create a NebulousApp object given an app creation message parsed into
+     * JSON, and register it via {@link NebulousApps#add}.
      *
      * @param app_message the app creation message, including valid KubeVela
      *  YAML et al
@@ -336,7 +339,9 @@ public class NebulousApp {
                 return null;
             } else {
                 Main.logFile("incoming-kubevela-" + UUID + ".yaml", kubevela_string);
-                return new NebulousApp(app_message, kubevela_string, exnConnector);
+                NebulousApp result = new NebulousApp(app_message, kubevela_string, exnConnector);
+                NebulousApps.add(result);
+                return result;
             }
         } catch (Exception e) {
             log.error("Could not read app creation message", e);
@@ -414,11 +419,45 @@ public class NebulousApp {
         }
     }
 
-
-    /** Set state unconditionally to FAILED.  No more state changes will be
-      * possible once the state is set to FAILED. */
+    /** Set state unconditionally to FAILED.  The only state change possible
+     * in this state is reset to READY. */
     public void setStateFailed() {
+        if (state == State.DELETED) return;
         state = State.FAILED;
+        exnConnector.sendAppStatus(UUID, state);
+    }
+
+    /**
+     * Reset the app object's state.  Removes all information about the
+     * current deployment, and makes it possible to redo initial deployment.
+     *
+     * <p>Note: this method can be called no matter which state the
+     * application object is in (except DELETED), but removing a running app
+     * cluster, if it exists, is the responsibility of whoever calls this
+     * method.
+     */
+    @Synchronized
+    public void resetState() {
+        if (state == State.DELETED) return;
+        this.deployGeneration = 0;
+        this.componentRequirements = Map.of();
+        this.componentReplicaCounts = Map.of();
+        this.componentNodeNames = Map.of();
+        this.deployedKubevela = null;
+        this.nodeEdgeCandidates = Map.of();
+        state = State.READY;
+        exnConnector.sendAppStatus(UUID, state);
+    }
+
+    /**
+     * Set state to DELETED and unregister this application via {@link
+     * NebulousApps#remove}.  Note that this method does not try to stop the
+     * application's cluster in case it is running.
+     */
+    @Synchronized
+    public void setStateDeletedAndUnregister() {
+        state = State.DELETED;
+        NebulousApps.remove(UUID);
         exnConnector.sendAppStatus(UUID, state);
     }
 
@@ -649,13 +688,5 @@ public class NebulousApp {
             // 3. Send KubeVela file for deployment
             NebulousAppDeployer.deployApplication(this, kubevela);
         }
-    }
-
-    /**
-     * Deploy an application, bypassing the solver.  This just deploys the
-     * unmodified KubeVela, as given by the initial app creation message.
-     */
-    public void deployUnmodifiedApplication() {
-        NebulousAppDeployer.deployApplication(this, originalKubevela);
     }
 }
