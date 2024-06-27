@@ -8,7 +8,7 @@ image:
   repository: "quay.io/nebulous/optimiser-controller"
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "r1-latest"
 
 imagePullSecrets: []
 nameOverride: ""
