@@ -75,8 +75,8 @@ public class NebulousAppDeployer {
      *  not modified.
      * @return a fresh KubeVela specification with added nodeAffinity traits.
      */
-    public static JsonNode createDeploymentKubevela(JsonNode kubevela) {
-        JsonNode result = kubevela.deepCopy();
+    public static ObjectNode createDeploymentKubevela(JsonNode kubevela) {
+        ObjectNode result = kubevela.deepCopy();
         for (final JsonNode c : result.withArray("/spec/components")) {
             // Do not add trait to components that define a volume
             if (c.at("/type").asText().equals("raw")) continue;
@@ -268,7 +268,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // Rewrite KubeVela
-        JsonNode rewritten = createDeploymentKubevela(kubevela);
+        ObjectNode rewritten = createDeploymentKubevela(kubevela);
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
             rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);

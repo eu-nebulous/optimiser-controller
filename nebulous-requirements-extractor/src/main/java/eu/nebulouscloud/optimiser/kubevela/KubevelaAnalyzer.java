@@ -186,6 +186,36 @@ public class KubevelaAnalyzer {
     }
 
     /**
+     * Return the long value of the given JSON node.  If the meaning is
+     * "memory", also handle "Mi" and "Gi" suffixes.
+     */
+    public static long kubevelaNumberToLong(JsonNode number, String meaning) throws NumberFormatException {
+        if ("memory".equals(meaning)) {
+            String numericString = number.asText();
+            if (numericString.endsWith("Mi")) {
+                return Long.parseLong(numericString.substring(0, numericString.length() - 2));
+            } else if (numericString.endsWith("Gi")) {
+                return Long.parseLong(numericString.substring(0, numericString.length() - 2)) * 1024;
+            } else {
+                log.warn("Unsupported memory specification in component: '" + numericString + "' (wanted 'Mi' or 'Gi') ");
+                if (number.canConvertToLong()) {
+                    // we got no suffix at all; optimistically continue
+                    return number.asLong();
+                } else {
+                    // continue even more optimistically (this throws NumberFormatException)
+                    return Long.parseLong(numericString);
+                }
+            }
+        } else {
+            if (number.canConvertToLong()) {
+                return number.asLong();
+            } else {
+                throw new NumberFormatException("Unable to parse " + meaning + " value '" + number + "' as integer (long) value");
+            }
+        }
+    }
+
+    /**
      * Get memory requirement, taken from "memory" resource requirement in KubeVela
      * and converted to Megabytes.  We currently handle the "Mi" and "Gi"
      * suffixes that KubeVela uses.

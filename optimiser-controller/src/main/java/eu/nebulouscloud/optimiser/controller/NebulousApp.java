@@ -193,15 +193,9 @@ public class NebulousApp {
     @Getter
     private Map<String, Integer> componentReplicaCounts = Map.of();
 
-    /** When an app gets deployed, this is where we send the AMPL file */
-    private Publisher ampl_message_channel;
-    // /** Have we ever been deployed?  I.e., when we rewrite KubeVela, are there
-    //  * already nodes running for us? */
-    // private boolean deployed = false;
-
     /** The KubeVela as it was most recently sent to the app's controller. */
     @Getter
-    private JsonNode deployedKubevela;
+    private ObjectNode deployedKubevela = null;
 
     /**
      * The EXN connector for this class.  At the moment all apps share the
@@ -385,7 +379,7 @@ public class NebulousApp {
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
       * @return false if not in state deploying, otherwise true. */
     @Synchronized
-    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, NodeCandidate> nodeEdgeCandidates, JsonNode deployedKubevela) {
+    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, NodeCandidate> nodeEdgeCandidates, ObjectNode deployedKubevela) {
         if (state != State.DEPLOYING) {
             return false;
         } else {
@@ -571,14 +565,10 @@ public class NebulousApp {
 
     /**
      * Calculate AMPL file and send it off to the solver.
-     *
-     * <p> TODO: this should be done once from a message handler that listens
-     * for an incoming "solver ready" message
-     *
-     * <p> TODO: also send performance indicators to solver here
      */
     public void sendAMPL() {
-        String ampl_model = AMPLGenerator.generateAMPL(this);
+        String ampl_model = AMPLGenerator.generateAMPL(this,
+            this.deployedKubevela == null ? this.originalKubevela : this.deployedKubevela);
         String ampl_data = relevantPerformanceIndicators.at("/initialDataFile").textValue();
         ObjectNode msg = jsonMapper.createObjectNode();
 
