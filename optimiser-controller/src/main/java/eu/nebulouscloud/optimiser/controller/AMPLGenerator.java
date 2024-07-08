@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -34,17 +35,19 @@ public class AMPLGenerator {
     }
 
     /**
-     * Generate AMPL code for the app, based on the parameter definition(s).
-     * Public for testability, not because we'll be calling it outside of its
-     * class.
+     * Generate AMPL code.
+     *
+     * @param app the application object.
+     * @param kubevela the kubevela file, used to obtain default variable values.
+     * @return AMPL code for the solver.
      */
-    public static String generateAMPL(NebulousApp app) {
+    public static String generateAMPL(NebulousApp app, ObjectNode kubevela) {
         final StringWriter result = new StringWriter();
         final PrintWriter out = new PrintWriter(result);
         out.format("# AMPL file for application '%s' with id %s%n", app.getName(), app.getUUID());
         out.println();
 
-        generateVariablesSection(app, out);
+        generateVariablesSection(app, kubevela, out);
         generateMetricsSection(app, out);
         generateConstants(app, out);
         generatePerformanceIndicatorsSection(app, out);
@@ -228,7 +231,7 @@ public class AMPLGenerator {
         return result;
     }
 
-    private static void generateVariablesSection(NebulousApp app, PrintWriter out) {
+    private static void generateVariablesSection(NebulousApp app, ObjectNode kubevela, PrintWriter out) {
         out.println("# Variables");
         for (final JsonNode p : app.getKubevelaVariables().values()) {
             ObjectNode param = (ObjectNode) p;
@@ -237,6 +240,7 @@ public class AMPLGenerator {
             String paramPath = param.get("path").textValue();
             String paramType = param.get("type").textValue();
             String paramMeaning = param.get("meaning").textValue();
+            JsonNode defaultValue = kubevela.at(paramPath);
             // Even if these variables are sent over as "float", we know they
             // have to be treated as integers for kubevela (replicas, memory)
             // or SAL (cpu).  I.e., paramMeaning overrides paramType.
@@ -255,6 +259,24 @@ public class AMPLGenerator {
                     }
                     if (upper.isNumber()) {
                         out.format("%s <= %s", separator, upper.numberValue());
+                    }
+                    if (!defaultValue.isMissingNode()) {
+                        if (shouldBeInt){
+                            try {
+                                long number = KubevelaAnalyzer.kubevelaNumberToLong(defaultValue, paramMeaning);
+                                out.format(" := %s", number);
+                            } catch (NumberFormatException e) {
+                                log.error("Unable to parse value '" + defaultValue
+                                          + "' as integer (long) value of " + paramName);
+                            }
+                        } else {
+                            if (defaultValue.isFloatingPointNumber()) {
+                                out.format(" := %s", defaultValue.asDouble());
+                            } else {
+                                log.warn("Expected floating point default value at " + paramPath
+                                         + " but got value " + defaultValue);
+                            }
+                        }
                     }
                 }
                 out.println(";");

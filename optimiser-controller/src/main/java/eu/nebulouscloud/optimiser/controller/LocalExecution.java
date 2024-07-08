@@ -82,7 +82,7 @@ public class LocalExecution implements Callable<Integer> {
                 }
             } else {
                 log.info("No deploy requested, printing AMPL and performance metric list");
-                String ampl = AMPLGenerator.generateAMPL(app);
+                String ampl = AMPLGenerator.generateAMPL(app, app.getOriginalKubevela());
                 System.out.println("--------------------");
                 System.out.println("AMPL");
                 System.out.println("--------------------");
