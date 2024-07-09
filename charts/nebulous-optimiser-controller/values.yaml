@@ -91,7 +91,7 @@ activemq:
 
 app:
   ONM_IP: '123'
-  ONM_URL: onm-url''
+  ONM_URL: 'onm-url'
   ACTIVEMQ_HOST: 'nebulous-activemq'
   ACTIVEMQ_PORT: '131'
 
