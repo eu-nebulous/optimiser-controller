@@ -76,7 +76,7 @@ public class LocalExecution implements Callable<Integer> {
             if (deploy) {
                 if (perf_msg != null) {
                     log.info("Deploying application", connector.getAmplMessagePublisher());
-                    NebulousAppDeployer.deployUnmodifiedApplication(app);
+                    app.deploy();
                 } else {
                     log.warn("Performance indicators not supplied, cannot deploy");
                 }

@@ -219,7 +219,6 @@ public class NebulousAppDeployer {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         if (!app.setStateDeploying()) {
-            // TODO: wait until we got the performance indicators from Marta
             log.error("Trying to deploy app that is in state {} (should be READY), aborting deployment",
                 app.getState().name());
             app.setStateFailed();
@@ -502,16 +501,6 @@ public class NebulousAppDeployer {
 
         app.setStateDeploymentFinished(componentRequirements, nodeCounts, componentNodeNames, nodeEdgeCandidates, rewritten);
         log.info("App deployment finished.");
-    }
-
-    /**
-     * Given an app, deploy the Kubevela file as specified in the initial app
-     * creation message.
-     *
-     * @param app the NebulOuS app object to deploy.
-     */
-    public static void deployUnmodifiedApplication(NebulousApp app) {
-        deployApplication(app, app.getOriginalKubevela());
     }
 
     /**
