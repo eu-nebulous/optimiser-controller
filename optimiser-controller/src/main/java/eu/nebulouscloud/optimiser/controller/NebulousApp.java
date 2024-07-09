@@ -654,7 +654,8 @@ public class NebulousApp {
      *  "VariableValues" that can be processed by {@link
      *  NebulousApp#rewriteKubevelaWithSolution}.
      */
-    public void processSolution(ObjectNode solution) {
+    @Synchronized
+    public void redeployWithSolution(ObjectNode solution) {
         if (!solution.get("DeploySolution").asBoolean(false)) {
             // `asBoolean` returns its argument if node is missing or cannot
             // be converted to Boolean
@@ -663,20 +664,22 @@ public class NebulousApp {
         ObjectNode variables = solution.withObjectProperty("VariableValues");
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
         if (deployGeneration > 0) {
-            // We assume that killing a node will confuse the application's
-            // Kubernetes cluster, therefore:
-            // 1. Recalculate node sets
-            // 2. Tell SAL to start fresh nodes, passing in the deployment
-            //    scripts
-            // 3. Send updated KubeVela for redeployment
-            // 4. Shut down superfluous nodes
             NebulousAppDeployer.redeployApplication(this, kubevela);
         } else {
-            // 1. Calculate node sets, including Nebulous controller node
-            // 2. Tell SAL to start all nodes, passing in the deployment
-            //    scripts
-            // 3. Send KubeVela file for deployment
+            // Since the solver is started as part of the initial deployment
+            // this branch is effectively dead code -- but in case the overall
+            // deployment flow changes and we somehow obtain a solution before
+            // deployment, can't hurt to do this.
+            log.warn("App received a solver solution before being deployed, this is unexpected. Boldly moving forward with initial deployment.");
             NebulousAppDeployer.deployApplication(this, kubevela);
         }
+    }
+
+    /**
+     * Perform initial deployment.
+     */
+    @Synchronized
+    public void deploy() {
+        NebulousAppDeployer.deployApplication(this, getOriginalKubevela());
     }
 }

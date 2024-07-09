@@ -240,29 +240,38 @@ public class ExnConnector {
     public class AppCreationMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
-            NebulousApp app = null;
             try {
                 log.info("App creation message received");
-                JsonNode appMessage = mapper.valueToTree(body);
-                String appID = appMessage.at("/uuid").asText();
+                final JsonNode appMessage = mapper.valueToTree(body);
+                final String appID = appMessage.at("/uuid").asText();
                 MDC.put("appId", appID);
                 Main.logFile("app-message-" + appID + ".json", appMessage.toPrettyString());
-                app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ExnConnector.this);
-                String appIdFromMessage = app.getUUID();
+                // FIXME: here's a race condition here: if the app object
+                // isn't registered yet when the performance indicators
+                // arrive, and the performance indicators aren't yet
+                // registered when we reach the `if` statement below, the app
+                // will never be deployed...
+                final NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ExnConnector.this);
+                final String appIdFromMessage = app.getUUID();
                 MDC.put("appId", appIdFromMessage);
                 MDC.put("clusterName", app.getClusterName());
                 if (NebulousApps.relevantPerformanceIndicators.containsKey(appIdFromMessage)) {
                     // If the performance indicators haven't arrived yet, this
                     // will happen in PerformanceIndicatorMessageHandler below.
                     app.setStateReady(NebulousApps.relevantPerformanceIndicators.get(appIdFromMessage));
-                    NebulousAppDeployer.deployUnmodifiedApplication(app);
+                    final Map<String, String> contextMap = MDC.getCopyOfContextMap();
+                    new Thread(() -> {
+                            MDC.setContextMap(contextMap);
+                            app.deploy();
+                            // No need to call `MDC.cear()` since we're not
+                            // using thread pools
+                        }).start();
                     // Not strictly necessary to remove the performance
                     // indicators, but let's not leave unneeded data around
                     NebulousApps.relevantPerformanceIndicators.remove(appIdFromMessage);
                 }
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("Error while receiving app creation message", e);
-                if (app != null) app.setStateFailed();
             } finally {
                 MDC.clear();
             }
@@ -287,9 +296,13 @@ public class ExnConnector {
             }
             try (MDC.MDCCloseable a = MDC.putCloseable("appId", appId); MDC.MDCCloseable b = MDC.putCloseable("clusterName", app.getClusterName())) {
                 log.info("Starting to undeploy and redeploy cluster.");
-                NebulousAppDeployer.undeployApplication(app);
-                NebulousAppDeployer.deployUnmodifiedApplication(app);
-                log.info("App redeploy finished.");
+                final Map<String, String> contextMap = MDC.getCopyOfContextMap();
+                new Thread(() -> {
+                        MDC.setContextMap(contextMap);
+                        NebulousAppDeployer.undeployApplication(app);
+                        app.deploy();
+                        log.info("App redeploy finished.");
+                    }).start();
             }
         }
     }
@@ -310,12 +323,14 @@ public class ExnConnector {
                 log.error("App with uuid {} not found, ignoring app reset message.", appId);
                 return;
             }
-            try (MDC.MDCCloseable a = MDC.putCloseable("appId", appId); MDC.MDCCloseable b = MDC.putCloseable("clusterName", app.getClusterName())) {
-                log.info("Starting to undeploy cluster and remove app.");
-                NebulousAppDeployer.undeployApplication(app);
-                NebulousApps.remove(appId);
-                log.info("Finished removing app.");
-            }
+            new Thread(() -> {
+                    try (MDC.MDCCloseable a = MDC.putCloseable("appId", appId); MDC.MDCCloseable b = MDC.putCloseable("clusterName", app.getClusterName())) {
+                        log.info("Starting to undeploy cluster and remove app.");
+                        NebulousAppDeployer.undeployApplication(app);
+                        NebulousApps.remove(appId);
+                        log.info("Finished removing app.");
+                    }
+                }).start();
         }
     }
 
@@ -355,9 +370,13 @@ public class ExnConnector {
                 } else {
                     MDC.put("clusterName", app.getClusterName());
                     if (app.getState().equals(NebulousApp.State.NEW)) {
-                        log.info("Received performance indicator message, deploying");
-                        app.setStateReady(appMessage);
-                        NebulousAppDeployer.deployUnmodifiedApplication(app);
+                        final Map<String, String> contextMap = MDC.getCopyOfContextMap();
+                        new Thread(() -> {
+                                MDC.setContextMap(contextMap);
+                                log.info("Received performance indicator message, deploying");
+                                app.setStateReady(appMessage);
+                                app.deploy();
+                            }).start();
                     } else {
                         log.warn("Received duplicate performance indicator message for app, ignoring");
                     }
@@ -369,8 +388,8 @@ public class ExnConnector {
     }
 
     /**
-     * A handler that detects when the solver has started for a given
-     * application.
+     * A handler that detects when the solver for a given application has
+     * started, and sends it the AMPL file and metric list.
      */
     public class SolverStatusMessageHandler extends Handler {
         @Override
@@ -401,6 +420,7 @@ public class ExnConnector {
                 if (app == null) {
                     log.info("Received solver status message {} for unknown app object, this should not happen", body);
                 } else {
+                    // This should be very quick, no need to start a thread
                     MDC.put("clusterName", app.getClusterName());
                     app.sendAMPL();
                     app.sendMetricList(); // re-send for solver
@@ -438,7 +458,12 @@ public class ExnConnector {
                     MDC.put("clusterName", app.getClusterName());
                     if (app.getState() == NebulousApp.State.RUNNING) {
                         log.debug("Sending solver solution to application for redeployment");
-                        app.processSolution(json_body);
+                        final Map<String, String> contextMap = MDC.getCopyOfContextMap();
+                        new Thread(() -> {
+                                MDC.setContextMap(contextMap);
+                                log.debug("Received solver solution for application");
+                                app.redeployWithSolution(json_body);
+                            }).start();
                     } else {
                         // app.State==RUNNING gets checked once more inside
                         // app.processSolution -- here we discard
