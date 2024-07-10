@@ -432,12 +432,20 @@ public class ExnConnector {
                 Main.logFile("solver-solution-" + app_id + ".json", json_body.toPrettyString());
                 NebulousApp app = NebulousApps.get(app_id);
                 if (app == null) {
-                    log.warn("Received solver solutions for non-existant application, discarding.");
+                    log.warn("Received solver solution for non-existant application, discarding.");
                     return;
                 } else {
                     MDC.put("clusterName", app.getClusterName());
-                    log.debug("Received solver solutions for application");
-                    app.processSolution(json_body);
+                    if (app.getState() == NebulousApp.State.RUNNING) {
+                        log.debug("Sending solver solution to application for redeployment");
+                        app.processSolution(json_body);
+                    } else {
+                        // app.State==RUNNING gets checked once more inside
+                        // app.processSolution -- here we discard
+                        // high-frequency solver messages early while a
+                        // redeployment is underway.
+                        log.warn("Received solver solution when application not in state RUNNING, discarding.");
+                    }
                 }
             } catch (Exception e) {
                 log.error("Error while processing solver solutions message", e);

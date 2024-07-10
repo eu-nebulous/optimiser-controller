@@ -209,8 +209,8 @@ public class NebulousAppDeployer {
      * Given a KubeVela file, extract node requirements, create the job, start
      * its nodes and submit KubeVela.
      *
-     * <p>NOTE: this method modifies the NebulousApp object state, storing
-     * various facts about the deployed cluster.
+     * Note: this method is not thread-safe and should only be called from
+     * {@link NebulousApp#deploy()} or similarly protected code.
      *
      * @param app The NebulOuS app object.
      * @param kubevela the KubeVela file to deploy.
@@ -516,11 +516,15 @@ public class NebulousAppDeployer {
 
     /**
      * Given a KubeVela file, adapt the running application to its
-     * specification.
+     * specification.<p>
      *
      * The KubeVela file is already rewritten with updated information from
      * the solver when this method is called, so reflects the desired new
-     * state of the application cluster.
+     * state of the application cluster.<p>
+     *
+     * Note: this method is not thread-safe and should only be called from
+     * {@link NebulousApp#processSolution(ObjectNode)} or similarly
+     * protected code.
      *
      * @param app the NebulOuS app object.
      * @param updatedKubevela the KubeVela file to deploy.
@@ -530,9 +534,8 @@ public class NebulousAppDeployer {
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
         if (!app.setStateRedeploying()) {
-            log.error("Trying to redeploy app that is in state {} (should be RUNNING), aborting",
+            log.warn("Trying to redeploy app that is in state {} (can only redeploy in state RUNNING), aborting",
                 app.getState().name());
-            app.setStateFailed();
             return;
         }
 
@@ -680,28 +683,32 @@ public class NebulousAppDeployer {
         Main.logFile("redeploy-worker-requirements-" + appUUID + ".txt", componentRequirements);
         Main.logFile("redeploy-worker-counts-" + appUUID + ".txt", componentReplicaCounts);
 
-        if (!nodesToAdd.isEmpty()) {
-            log.info("Starting scaleout: {}", nodesToAdd);
-            Main.logFile("redeploy-scaleout-" + appUUID + ".json", nodesToAdd.toPrettyString());
-            conn.scaleOut(appUUID, clusterName, nodesToAdd);
-            waitForClusterDeploymentFinished(conn, appUUID, clusterName);
+        if (!nodesToRemove.isEmpty() || !nodesToAdd.isEmpty()) {
+            if (!nodesToAdd.isEmpty()) {
+                log.info("Starting scaleout: {}", nodesToAdd);
+                Main.logFile("redeploy-scaleout-" + appUUID + ".json", nodesToAdd.toPrettyString());
+                conn.scaleOut(appUUID, clusterName, nodesToAdd);
+                waitForClusterDeploymentFinished(conn, appUUID, clusterName);
+            } else {
+                log.info("No nodes added, skipping scaleout");
+            }
+
+            log.info("Labeling nodes: {}", nodeLabels);
+            Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
+            conn.labelNodes(appUUID, clusterName, nodeLabels);
+
+            log.info("Redeploying application: {}", rewritten_kubevela);
+            conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
+
+            if (!nodesToRemove.isEmpty()) {
+                Main.logFile("redeploy-scalein-" + appUUID + ".json", nodesToRemove);
+                log.info("Starting scalein: {}", nodesToRemove);
+                conn.scaleIn(appUUID, clusterName, nodesToRemove);
+            } else {
+                log.info("No nodes removed, skipping scalein");
+            }
         } else {
-            log.info("No nodes added, skipping scaleout");
-        }
-
-        log.info("Labeling nodes: {}", nodeLabels);
-        Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
-        conn.labelNodes(appUUID, clusterName, nodeLabels);
-
-        log.info("Redeploying application: {}", rewritten_kubevela);
-        conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
-
-        if (!nodesToRemove.isEmpty()) {
-            Main.logFile("redeploy-scalein-" + appUUID + ".json", nodesToRemove);
-            log.info("Starting scalein: {}", nodesToRemove);
-            conn.scaleIn(appUUID, clusterName, nodesToRemove);
-        } else {
-            log.info("No nodes removed, skipping scalein");
+            log.info("Solution did not require nodes to be added or removed, done.");
         }
 
         app.setStateDeploymentFinished(componentRequirements, componentReplicaCounts,
