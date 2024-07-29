@@ -56,7 +56,7 @@ public class NebulousAppDeployer {
      * During deployment and redeployment, we label all nodes with {@code
      * nebulouscloud.eu/<componentname>=yes}.  (Note that with this scheme, a
      * node can have labels for multiple components if desired.)  We add the
-     * following trait to all components:
+     * following trait to all normal components:
      *
      * <pre>{@code
      * traits:
@@ -71,30 +71,60 @@ public class NebulousAppDeployer {
      *               values: "yes"
      * }</pre>
      *
+     * Persistent volume components do not get an affinity trait.  Serverless
+     * components get an affinity for the {@code type: serverless-platform}
+     * node.
+     *
      * @param kubevela the KubeVela specification to modify. This parameter is
      *  not modified.
      * @return a fresh KubeVela specification with added nodeAffinity traits.
      */
-    public static ObjectNode createDeploymentKubevela(JsonNode kubevela) {
-        ObjectNode result = kubevela.deepCopy();
-        for (final JsonNode c : result.withArray("/spec/components")) {
-            // Do not add trait to components that define a volume
-            if (c.at("/type").asText().equals("raw")) continue;
-            String name = c.get("name").asText();
-            // Add traits
-            ArrayNode traits = c.withArray("traits");
-            ObjectNode trait = traits.addObject();
-            trait.put("type", "affinity");
-            ArrayNode nodeSelectorTerms = trait.withArray("/properties/nodeAffinity/required/nodeSelectorTerms");
-            ArrayNode matchExpressions = nodeSelectorTerms.addObject().withArray("matchExpressions");
-            ObjectNode term = matchExpressions.addObject();
-            term.put("key", "nebulouscloud.eu/" + name)
-                .put("operator", "In")
-                .withArray("values").add("yes");
-            // Remove resources
-            c.withObject("/properties").remove("memory");
-            c.withObject("/properties").remove("cpu");
-            c.withObject("/properties/resources").remove("requests");
+    public static ObjectNode createDeploymentKubevela(JsonNode kubevela) throws IllegalStateException {
+        final ObjectNode result = kubevela.deepCopy();
+        final ArrayNode components = result.withArray("/spec/components");
+        final List<String> serverlessPlatformNodes = KubevelaAnalyzer.findServerlessPlatformNames(result);
+        if (serverlessPlatformNodes.size() > 1) {
+            log.warn("More than one serverless platform node found, serverless components will run on {}", serverlessPlatformNodes.get(0));
+        }
+        for (final JsonNode c : components) {
+            if (KubevelaAnalyzer.isVolumeComponent(c)) {
+                // Persistent volume component: skip
+                continue;
+            } else if (KubevelaAnalyzer.isServerlessComponent(c)) {
+                // Serverless component: add trait to deploy on serverless-platform node
+                if (serverlessPlatformNodes.isEmpty()) {
+                    throw new IllegalStateException("Trying to deploy serverless component without defining a serverless platform node");
+                }
+                ArrayNode traits = c.withArray("traits");
+                ObjectNode trait = traits.addObject();
+                trait.put("type", "affinity");
+                ArrayNode nodeSelectorTerms = trait.withArray("/properties/nodeAffinity/required/nodeSelectorTerms");
+                ArrayNode matchExpressions = nodeSelectorTerms.addObject().withArray("matchExpressions");
+                ObjectNode term = matchExpressions.addObject();
+                // TODO: figure out how to express multiple affinities; in
+                // case of multiple serverless-platform nodes, we want
+                // kubernetes to choose an arbitrary one.
+                term.put("key", "nebulouscloud.eu/" + serverlessPlatformNodes.get(0))
+                    .put("operator", "In")
+                    .withArray("values").add("yes");
+            } else {
+                // Normal component: add trait to deploy on its own machine
+                String name = c.get("name").asText();
+                // Add traits
+                ArrayNode traits = c.withArray("traits");
+                ObjectNode trait = traits.addObject();
+                trait.put("type", "affinity");
+                ArrayNode nodeSelectorTerms = trait.withArray("/properties/nodeAffinity/required/nodeSelectorTerms");
+                ArrayNode matchExpressions = nodeSelectorTerms.addObject().withArray("matchExpressions");
+                ObjectNode term = matchExpressions.addObject();
+                term.put("key", "nebulouscloud.eu/" + name)
+                    .put("operator", "In")
+                    .withArray("values").add("yes");
+                // Remove resources
+                c.withObject("/properties").remove("memory");
+                c.withObject("/properties").remove("cpu");
+                c.withObject("/properties/resources").remove("requests");
+            }
         }
         return result;
     }
@@ -267,7 +297,14 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // Rewrite KubeVela
-        ObjectNode rewritten = createDeploymentKubevela(kubevela);
+        JsonNode rewritten;
+        try {
+            rewritten = createDeploymentKubevela(kubevela);
+        } catch (IllegalStateException e) {
+            log.error("Failed to create deployment kubevela", e);
+            app.setStateFailed();
+            return;
+        }
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
             rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
@@ -544,7 +581,14 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // Rewrite KubeVela
-        JsonNode rewritten = createDeploymentKubevela(updatedKubevela);
+        JsonNode rewritten;
+        try {
+            rewritten = createDeploymentKubevela(updatedKubevela);
+        } catch (IllegalStateException e) {
+            log.error("Failed to create deployment kubevela", e);
+            app.setStateFailed();
+            return;
+        }
         String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
         try {
             rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);

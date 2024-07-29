@@ -3,6 +3,7 @@ package eu.nebulouscloud.optimiser.controller;
 import org.junit.jupiter.api.Test;
 import org.ow2.proactive.sal.model.Requirement;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -22,6 +23,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class NebulousAppTests {
@@ -85,7 +87,7 @@ public class NebulousAppTests {
     }
 
     @Test
-    void calculateNodeRequirements() throws IOException, URISyntaxException {
+    void calculateNodeRequirementsSize() throws IOException, URISyntaxException {
         String kubevela_str = Files.readString(getResourcePath("vela-deployment-v2.yml"),
             StandardCharsets.UTF_8);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
@@ -96,6 +98,20 @@ public class NebulousAppTests {
         // method runs without error for well-formed KubeVela and returns
         // one requirement for each component.
         assertTrue(requirements.size() == kubevela.withArray("/spec/components").size());
+    }
+
+    @Test
+    void calculateServerlessRequirementsSize() throws IOException, URISyntaxException {
+        JsonNode kubevela = KubevelaAnalyzer.parseKubevela(Files.readString(getResourcePath("serverless-deployment.yaml"), StandardCharsets.UTF_8));
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, null);
+        // We have one serverless component, so we need n-1 VMs
+        assertTrue(requirements.size() == kubevela.withArray("/spec/components").size() - 1);
+    }
+
+    @Test
+    void checkInvalidServerlessDeployment() throws JsonProcessingException, IOException, URISyntaxException {
+        JsonNode kubevela = KubevelaAnalyzer.parseKubevela(Files.readString(getResourcePath("invalid-serverless-deployment.yaml"), StandardCharsets.UTF_8));
+        assertThrows(IllegalStateException.class, () -> NebulousAppDeployer.createDeploymentKubevela(kubevela));
     }
 
     // @Test

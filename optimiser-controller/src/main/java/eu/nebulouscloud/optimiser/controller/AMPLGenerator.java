@@ -41,7 +41,7 @@ public class AMPLGenerator {
      * @param kubevela the kubevela file, used to obtain default variable values.
      * @return AMPL code for the solver.
      */
-    public static String generateAMPL(NebulousApp app, ObjectNode kubevela) {
+    public static String generateAMPL(NebulousApp app, JsonNode kubevela) {
         final StringWriter result = new StringWriter();
         final PrintWriter out = new PrintWriter(result);
         out.format("# AMPL file for application '%s' with id %s%n", app.getName(), app.getUUID());
@@ -231,7 +231,7 @@ public class AMPLGenerator {
         return result;
     }
 
-    private static void generateVariablesSection(NebulousApp app, ObjectNode kubevela, PrintWriter out) {
+    private static void generateVariablesSection(NebulousApp app, JsonNode kubevela, PrintWriter out) {
         out.println("# Variables");
         for (final JsonNode p : app.getKubevelaVariables().values()) {
             ObjectNode param = (ObjectNode) p;
