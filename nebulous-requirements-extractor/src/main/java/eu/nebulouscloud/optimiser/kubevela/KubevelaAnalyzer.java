@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 /**
@@ -30,11 +31,9 @@ public class KubevelaAnalyzer {
     private static final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
 
     /**
-     * Return true if a component is a volume storage node.  If true, such a
-     * node should not be rewritten during deployment, and no virtual machine
-     * should be created.<p>
+     * Return true if a component is a persistent volume storage node.<p>
      *
-     * We currently look for one of the following structures in a component:
+     * We look for one of the following structures:
      *
      * <pre>{@code
      * type: raw
@@ -56,15 +55,12 @@ public class KubevelaAnalyzer {
      * Note: In the two samples above, the objects will have other attributes
      * as well, which we omit for brevity.<p>
      *
-     * Note: This method should be redesigned once we discover other kinds of
-     * nodes (currently we have compute nodes and volume storage nodes).<p>
-     *
      * @param component The component; should be a child of the {@code spec:}
      *  top-level array in the KubeVela YAML.
      *
-     * @return true if component is a volume storage node.
+     * @return true if component is a persisten volume component, false if not
      */
-    public static final boolean isVolumeStorageComponent(JsonNode component) {
+    public static boolean isVolumeComponent(JsonNode component) {
         boolean form1 = component.at("/type").asText().equals("raw")
             && component.at("/properties/kind").asText().equals("PersistentVolumeClaim");
         boolean form2 = component.at("/type").asText().equals("k8s-objects")
@@ -75,6 +71,76 @@ public class KubevelaAnalyzer {
                 .anyMatch((o) -> o.at("/kind").asText()
                     .equals("PersistentVolumeClaim"));
         return form1 || form2;
+    }
+
+    /**
+     * Return true if the component is a serverless component.<p>
+     *
+     * A component is serverless if it has {@code type: knative-serving}.
+     *
+     * @param component The component; should be a child of the {@code spec:}
+     *  top-level array in the KubeVela YAML.
+     *
+     * @return true if component is serverless, false if not.
+     */
+    public static final boolean isServerlessComponent(JsonNode component) {
+        return component.at("/type").asText().equals("knative-serving");
+    }
+
+    /**
+     * Return true if a component should not be rewritten during deployment,
+     * and no virtual machine should be generated.<p>
+     *
+     * Currently, we do not deploy volume storage nodes and serverless
+     * nodes.<p>
+     *
+     * <pre>{@code
+     * type: knative-serving
+     * }</pre>
+     *
+     * @param component The component; should be a child of the {@code spec:}
+     *  top-level array in the KubeVela YAML.
+     *
+     * @return true if component should get a VM, false if not.
+     */
+    public static boolean componentNeedsNode(JsonNode component) {
+        return !isVolumeComponent(component) && !isServerlessComponent(component);
+    }
+
+    public static boolean hasServerlessComponents(JsonNode kubevela) {
+        return StreamSupport.stream(
+            Spliterators.spliteratorUnknownSize(
+                kubevela.withArray("/components").elements(), Spliterator.ORDERED),
+            false)
+            .anyMatch(KubevelaAnalyzer::isServerlessComponent);
+    }
+
+    /**
+     * Return true if the component is a serverless-platform component.<p>
+     *
+     * A component is a serverless platform, i.e., should run serverless
+     * components, if it has {@code type: serverless-platform}.
+     *
+     * @param component The component; should be a child of the {@code spec:}
+     *  top-level array in the KubeVela YAML.
+     *
+     * @return true if component is a serverless platform, false if not.
+     */
+    public static final boolean isServerlessPlatform(JsonNode component) {
+        return component.at("/type").asText().equals("serverless-platform");
+    }
+
+    /**
+     * Find the names of all {@code serverless-platform} nodes.
+     */
+    public static final List<String> findServerlessPlatformNames(JsonNode kubevela) {
+        return StreamSupport.stream(
+            Spliterators.spliteratorUnknownSize(
+                kubevela.withArray("/components").elements(), Spliterator.ORDERED),
+            false)
+            .filter(KubevelaAnalyzer::isServerlessPlatform)
+            .map((component) -> component.at("/name").asText())
+            .collect(Collectors.toUnmodifiableList());
     }
 
     /**
@@ -101,7 +167,7 @@ public class KubevelaAnalyzer {
         Map<String, Integer> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
-            if (isVolumeStorageComponent(c)) continue;
+            if (!componentNeedsNode(c)) continue;
             result.put(c.get("name").asText(), 1); // default value; might get overwritten
             for (final JsonNode t : c.withArray("/traits")) {
                 if (t.at("/type").asText().equals("scaler")
@@ -290,7 +356,7 @@ public class KubevelaAnalyzer {
         Map<String, List<Requirement>> result = new HashMap<>();
         ArrayNode components = kubevela.withArray("/spec/components");
         for (final JsonNode c : components) {
-            if (isVolumeStorageComponent(c)) continue;
+            if (!componentNeedsNode(c)) continue;
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {

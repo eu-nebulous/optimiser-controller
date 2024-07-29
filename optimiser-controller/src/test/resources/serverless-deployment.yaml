@@ -1,0 +1,29 @@
+apiVersion: core.oam.dev/v1beta1
+kind: Application
+metadata:
+  name: first-app
+spec:
+  components:
+    - name: helloworld
+      type: webservice
+      properties:
+        image: oamdev/helloworld-python:v1
+        env:
+          - name: "TARGET"
+            value: "KubeVela"
+        port: 8080
+    - name: serverless-backend
+      type: serverless-platform
+      properties:
+        resources:
+          requests:
+            cpu: "2"    # Requests for CPU in cores
+            memory: "2Gi" # Requests for memory in GiB
+        replicas: 3   # Number of replicas
+    - name: backend
+      type: knative-serving
+      properties:
+        image: gcr.io/knative-samples/helloworld-go
+        env:
+          - name: TARGET
+            value: "Go Sample v1"

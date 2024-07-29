@@ -195,7 +195,7 @@ public class NebulousApp {
 
     /** The KubeVela as it was most recently sent to the app's controller. */
     @Getter
-    private ObjectNode deployedKubevela = null;
+    private JsonNode deployedKubevela = null;
 
     /**
      * The EXN connector for this class.  At the moment all apps share the
@@ -379,7 +379,7 @@ public class NebulousApp {
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
       * @return false if not in state deploying, otherwise true. */
     @Synchronized
-    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, NodeCandidate> nodeEdgeCandidates, ObjectNode deployedKubevela) {
+    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, NodeCandidate> nodeEdgeCandidates, JsonNode deployedKubevela) {
         if (state != State.DEPLOYING) {
             return false;
         } else {
