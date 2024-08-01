@@ -15,8 +15,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v3
         with:
-          java-version: '17'  # Use the JDK version your project requires
-          distribution: 'adopt-openjdk'
+          java-version: '17'
+          distribution: 'temurin'
 
       - name: Build and deploy
         env:
