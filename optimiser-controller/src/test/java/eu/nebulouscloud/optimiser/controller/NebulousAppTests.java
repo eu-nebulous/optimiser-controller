@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -106,6 +107,10 @@ public class NebulousAppTests {
         Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, null);
         // We have one serverless component, so we need n-1 VMs
         assertTrue(requirements.size() == kubevela.withArray("/spec/components").size() - 1);
+        // Check that we detect serverless components
+        assertTrue(KubevelaAnalyzer.hasServerlessComponents(kubevela));
+        // Check that we actually find the serverless platform we want to deploy on
+        assertEquals(List.of("serverless-backend"), KubevelaAnalyzer.findServerlessPlatformNames(kubevela));
     }
 
     @Test
