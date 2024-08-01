@@ -99,4 +99,9 @@
             <url>https://repo1.maven.org/maven2</url>
         </repository>
     </repositories>
+    <profiles>
+        <profile>
+            <id>github</id>
+        </profile>
+    </profiles>
 </project>
