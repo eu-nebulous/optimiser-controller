@@ -21,5 +21,6 @@ jobs:
       - name: Build and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        working-directory: nebulous-requirements-extractor
         run: |
           mvn clean deploy -Pgithub
