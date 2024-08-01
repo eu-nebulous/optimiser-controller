@@ -111,7 +111,7 @@ public class KubevelaAnalyzer {
     public static boolean hasServerlessComponents(JsonNode kubevela) {
         return StreamSupport.stream(
             Spliterators.spliteratorUnknownSize(
-                kubevela.withArray("/components").elements(), Spliterator.ORDERED),
+                kubevela.withArray("/spec/components").elements(), Spliterator.ORDERED),
             false)
             .anyMatch(KubevelaAnalyzer::isServerlessComponent);
     }
@@ -137,7 +137,7 @@ public class KubevelaAnalyzer {
     public static final List<String> findServerlessPlatformNames(JsonNode kubevela) {
         return StreamSupport.stream(
             Spliterators.spliteratorUnknownSize(
-                kubevela.withArray("/components").elements(), Spliterator.ORDERED),
+                kubevela.withArray("/spec/components").elements(), Spliterator.ORDERED),
             false)
             .filter(KubevelaAnalyzer::isServerlessPlatform)
             .map((component) -> component.at("/name").asText())
