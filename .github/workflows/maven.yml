@@ -1,0 +1,25 @@
+name: Build and Deploy Maven Package
+
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'  # Use the JDK version your project requires
+          distribution: 'adopt-openjdk'
+
+      - name: Build and deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          mvn clean deploy -Pgithub
