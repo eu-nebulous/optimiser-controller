@@ -23,4 +23,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         working-directory: nebulous-requirements-extractor
         run: |
-          mvn --no-transfer-progress clean deploy -Pgithub
+          mvn --no-transfer-progress clean deploy
