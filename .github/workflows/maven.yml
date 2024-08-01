@@ -15,11 +15,11 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v3
         with:
-          java-version: '17'  # Use the JDK version your project requires
+          java-version: '17'
           distribution: 'adopt-openjdk'
 
       - name: Build and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          mvn clean deploy -Pgithub
+          mvn clean deploy
