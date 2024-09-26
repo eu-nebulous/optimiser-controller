@@ -13,6 +13,8 @@ import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.NodeCandidate.NodeCandidateTypeEnum;
+import org.ow2.proactive.sal.model.NodeType;
+import org.ow2.proactive.sal.model.NodeTypeRequirement;
 import org.ow2.proactive.sal.model.Requirement;
 import org.ow2.proactive.sal.model.RequirementOperator;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -40,13 +42,33 @@ public class NebulousAppDeployer {
      * This machine runs the Kubernetes cluster and KubeVela.  For
      * now, we ask for 8GB memory and 4 cores.
      */
-    public static List<Requirement> getControllerRequirements(String jobID, Set<String> cloudIDs) {
+    public static List<Requirement> getControllerRequirements(String jobID) {
         List<Requirement> reqs = new ArrayList<>(
             Arrays.asList(
                 new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
                 new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4")));
-        KubevelaAnalyzer.addNebulousRequirements(reqs, cloudIDs);
         return reqs;
+    }
+
+    /**
+     * Given a list of requirements, create one list each for each of the
+     * cloud providers the app wants to be deployed on.  This transforms a
+     * list of requirements suitable for {@link
+     * ExnConnector#findNodeCandidates} into a value suitable for {@link
+     * ExnConnector#findNodeCandidatesMultiple}.
+     */
+    private static List<List<Requirement>> perCloudRequirements(List<Requirement> requirements, Map<String, Set<String>> clouds) {
+        List<List<Requirement>> result = new ArrayList<>();
+        clouds.forEach((id, regions) -> {
+            List<Requirement> cloud_reqs = new ArrayList<>(requirements);
+            cloud_reqs.add(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
+            cloud_reqs.add(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
+            if (!regions.isEmpty()) {
+                cloud_reqs.add(new AttributeRequirement("location", "name", RequirementOperator.IN, String.join(" ", regions)));
+            }
+            result.add(cloud_reqs);
+        });
+        return result;
     }
 
     /**
@@ -284,9 +306,9 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, app.getClouds().keySet());
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
-        List<Requirement> controllerRequirements = getControllerRequirements(appUUID, app.getClouds().keySet());
+        List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
         // // HACK: do this only when cloud id = nrec
         // componentRequirements.forEach(
         //     (k, reqs) -> reqs.add(new AttributeRequirement("location", "name", RequirementOperator.EQ, "bgo")));
@@ -317,9 +339,7 @@ public class NebulousAppDeployer {
 
         // ----------------------------------------
         // Find node candidates
-
-        // TODO: filter by app resources / cloud? (check enabled: true in resources array)
-        List<NodeCandidate> controllerCandidates = conn.findNodeCandidates(controllerRequirements, appUUID);
+        List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesMultiple(perCloudRequirements(controllerRequirements, app.getClouds()), appUUID);
         if (controllerCandidates.isEmpty()) {
             log.error("Could not find node candidates for requirements: {}, aborting deployment",
                 controllerRequirements);
@@ -330,8 +350,7 @@ public class NebulousAppDeployer {
         for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
-            // TODO: filter by app resources / cloud? (check enabled: true in resources array)
-            List<NodeCandidate> candidates = conn.findNodeCandidates(requirements, appUUID);
+            List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(perCloudRequirements(requirements, app.getClouds()), appUUID);
             if (candidates.isEmpty()) {
                 log.error("Could not find node candidates for for node {}, requirements: {}, aborting deployment", nodeName, requirements);
                 app.setStateFailed();
@@ -601,7 +620,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // 1. Extract node requirements
-        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(updatedKubevela, app.getClouds().keySet());
+        Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(updatedKubevela);
         Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(updatedKubevela);
 
         Map<String, List<Requirement>> oldComponentRequirements = app.getComponentRequirements();
@@ -630,8 +649,7 @@ public class NebulousAppDeployer {
                     int nAdd = newCount - oldCount;
                     allMachineNames = componentNodeNames.get(componentName);
                     log.info("Node requirements unchanged but need to add {} nodes to component {}", nAdd, componentName);
-                    // TODO: filter by app resources (check enabled: true in resources array)
-                    List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
+                    List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(perCloudRequirements(newR, app.getClouds()), appUUID);
                     if (candidates.isEmpty()) {
                         log.error("Could not find node candidates for requirements: {}", newR);
                         continue;
@@ -684,8 +702,7 @@ public class NebulousAppDeployer {
                 nodesToRemove.addAll(componentNodeNames.get(componentName));
                 allMachineNames = new HashSet<>();
                 log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
-                // TODO: filter by app resources (check enabled: true in resources array)
-                List<NodeCandidate> candidates = conn.findNodeCandidates(newR, appUUID);
+                List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(perCloudRequirements(newR, app.getClouds()), appUUID);
                 if (candidates.size() == 0) {
                     log.error("Empty node candidate list for component {}, continuing without creating node", componentName);
                     continue;
