@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -149,11 +150,12 @@ public class NebulousApp {
     private ObjectNode originalKubevela;
 
     /**
-     * The cloud IDs to be used.  These are given in the `resources` section
-     * of the app message; we collect all cloud IDs where `enabled:true`
-     * holds.
+     * The clouds to be used.  These are given in the `resources` section of
+     * the app message; we collect all cloud IDs where `enabled:true` holds,
+     * each mapped to the regions specified for that cloud, or an empty set if
+     * no regions specified..
      */
-    @Getter private Set<String> cloudIDs;
+    @Getter private Map<String, Set<String>> clouds;
 
     /**
      * The current "generation" of deployment.  Initial deployment sets this
@@ -297,14 +299,15 @@ public class NebulousApp {
                 break;
             }
         }
-        cloudIDs = StreamSupport.stream(
+        clouds = StreamSupport.stream(
             Spliterators.spliteratorUnknownSize(
                 app_message.withArray("/resources").elements(),
                 Spliterator.ORDERED), false)
-            .filter((c) -> c.get("enabled").asBoolean())
-            .map((c) -> c.get("uuid").asText())
-            .collect(Collectors.toSet());
-        if (cloudIDs.isEmpty()) {
+            .filter((c) -> c.at("/enabled").asBoolean())
+            .collect(Collectors.toMap(
+                (c) -> c.at("/uuid").asText(),
+                (c) -> Arrays.stream(c.at("/regions").asText().split(",")).collect(Collectors.toSet())));
+        if (clouds.isEmpty()) {
             log.error("No enabled clouds given in app creation message, setting app status to FAILED and aborting deployment.");
             this.setStateFailed();
         } else {
