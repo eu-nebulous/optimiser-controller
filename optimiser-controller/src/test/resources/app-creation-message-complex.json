@@ -36,16 +36,46 @@
     ],
     "resources": [
         {
-            "uuid": "4c686b6b-4ef8-4a24-ad90-67ec8c204ba9",
-            "title": "Test BYON",
-            "platform": "BYON",
-            "enabled": false
+            "title":"3333333",
+            "uuid":"3df75caf-c642-4edc-bf2c-26b4875ce29d",
+            "platform":"AWS",
+            "enabled":true,
+            "regions":"af-south-1,ap-south-1,ap-northeast-2"
         },
         {
-            "uuid": "9e6644b6-cb58-4fc5-b5cf-bf7a571d92fe",
-            "title": "AWs my resource",
-            "platform": "aws",
-            "enabled": true
+            "title":"asdfasfda",
+            "uuid":"fe4e2c0b-3614-45dc-8013-bc056eea0ae3",
+            "platform":"AWS",
+            "enabled":false,
+            "regions":""
+        },
+        {
+            "title":"eut-aws-good",
+            "uuid":"c9a625c7-f705-4128-948f-6b5765509029",
+            "platform":"AWS",
+            "enabled":false,
+            "regions":null
+        },
+        {
+            "title":"Title Here",
+            "uuid":"bb75a3dc-cd3e-4f71-a206-8e4495bd88d3",
+            "platform":"OPENSTACK",
+            "enabled":true,
+            "regions":"bgo"
+        },
+        {
+            "title":"aws-eut-ui2",
+            "uuid":"db6e395c-75b5-4b6f-913a-1d3c9212727c",
+            "platform":"AWS",
+            "enabled":false,
+            "regions":""
+        },
+        {
+            "title":"aws-eut-ui",
+            "uuid":"e0ba39be-3a5d-439f-a812-d6237bf40eee",
+            "platform":"AWS",
+            "enabled":true,
+            "regions":""
         }
     ],
     "templates": [
