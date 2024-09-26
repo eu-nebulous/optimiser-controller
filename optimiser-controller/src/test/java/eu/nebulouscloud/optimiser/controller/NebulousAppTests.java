@@ -92,7 +92,7 @@ public class NebulousAppTests {
         String kubevela_str = Files.readString(getResourcePath("vela-deployment-v2.yml"),
             StandardCharsets.UTF_8);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
-        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, null);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
         // We could compare the requirements with what is contained in
         // KubeVela, or compare keys with component names, but this would
         // essentially duplicate the method code--so we just make sure the
@@ -104,7 +104,7 @@ public class NebulousAppTests {
     @Test
     void calculateServerlessRequirementsSize() throws IOException, URISyntaxException {
         JsonNode kubevela = KubevelaAnalyzer.parseKubevela(Files.readString(getResourcePath("serverless-deployment.yaml"), StandardCharsets.UTF_8));
-        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela, null);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
         // We have one serverless component, so we need n-1 VMs
         assertTrue(requirements.size() == kubevela.withArray("/spec/components").size() - 1);
         // Check that we detect serverless components
@@ -130,7 +130,7 @@ public class NebulousAppTests {
         ObjectNode replacements = solutions.withObject("VariableValues");
         ObjectNode kubevela1 = app.rewriteKubevelaWithSolution(replacements);
 
-        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela1, null);
+        Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela1);
         // We could compare the requirements with what is contained in
         // KubeVela, or compare keys with component names, but this would
         // essentially duplicate the method code--so we just make sure the
