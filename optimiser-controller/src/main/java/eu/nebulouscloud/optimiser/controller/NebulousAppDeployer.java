@@ -56,19 +56,66 @@ public class NebulousAppDeployer {
      * list of requirements suitable for {@link
      * ExnConnector#findNodeCandidates} into a value suitable for {@link
      * ExnConnector#findNodeCandidatesMultiple}.
+     *
+     * @param requirements the component requirements (cpu, ram, ...)
+     * @param clouds the clouds registered for the application
+     * @param location placement specification for the component
+     * @return A list of lists of requirements, one per location where the component can be placed
      */
-    private static List<List<Requirement>> perCloudRequirements(List<Requirement> requirements, Map<String, Set<String>> clouds) {
+    private static List<List<Requirement>> requirementsWithLocations(List<Requirement> requirements, Map<String, Set<String>> clouds, ComponentLocationType location) {
         List<List<Requirement>> result = new ArrayList<>();
-        clouds.forEach((id, regions) -> {
-            List<Requirement> cloud_reqs = new ArrayList<>(requirements);
-            cloud_reqs.add(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
-            cloud_reqs.add(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
-            if (!regions.isEmpty()) {
-                cloud_reqs.add(new AttributeRequirement("location", "name", RequirementOperator.IN, String.join(" ", regions)));
-            }
-            result.add(cloud_reqs);
-        });
+        if (location != ComponentLocationType.EDGE_ONLY) {
+            clouds.forEach((id, regions) -> {
+                List<Requirement> cloud_reqs = new ArrayList<>(requirements);
+                cloud_reqs.add(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
+                cloud_reqs.add(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
+                if (!regions.isEmpty()) {
+                    cloud_reqs.add(new AttributeRequirement("location", "name", RequirementOperator.IN, String.join(" ", regions)));
+                }
+                result.add(cloud_reqs);
+            });
+        }
+        if (location != ComponentLocationType.CLOUD_ONLY) {
+            List<Requirement> edge_reqs = new ArrayList<>(requirements);
+            edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            result.add(edge_reqs);
+        }
         return result;
+    }
+
+    // public for testability
+    public enum ComponentLocationType {
+        EDGE_ONLY,
+        CLOUD_ONLY,
+        EDGE_AND_CLOUD
+    }
+
+    /**
+     * Return the placement constraint for the given component.  We look for
+     * an annotation trait as follows:
+     *
+     * <pre>{@code
+     * traits:
+     *   - type: annotations
+     *     properties:
+     *       nebulous-placement-constraint: CLOUD # can be CLOUD, EDGE, ANY
+     * }</pre>
+     */
+    public static ComponentLocationType getComponentLocation(JsonNode component) {
+        for (final JsonNode t : component.withArray("/traits")) {
+            if (t.at("/type").asText().equals("annotations")) {
+                String location = t.at("/properties/nebulous-placement-constraint").asText("ANY");
+                switch (location) {
+                    case "EDGE": return ComponentLocationType.EDGE_ONLY;
+                    case "CLOUD": return ComponentLocationType.CLOUD_ONLY;
+                    case "ANY": return ComponentLocationType.EDGE_AND_CLOUD;
+                    default:
+                        log.warn("Unknown nebulous-placement-constraint {} for component {}, assuming no placement constraint", location, component.at("/").asText());
+                        return ComponentLocationType.EDGE_AND_CLOUD;
+                }
+            }
+        }
+        return ComponentLocationType.EDGE_AND_CLOUD;
     }
 
     /**
@@ -307,6 +354,9 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // Extract node requirements
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
+        Map<String, JsonNode> components = new HashMap<>();
+        kubevela.withArray("/spec/components").forEach(
+            c -> components.put(c.at("/name").asText(), c));
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
         // // HACK: do this only when cloud id = nrec
@@ -339,7 +389,10 @@ public class NebulousAppDeployer {
 
         // ----------------------------------------
         // Find node candidates
-        List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesMultiple(perCloudRequirements(controllerRequirements, app.getClouds()), appUUID);
+        List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesMultiple(
+            requirementsWithLocations(controllerRequirements,
+                app.getClouds(), ComponentLocationType.EDGE_AND_CLOUD),
+            appUUID);
         if (controllerCandidates.isEmpty()) {
             log.error("Could not find node candidates for requirements: {}, aborting deployment",
                 controllerRequirements);
@@ -350,7 +403,10 @@ public class NebulousAppDeployer {
         for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
-            List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(perCloudRequirements(requirements, app.getClouds()), appUUID);
+            List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
+                requirementsWithLocations(requirements, app.getClouds(),
+                    getComponentLocation(components.get(nodeName))),
+                appUUID);
             if (candidates.isEmpty()) {
                 log.error("Could not find node candidates for for node {}, requirements: {}, aborting deployment", nodeName, requirements);
                 app.setStateFailed();
@@ -578,6 +634,10 @@ public class NebulousAppDeployer {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
+        Map<String, JsonNode> components = new HashMap<>();
+        updatedKubevela.withArray("/spec/components").forEach(
+            c -> components.put(c.at("/name").asText(), c));
+
         if (!app.setStateRedeploying()) {
             log.warn("Trying to redeploy app that is in state {} (can only redeploy in state RUNNING), aborting",
                 app.getState().name());
@@ -649,7 +709,10 @@ public class NebulousAppDeployer {
                     int nAdd = newCount - oldCount;
                     allMachineNames = componentNodeNames.get(componentName);
                     log.info("Node requirements unchanged but need to add {} nodes to component {}", nAdd, componentName);
-                    List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(perCloudRequirements(newR, app.getClouds()), appUUID);
+                    List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
+                        requirementsWithLocations(newR, app.getClouds(),
+                            getComponentLocation(components.get(componentName))),
+                        appUUID);
                     if (candidates.isEmpty()) {
                         log.error("Could not find node candidates for requirements: {}", newR);
                         continue;
@@ -702,7 +765,10 @@ public class NebulousAppDeployer {
                 nodesToRemove.addAll(componentNodeNames.get(componentName));
                 allMachineNames = new HashSet<>();
                 log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
-                List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(perCloudRequirements(newR, app.getClouds()), appUUID);
+                List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
+                    requirementsWithLocations(newR, app.getClouds(),
+                        getComponentLocation(components.get(componentName))),
+                    appUUID);
                 if (candidates.size() == 0) {
                     log.error("Empty node candidate list for component {}, continuing without creating node", componentName);
                     continue;
