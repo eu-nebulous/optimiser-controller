@@ -139,4 +139,14 @@ public class NebulousAppTests {
         assertTrue(requirements.size() == kubevela1.withArray("/spec/components").size());
     }
 
+    @Test
+    void checkComponentPlacements() throws IOException, URISyntaxException {
+        NebulousApp app = appFromTestFile("app-creation-message-mercabana-edge.json");
+        JsonNode kubevela = app.getOriginalKubevela();
+        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/0")), NebulousAppDeployer.ComponentLocationType.EDGE_ONLY); // explicitly specified EDGE
+        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/1")), NebulousAppDeployer.ComponentLocationType.CLOUD_ONLY); // explicitly specified CLOUD
+        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/2")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // explicity specified ANY
+        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/3")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // default unspecified
+    }
+
 }
