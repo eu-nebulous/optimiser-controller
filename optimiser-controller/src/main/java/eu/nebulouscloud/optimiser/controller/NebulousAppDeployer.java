@@ -414,7 +414,7 @@ public class NebulousAppDeployer {
         // Find node candidates
         List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesMultiple(
             requirementsWithLocations(controllerRequirements, app.getUUID(),
-                app.getClouds(), ComponentLocationType.EDGE_AND_CLOUD),
+                app.getClouds(), ComponentLocationType.CLOUD_ONLY),
             appUUID);
         if (controllerCandidates.isEmpty()) {
             log.error("Could not find node candidates for requirements: {}, aborting deployment",
