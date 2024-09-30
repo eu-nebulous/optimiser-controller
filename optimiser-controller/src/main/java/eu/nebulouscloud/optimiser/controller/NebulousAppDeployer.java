@@ -51,18 +51,34 @@ public class NebulousAppDeployer {
     }
 
     /**
-     * Given a list of requirements, create one list each for each of the
-     * cloud providers the app wants to be deployed on.  This transforms a
-     * list of requirements suitable for {@link
+     * Given a list of requirements for a component, create one list each for
+     * each of the locations the component can be deployed on.  This
+     * transforms a list of requirements suitable for {@link
      * ExnConnector#findNodeCandidates} into a value suitable for {@link
-     * ExnConnector#findNodeCandidatesMultiple}.
+     * ExnConnector#findNodeCandidatesMultiple}.<p>
+     *
+     * If the component can be deployed on cloud nodes, add one requirement
+     * list for each cloud provider: request node candidates from the cloud
+     * located on the regions of that cloud.<p>
+     *
+     * If the node can be deployed on edge nodes, add two requirement lists:
+     * one asking for edge nodes whose name looks like {@code
+     * application_id|all-applications|<edge_device_id>} and one asking for
+     * edge nodes whose name looks like {@code
+     * application_id|<application_id>|<edge_device_id>}.
      *
      * @param requirements the component requirements (cpu, ram, ...)
-     * @param clouds the clouds registered for the application
+     * @param appId the application id
+     * @param clouds the clouds that the application can deploy on
      * @param location placement specification for the component
      * @return A list of lists of requirements, one per location where the component can be placed
      */
-    private static List<List<Requirement>> requirementsWithLocations(List<Requirement> requirements, Map<String, Set<String>> clouds, ComponentLocationType location) {
+    private static List<List<Requirement>> requirementsWithLocations (
+        List<Requirement> requirements,
+        String appId,
+        Map<String, Set<String>> clouds,
+        ComponentLocationType location)
+    {
         List<List<Requirement>> result = new ArrayList<>();
         if (location != ComponentLocationType.EDGE_ONLY) {
             clouds.forEach((id, regions) -> {
@@ -76,9 +92,16 @@ public class NebulousAppDeployer {
             });
         }
         if (location != ComponentLocationType.CLOUD_ONLY) {
-            List<Requirement> edge_reqs = new ArrayList<>(requirements);
-            edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
-            result.add(edge_reqs);
+            String orgWideName = "application_id|all-applications|";
+            List<Requirement> org_edge_reqs = new ArrayList<>(requirements);
+            org_edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            org_edge_reqs.add(new AttributeRequirement("hardware", "name", RequirementOperator.INC, orgWideName));
+            result.add(org_edge_reqs);
+            String appAssignedName = "application_id|" + appId + "|";
+            List<Requirement> app_edge_reqs = new ArrayList<>(requirements);
+            app_edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            app_edge_reqs.add(new AttributeRequirement("hardware", "name", RequirementOperator.INC, appAssignedName));
+            result.add(app_edge_reqs);
         }
         return result;
     }
@@ -390,7 +413,7 @@ public class NebulousAppDeployer {
         // ----------------------------------------
         // Find node candidates
         List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesMultiple(
-            requirementsWithLocations(controllerRequirements,
+            requirementsWithLocations(controllerRequirements, app.getUUID(),
                 app.getClouds(), ComponentLocationType.EDGE_AND_CLOUD),
             appUUID);
         if (controllerCandidates.isEmpty()) {
@@ -404,7 +427,7 @@ public class NebulousAppDeployer {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
             List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
-                requirementsWithLocations(requirements, app.getClouds(),
+                requirementsWithLocations(requirements, app.getUUID(), app.getClouds(),
                     getComponentLocation(components.get(nodeName))),
                 appUUID);
             if (candidates.isEmpty()) {
@@ -710,7 +733,7 @@ public class NebulousAppDeployer {
                     allMachineNames = componentNodeNames.get(componentName);
                     log.info("Node requirements unchanged but need to add {} nodes to component {}", nAdd, componentName);
                     List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
-                        requirementsWithLocations(newR, app.getClouds(),
+                        requirementsWithLocations(newR, app.getUUID(), app.getClouds(),
                             getComponentLocation(components.get(componentName))),
                         appUUID);
                     if (candidates.isEmpty()) {
@@ -766,7 +789,7 @@ public class NebulousAppDeployer {
                 allMachineNames = new HashSet<>();
                 log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
                 List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
-                    requirementsWithLocations(newR, app.getClouds(),
+                    requirementsWithLocations(newR, app.getUUID(), app.getClouds(),
                         getComponentLocation(components.get(componentName))),
                     appUUID);
                 if (candidates.size() == 0) {
