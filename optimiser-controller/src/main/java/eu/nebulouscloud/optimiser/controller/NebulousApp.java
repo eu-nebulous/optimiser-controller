@@ -313,7 +313,9 @@ public class NebulousApp {
             .filter((c) -> c.at("/enabled").asBoolean())
             .collect(Collectors.toMap(
                 (c) -> c.at("/uuid").asText(),
-                (c) -> Arrays.stream(c.at("/regions").asText().split(",")).collect(Collectors.toSet())));
+                (c) -> Arrays.stream(c.at("/regions").asText().split(","))
+                    .filter(regionName -> !regionName.isBlank())
+                    .collect(Collectors.toSet())));
         if (clouds.isEmpty()) {
             log.error("No enabled clouds given in app creation message, setting app status to FAILED and aborting deployment.");
             this.setStateFailed();
