@@ -346,13 +346,8 @@ public class NebulousAppDeployer {
             app.setStateFailed();
             return;
         }
-        // The application name is typed in by the user, and is used
-        // internally by SAL as an unquoted filename in a generated shell
-        // script. It shouldn't be this way but it is what it is.
-        String safeAppName = app.getName().replaceAll("[^a-zA-Z0-9-_]", "_");
         ExnConnector conn = app.getExnConnector();
         log.info("Starting initial deployment for application");
-
 
         // The overall flow:
         //
@@ -621,7 +616,7 @@ public class NebulousAppDeployer {
         // Deploy application
 
         log.info("Calling deployApplication");
-        long proActiveJobID = conn.deployApplication(appUUID, clusterName, safeAppName, rewritten_kubevela);
+        long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
         log.info("deployApplication returned ProActive Job ID {}", proActiveJobID);
         if (proActiveJobID == 0) {
             // 0 means conversion from long has failed (because of an invalid
