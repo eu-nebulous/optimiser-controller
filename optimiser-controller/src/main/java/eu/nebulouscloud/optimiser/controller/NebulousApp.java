@@ -656,7 +656,7 @@ public class NebulousApp {
 
     /**
      * Handle an incoming solver message.  If the message has a field {@code
-     * deploySolution} with value {@code true}, rewrite the original KubeVela
+     * DeploySolution} with value {@code true}, rewrite the original KubeVela
      * file with the contained variable values and perform initial deployment
      * or redeployment as appropriate.  Otherwise, ignore the message.
      *
@@ -666,9 +666,14 @@ public class NebulousApp {
      */
     @Synchronized
     public void redeployWithSolution(ObjectNode solution) {
-        if (!solution.get("DeploySolution").asBoolean(false)) {
+        if (!solution.has("DeploySolution")) {
+            log.warn("Received solver solution without DeploySolution field, ignoring.");
+            return;
+        }
+        if (!solution.at("/DeploySolution").asBoolean(false)) {
             // `asBoolean` returns its argument if node is missing or cannot
             // be converted to Boolean
+            log.info("Received solver solution with DeploySolution=false, ignoring.");
             return;
         }
         ObjectNode variables = solution.withObjectProperty("VariableValues");
