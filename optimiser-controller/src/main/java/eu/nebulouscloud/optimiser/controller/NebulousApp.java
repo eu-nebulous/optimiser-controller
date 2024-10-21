@@ -49,7 +49,13 @@ public class NebulousApp {
     private String UUID;
     /**
      * The app name, a user-readable string.  Not safe to assume that this is
-     * a unique value.
+     * a unique value.  Might contain whitespace, unicode and everything else
+     * a user can type into a form.
+     */
+    @Getter private String rawName;
+
+    /**
+     * A version of the app name that is safe to use as a filename.
      */
     @Getter private String name;
 
@@ -218,7 +224,8 @@ public class NebulousApp {
     // optimiser-controller/src/test/resources/
     public NebulousApp(JsonNode app_message, String kubevela_string, ExnConnector exnConnector) {
         this.UUID = app_message.at(uuid_path).textValue();
-        this.name = app_message.at(name_path).textValue();
+        this.rawName = app_message.at(name_path).textValue();
+        this.name = rawName.replaceAll("[^a-zA-Z0-9-_]", "_");
         this.state = State.NEW;
         this.clusterName = NebulousApps.calculateUniqueClusterName(this.UUID);
         this.originalAppMessage = app_message;

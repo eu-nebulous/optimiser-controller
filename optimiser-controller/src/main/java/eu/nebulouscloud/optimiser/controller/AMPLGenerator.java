@@ -44,7 +44,7 @@ public class AMPLGenerator {
     public static String generateAMPL(NebulousApp app, JsonNode kubevela) {
         final StringWriter result = new StringWriter();
         final PrintWriter out = new PrintWriter(result);
-        out.format("# AMPL file for application '%s' with id %s%n", app.getName(), app.getUUID());
+        out.format("# AMPL file for application '%s' with id %s%n", app.getRawName(), app.getUUID());
         out.println();
 
         generateVariablesSection(app, kubevela, out);
