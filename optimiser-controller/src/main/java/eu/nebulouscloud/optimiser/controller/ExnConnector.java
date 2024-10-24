@@ -27,6 +27,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -46,6 +48,32 @@ public class ExnConnector {
 
     /** The Connector used to talk with ActiveMQ */
     private final Connector conn;
+
+    private Context context_ = null;
+    /**
+     * Safely obtain the connection Context object.  Since the {@link
+     * #context_} field is set asynchronously after the ExnConnector
+     * constructor has finished, there is a race condition where we might hit
+     * a null value if using the field directly.
+     */
+    public Context getContext() {
+        if (context_ == null) {
+            synchronized(this) {
+                while (context_ == null) {
+                    try {
+			wait();
+		    } catch (InterruptedException e) {
+                        log.error("Caught InterruptException while waiting for ActiveMQ connection Context; looping", e);
+		    }
+                }
+            }
+        }
+        return context_;
+    }
+
+    /** A counter to create unique names for SyncedPublisher instances. */
+    private AtomicInteger publisherNameCounter = new AtomicInteger(1);
+
     /** if non-null, signals after the connector is stopped */
     private CountDownLatch synchronizer = null;
 
@@ -101,37 +129,6 @@ public class ExnConnector {
     @Getter
     private final Publisher appStatusPublisher;
 
-    // ----------------------------------------
-    // Communication with SAL
-
-    /** The findNodeCandidates endpoint.  Should not be used during normal
-      * operation--ask the broker instead. */
-    public final SyncedPublisher findSalNodeCandidates;
-    /** The findNodeCandidates endpoint (Broker's version).  This one adds
-      * attributes "score", "rank" to the answer it gets from SAL. */
-    public final SyncedPublisher findBrokerNodeCandidates;
-    /** The findNodeCandidatesMultiple endpoint offered by the cloud-fog
-      * service broker.  Like findBrokerNodeCandidates but we send multiple
-      * requirement lists that the broker then aggregates into a unified
-      * ranked node candidate list. */
-    public final SyncedPublisher findBrokerNodeCandidatesMultiple;
-    /** The defineCluster endpoint. */
-    public final SyncedPublisher defineCluster;
-    /** The getCluster endpoint. */
-    public final SyncedPublisher getCluster;
-    /** The labelNodes endpoint. */
-    public final SyncedPublisher labelNodes;
-    /** The deployCluster endpoint. */
-    public final SyncedPublisher deployCluster;
-    /** The deployApplication endpoint. */
-    public final SyncedPublisher deployApplication;
-    /** The scaleOut endpoint. */
-    public final SyncedPublisher scaleOut;
-    /** The scaleIn endpoint. */
-    public final SyncedPublisher scaleIn;
-    /** The deleteCluster endpoint. */
-    public final SyncedPublisher deleteCluster;
-
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
      * initial publishers and consumers.
@@ -140,45 +137,31 @@ public class ExnConnector {
      * @param port the port of the ActiveMQ server (usually 5672)
      * @param name the login name to use
      * @param password the login password to use
-     * @param callback A ConnectorHandler object.  Its {@link
-     *  ConnectorHandler#onReady} method will be called after the {@link
-     *  Connector#start} method has connected and set up all handlers.
      */
-    public ExnConnector(String host, int port, String name, String password, ConnectorHandler callback) {
+    public ExnConnector(String host, int port, String name, String password) {
         amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
         metricListPublisher = new Publisher("controller_metric_list", metric_list_channel, true, true);
         appStatusPublisher = new Publisher("app_status", app_status_channel, true, true);
-        findSalNodeCandidates = new SyncedPublisher("findSalNodeCandidates", "eu.nebulouscloud.exn.sal.nodecandidate.get", true, true);
-        findBrokerNodeCandidates = new SyncedPublisher("findBrokerNodeCandidates", "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
-        findBrokerNodeCandidatesMultiple = new SyncedPublisher("findBrokerNodeCandidatesMultiple", "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true);
-        defineCluster = new SyncedPublisher("defineCluster", "eu.nebulouscloud.exn.sal.cluster.define", true, true);
-        getCluster = new SyncedPublisher("getCluster", "eu.nebulouscloud.exn.sal.cluster.get", true, true);
-        labelNodes = new SyncedPublisher("labelNodes", "eu.nebulouscloud.exn.sal.cluster.label", true, true);
-        deployCluster = new SyncedPublisher("deployCluster", "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
-        deployApplication = new SyncedPublisher("deployApplication", "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
-        scaleOut = new SyncedPublisher("scaleOut", "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
-        scaleIn = new SyncedPublisher("scaleIn", "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
-        deleteCluster = new SyncedPublisher("deleteCluster", "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
 
-        conn = new Connector("optimiser_controller",
-            callback,
+        conn = new Connector(
+            "optimiser_controller",
+            new ConnectorHandler() {
+                public void onReady(AtomicReference<Context> context) {
+                    synchronized(ExnConnector.this) {
+                        // Make sure no one tries to use a null context
+                        ExnConnector.this.context_ = context.get();
+                        ExnConnector.this.notifyAll();
+                        log.info("Optimiser-controller connected to ActiveMQ");
+                    }
+                }
+            },
             List.of(
-                // asynchronous topics for sending out controller status
+                // Asynchronous topics for sending out controller status.
+                // Synchronous publishers are created dynamically, not added
+                // here.
                 amplMessagePublisher,
                 metricListPublisher,
-                appStatusPublisher,
-                // synchronous communication with SAL via exn-middleware
-                findSalNodeCandidates,
-                findBrokerNodeCandidates,
-                findBrokerNodeCandidatesMultiple,
-                defineCluster,
-                getCluster,
-                labelNodes,
-                deployCluster,
-                deployApplication,
-                scaleOut,
-                scaleIn,
-                deleteCluster),
+                appStatusPublisher),
             List.of(
                 new Consumer("solver_status", solver_status_channel,
                     new SolverStatusMessageHandler(), true, true),
@@ -537,6 +520,7 @@ public class ExnConnector {
      *  first.
      */
     public List<NodeCandidate> findNodeCandidates(List<Requirement> requirements, String appID) {
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -547,15 +531,20 @@ public class ExnConnector {
                 e);
             return null;
         }
-        Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
-        // Note: we do not call extractPayloadFromExnResponse here, since this
-        // response does not come from the exn-middleware, so will not be
-        // packaged into a string.
-        ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
-        // Note: If the result is empty, the body will be an empty object
-        // instead of an empty array, so we use `JsonNode.OverwriteMode.ALL`
-        List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body", JsonNode.OverwriteMode.ALL, true), JsonNode[].class));
-        result.sort((JsonNode c1, JsonNode c2) -> {
+        SyncedPublisher findBrokerNodeCandidates = new SyncedPublisher(
+            "findBrokerNodeCandidates" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
+        try {
+            context.registerPublisher(findBrokerNodeCandidates);
+            Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
+            // Note: we do not call extractPayloadFromExnResponse here, since this
+            // response does not come from the exn-middleware, so will not be
+            // packaged into a string.
+            ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+            // Note: If the result is empty, the body will be an empty object
+            // instead of an empty array, so we use `JsonNode.OverwriteMode.ALL`
+            List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body", JsonNode.OverwriteMode.ALL, true), JsonNode[].class));
+            result.sort((JsonNode c1, JsonNode c2) -> {
                 long rank1 = c1.at("/rank").longValue();
                 long rank2 = c2.at("/rank").longValue();
                 double score1 = c1.at("/score").doubleValue();
@@ -574,12 +563,15 @@ public class ExnConnector {
                 else if (cpu1 != cpu2) return cpu1 - cpu2;
                 else return ram1 - ram2;
             });
-        return result.stream()
-            .map(candidate ->
-                mapper.convertValue(
-                    ((ObjectNode)candidate).deepCopy().remove(List.of("score", "rank")),
-                    NodeCandidate.class))
-            .collect(Collectors.toList());
+            return result.stream()
+                .map(candidate ->
+                    mapper.convertValue(
+                        ((ObjectNode)candidate).deepCopy().remove(List.of("score", "rank")),
+                        NodeCandidate.class))
+                .collect(Collectors.toList());
+        } finally {
+            context.unregisterPublisher(findBrokerNodeCandidates.key());
+        }
     }
 
     /**
@@ -602,6 +594,7 @@ public class ExnConnector {
         // This is an almost literal copy of `findNodeCandidates`; if there's
         // a third method with the same functionality I'll start thinking
         // about unifying them.
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -612,15 +605,20 @@ public class ExnConnector {
                 e);
             return null;
         }
-        Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
-        // Note: we do not call extractPayloadFromExnResponse here, since this
-        // response does not come from the exn-middleware, so will not be
-        // packaged into a string.
-        ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
-        // Note: If the result is empty, the body will be an empty object
-        // instead of an empty array, so we use `JsonNode.OverwriteMode.ALL`
-        List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body", JsonNode.OverwriteMode.ALL, true), JsonNode[].class));
-        result.sort((JsonNode c1, JsonNode c2) -> {
+        SyncedPublisher findBrokerNodeCandidatesMultiple = new SyncedPublisher(
+            "findBrokerNodeCandidatesMultiple" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true);
+        try {
+            context.registerPublisher(findBrokerNodeCandidatesMultiple);
+            Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
+            // Note: we do not call extractPayloadFromExnResponse here, since this
+            // response does not come from the exn-middleware, so will not be
+            // packaged into a string.
+            ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+            // Note: If the result is empty, the body will be an empty object
+            // instead of an empty array, so we use `JsonNode.OverwriteMode.ALL`
+            List<JsonNode> result = Arrays.asList(mapper.convertValue(jsonBody.withArray("/body", JsonNode.OverwriteMode.ALL, true), JsonNode[].class));
+            result.sort((JsonNode c1, JsonNode c2) -> {
                 long rank1 = c1.at("/rank").longValue();
                 long rank2 = c2.at("/rank").longValue();
                 double score1 = c1.at("/score").doubleValue();
@@ -639,31 +637,28 @@ public class ExnConnector {
                 else if (cpu1 != cpu2) return cpu1 - cpu2;
                 else return ram1 - ram2;
             });
-        return result.stream()
-            .map(candidate ->
-                mapper.convertValue(
-                    ((ObjectNode)candidate).deepCopy().remove(List.of("score", "rank")),
-                    NodeCandidate.class))
-            .collect(Collectors.toList());
+            return result.stream()
+                .map(candidate ->
+                    mapper.convertValue(
+                        ((ObjectNode)candidate).deepCopy().remove(List.of("score", "rank")),
+                        NodeCandidate.class))
+                .collect(Collectors.toList());
+        } finally {
+            context.unregisterPublisher(findBrokerNodeCandidatesMultiple.key());
+        }
     }
 
     /**
      * Get list of node candidates from the resource broker that fulfil the
-     * given requirements.
-     *
-     * <p>Note that we cannot convert the result to a list containing {@code
-     * org.ow2.proactive.sal.model.NodeCandidate} instances, since the broker
-     * adds the additional fields {@code score} and {@code ranking}.  Instead
-     * we return a JSON {@code ArrayNode} containing {@code ObjectNode}s in
-     * the format specified at
-     * https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/documentation/nodecandidates-endpoints.md#71--filter-node-candidates-endpoint
-     * but with these two additional attributes.
+     * given requirements.  We sort the list so that "smaller" candidates
+     * (fewer cores, memory) come first.
      *
      * @param requirements The list of requirements.
      * @param appID The application ID.
      * @return A list containing node candidates, or null in case of error.
      */
     public List<NodeCandidate> findNodeCandidatesFromSal(List<Requirement> requirements, String appID) {
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -674,13 +669,19 @@ public class ExnConnector {
                 e);
             return null;
         }
-        Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "findNodeCandidatesFromSal");
-        if (payload.isMissingNode()) return null;
-        if (!payload.isArray()) return null;
-        List<NodeCandidate> candidates = Arrays.asList(mapper.convertValue(payload, NodeCandidate[].class));
-        // We try to choose candidates with lower hardware requirements; sort by cores, ram
-        candidates.sort((NodeCandidate c1, NodeCandidate c2) -> {
+        SyncedPublisher findSalNodeCandidates = new SyncedPublisher(
+            "findSalNodeCandidates" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.nodecandidate.get",
+            true, true);
+        try {
+            context.registerPublisher(findSalNodeCandidates);
+	    Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "findNodeCandidatesFromSal");
+            if (payload.isMissingNode()) return null;
+            if (!payload.isArray()) return null;
+            List<NodeCandidate> candidates = Arrays.asList(mapper.convertValue(payload, NodeCandidate[].class));
+            // We try to choose candidates with lower hardware requirements; sort by cores, ram
+            candidates.sort((NodeCandidate c1, NodeCandidate c2) -> {
                 int cpu1 = c1.getHardware().getCores();
                 int cpu2 = c2.getHardware().getCores();
                 long ram1 = c1.getHardware().getRam();
@@ -688,7 +689,10 @@ public class ExnConnector {
                 if (cpu1 != cpu2) return cpu1 - cpu2;
                 else return Math.toIntExact(ram1 - ram2);
             });
-        return candidates;
+            return candidates;
+        } finally {
+            context.unregisterPublisher(findSalNodeCandidates.key());
+        }
     }
 
     /**
@@ -732,6 +736,7 @@ public class ExnConnector {
     public boolean defineCluster(String appID, String clusterName, ObjectNode cluster) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
         Main.logFile("define-cluster-" + appID + ".json", cluster.toPrettyString());
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin"),
@@ -741,9 +746,17 @@ public class ExnConnector {
                 e);
             return false;
         }
-        Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "defineCluster");
-        return payload.asBoolean();
+        SyncedPublisher defineCluster = new SyncedPublisher(
+            "defineCluster" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.define", true, true);
+        try {
+            context.registerPublisher(defineCluster);
+            Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "defineCluster");
+            return payload.asBoolean();
+        } finally {
+            context.unregisterPublisher(defineCluster.key());
+        }
     }
 
     /**
@@ -754,10 +767,19 @@ public class ExnConnector {
      * @return The cluster definition, or null in case of error.
      */
     public JsonNode getCluster(String appID, String clusterName) {
+        Context context = getContext();
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
-        Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "getCluster");
-        return payload.isMissingNode() ? null : payload;
+        SyncedPublisher getCluster = new SyncedPublisher(
+            "getCluster" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.get", true, true);
+        try {
+            context.registerPublisher(getCluster);
+	    Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "getCluster");
+            return payload.isMissingNode() ? null : payload;
+        } finally {
+            context.unregisterPublisher(getCluster.key());
+        }
     }
 
     /**
@@ -768,6 +790,7 @@ public class ExnConnector {
      * @param labels A map from node name to label.
      */
     public boolean labelNodes(String appID, String clusterID, JsonNode labels) {
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterID),
@@ -777,9 +800,17 @@ public class ExnConnector {
                 e);
             return false;
         }
-        Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "labelNodes");
-        return payload.isMissingNode() ? false : true;
+        SyncedPublisher labelNodes = new SyncedPublisher(
+            "labelNodes" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.label", true, true);
+        try {
+            context.registerPublisher(labelNodes);
+	    Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "labelNodes");
+            return payload.isMissingNode() ? false : true;
+        } finally {
+            context.unregisterPublisher(labelNodes.key());
+        }
     }
 
     /**
@@ -794,11 +825,20 @@ public class ExnConnector {
      */
     public boolean deployCluster(String appID, String clusterName) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        Context context = getContext();
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
-        Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "deployCluster");
-        return payload.asBoolean();
+        SyncedPublisher deployCluster = new SyncedPublisher(
+            "deployCluster" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
+        try {
+            context.registerPublisher(deployCluster);
+	    Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "deployCluster");
+            return payload.asBoolean();
+        } finally {
+            context.unregisterPublisher(deployCluster.key());
+        }
     }
 
     /**
@@ -820,6 +860,7 @@ public class ExnConnector {
             .put("flags", "");
         Main.logFile("deploy-application-" + appID + ".json", body.toPrettyString());
         Main.logFile("deploy-application-" + appID + ".yaml", kubevela);
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             String bodyStr = mapper.writeValueAsString(body);
@@ -829,9 +870,17 @@ public class ExnConnector {
             log.error("Could not convert JSON to string (this should never happen)", e);
             return -1;
         }
-        Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "deployApplication");
-        return payload.asLong();
+        SyncedPublisher deployApplication = new SyncedPublisher(
+            "deployApplication" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
+        try {
+            context.registerPublisher(deployApplication);
+            Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "deployApplication");
+            return payload.asLong();
+        } finally {
+            context.unregisterPublisher(deployApplication.key());
+        }
     }
 
     /**
@@ -845,6 +894,7 @@ public class ExnConnector {
      * @param nodesToAdd The additional nodes to add.
      */
     public void scaleOut(String appID, String clusterName, ArrayNode nodesToAdd) {
+        Context context = getContext();
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin",
@@ -854,12 +904,20 @@ public class ExnConnector {
             log.error("Could not convert JSON to string (this should never happen)", e);
             return;
         }
-        Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
-        // Called for side-effect only; we want to log errors.  The return
-        // value from scaleOut is the same as getCluster, but since we have to
-        // poll for cluster status anyway to make sure the new machines are
-        // running, we do not return it here.
-        JsonNode payload = extractPayloadFromExnResponse(response, "scaleOut");
+        SyncedPublisher scaleOut = new SyncedPublisher(
+            "scaleOut" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
+        try {
+            context.registerPublisher(scaleOut);
+            Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
+            // Called for side-effect only; we want to log errors.  The return
+            // value from scaleOut is the same as getCluster, but since we have to
+            // poll for cluster status anyway to make sure the new machines are
+            // running, we do not return it here.
+            JsonNode payload = extractPayloadFromExnResponse(response, "scaleOut");
+        } finally {
+            context.unregisterPublisher(scaleOut.key());
+        }
     }
 
     /**
@@ -872,6 +930,7 @@ public class ExnConnector {
      */
     public boolean scaleIn(String appID, String clusterName, List<String> superfluousNodes) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        Context context = getContext();
         ArrayNode body = mapper.createArrayNode();
         superfluousNodes.forEach(nodeName -> body.add(nodeName));
         Map<String, Object> msg;
@@ -882,9 +941,17 @@ public class ExnConnector {
             log.error("Could not convert JSON to string (this should never happen)", e);
             return false;
         }
-        Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "scaleIn");
-        return payload.asBoolean();
+        SyncedPublisher scaleIn = new SyncedPublisher(
+            "scaleIn" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
+        try {
+            context.registerPublisher(scaleIn);
+            Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "scaleIn");
+            return payload.asBoolean();
+        } finally {
+            context.unregisterPublisher(scaleIn.key());
+        }
     }
 
     /**
@@ -896,11 +963,20 @@ public class ExnConnector {
      */
     public boolean deleteCluster(String appID, String clusterName) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
+        Context context = getContext();
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
-        Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
-        JsonNode payload = extractPayloadFromExnResponse(response, "deleteCluster");
-        return payload.asBoolean();
+        SyncedPublisher deleteCluster = new SyncedPublisher(
+            "deleteCluster" + publisherNameCounter.incrementAndGet(),
+            "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
+        try {
+            context.registerPublisher(deleteCluster);
+            Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
+            JsonNode payload = extractPayloadFromExnResponse(response, "deleteCluster");
+            return payload.asBoolean();
+        } finally {
+            context.unregisterPublisher(deleteCluster.key());
+        }
     }
 
     // ----------------------------------------

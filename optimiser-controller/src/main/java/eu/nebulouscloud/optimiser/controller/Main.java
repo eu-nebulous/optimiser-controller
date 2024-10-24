@@ -168,12 +168,7 @@ public class Main implements Callable<Integer> {
                 activemq_host, activemq_port);
             activeMQConnector
               = new ExnConnector(activemq_host, activemq_port,
-                  activemq_user, activemq_password,
-                  new ConnectorHandler() {
-                    public void onReady(AtomicReference<Context> context) {
-                      log.info("Optimiser-controller connected to ActiveMQ");
-                    }
-                  });
+                  activemq_user, activemq_password);
         } else {
             log.debug("ActiveMQ login info not set, only operating locally.");
         }
