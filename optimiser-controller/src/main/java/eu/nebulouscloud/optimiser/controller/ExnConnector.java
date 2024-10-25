@@ -58,15 +58,15 @@ public class ExnConnector {
      */
     public Context getContext() {
         if (context_ == null) {
-            synchronized(this) {
-                while (context_ == null) {
-                    try {
-			wait();
-		    } catch (InterruptedException e) {
-                        log.error("Caught InterruptException while waiting for ActiveMQ connection Context; looping", e);
-		    }
-                }
-            }
+            // synchronized(this) {
+            //     while (context_ == null) {
+            //         try {
+	    //     	wait();
+	    //         } catch (InterruptedException e) {
+            //             log.error("Caught InterruptException while waiting for ActiveMQ connection Context; looping", e);
+	    //         }
+            //     }
+            // }
         }
         return context_;
     }
@@ -147,12 +147,11 @@ public class ExnConnector {
             "optimiser_controller",
             new ConnectorHandler() {
                 public void onReady(AtomicReference<Context> context) {
-                    synchronized(ExnConnector.this) {
-                        // Make sure no one tries to use a null context
-                        ExnConnector.this.context_ = context.get();
-                        ExnConnector.this.notifyAll();
-                        log.info("Optimiser-controller connected to ActiveMQ");
-                    }
+                    ExnConnector.this.context_ = context.get();
+                    // synchronized(ExnConnector.this) {
+                    //     ExnConnector.this.notifyAll();
+                    // }
+                    log.info("Optimiser-controller connected to ActiveMQ, got connection context {}", context);
                 }
             },
             List.of(
@@ -520,7 +519,7 @@ public class ExnConnector {
      *  first.
      */
     public List<NodeCandidate> findNodeCandidates(List<Requirement> requirements, String appID) {
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return List.of(); }
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -594,7 +593,7 @@ public class ExnConnector {
         // This is an almost literal copy of `findNodeCandidates`; if there's
         // a third method with the same functionality I'll start thinking
         // about unifying them.
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return List.of(); }
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -658,7 +657,7 @@ public class ExnConnector {
      * @return A list containing node candidates, or null in case of error.
      */
     public List<NodeCandidate> findNodeCandidatesFromSal(List<Requirement> requirements, String appID) {
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return List.of(); }
         Map<String, Object> msg;
         try {
             msg = Map.of(
@@ -736,7 +735,7 @@ public class ExnConnector {
     public boolean defineCluster(String appID, String clusterName, ObjectNode cluster) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
         Main.logFile("define-cluster-" + appID + ".json", cluster.toPrettyString());
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin"),
@@ -767,7 +766,7 @@ public class ExnConnector {
      * @return The cluster definition, or null in case of error.
      */
     public JsonNode getCluster(String appID, String clusterName) {
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return null; }
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher getCluster = new SyncedPublisher(
             "getCluster" + publisherNameCounter.incrementAndGet(),
@@ -790,7 +789,7 @@ public class ExnConnector {
      * @param labels A map from node name to label.
      */
     public boolean labelNodes(String appID, String clusterID, JsonNode labels) {
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterID),
@@ -825,7 +824,7 @@ public class ExnConnector {
      */
     public boolean deployCluster(String appID, String clusterName) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher deployCluster = new SyncedPublisher(
@@ -860,7 +859,7 @@ public class ExnConnector {
             .put("flags", "");
         Main.logFile("deploy-application-" + appID + ".json", body.toPrettyString());
         Main.logFile("deploy-application-" + appID + ".yaml", kubevela);
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return -1; }
         Map<String, Object> msg;
         try {
             String bodyStr = mapper.writeValueAsString(body);
@@ -894,7 +893,7 @@ public class ExnConnector {
      * @param nodesToAdd The additional nodes to add.
      */
     public void scaleOut(String appID, String clusterName, ArrayNode nodesToAdd) {
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return; }
         Map<String, Object> msg;
         try {
             msg = Map.of("metaData", Map.of("user", "admin",
@@ -930,7 +929,7 @@ public class ExnConnector {
      */
     public boolean scaleIn(String appID, String clusterName, List<String> superfluousNodes) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         ArrayNode body = mapper.createArrayNode();
         superfluousNodes.forEach(nodeName -> body.add(nodeName));
         Map<String, Object> msg;
@@ -963,7 +962,7 @@ public class ExnConnector {
      */
     public boolean deleteCluster(String appID, String clusterName) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
-        Context context = getContext();
+        Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         Map<String, Object> msg = Map.of("metaData",
             Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher deleteCluster = new SyncedPublisher(
