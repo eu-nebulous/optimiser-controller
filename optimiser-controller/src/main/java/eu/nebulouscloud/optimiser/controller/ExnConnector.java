@@ -58,15 +58,15 @@ public class ExnConnector {
      */
     public Context getContext() {
         if (context_ == null) {
-            // synchronized(this) {
-            //     while (context_ == null) {
-            //         try {
-	    //     	wait();
-	    //         } catch (InterruptedException e) {
-            //             log.error("Caught InterruptException while waiting for ActiveMQ connection Context; looping", e);
-	    //         }
-            //     }
-            // }
+            synchronized(this) {
+                while (context_ == null) {
+                    try {
+	        	wait();
+	            } catch (InterruptedException e) {
+                        log.error("Caught InterruptException while waiting for ActiveMQ connection Context; looping", e);
+	            }
+                }
+            }
         }
         return context_;
     }
@@ -146,11 +146,11 @@ public class ExnConnector {
         conn = new Connector(
             "optimiser_controller",
             new ConnectorHandler() {
-                public void onReady(AtomicReference<Context> context) {
-                    ExnConnector.this.context_ = context.get();
-                    // synchronized(ExnConnector.this) {
-                    //     ExnConnector.this.notifyAll();
-                    // }
+                public void onReady(Context context) {
+                    ExnConnector.this.context_ = context;
+                    synchronized(ExnConnector.this) {
+                        ExnConnector.this.notifyAll();
+                    }
                     log.info("Optimiser-controller connected to ActiveMQ, got connection context {}", context);
                 }
             },
