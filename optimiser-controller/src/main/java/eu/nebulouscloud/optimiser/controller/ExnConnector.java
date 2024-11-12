@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -759,13 +758,29 @@ public class ExnConnector {
     }
 
     /**
-     * Get the definition of a cluster created by {@link #defineCluster}.
+     * Get the definition of a cluster created by {@link #defineCluster}.<p>
+     *
+     * NOTE: the {@code env-var-script} key returned by SAL contains
+     * potentially sensitive information, and is removed by this method.
      *
      * @param appID The application ID.
      * @param clusterName The cluster name, as given in {@link defineCluster}.
      * @return The cluster definition, or null in case of error.
      */
     public JsonNode getCluster(String appID, String clusterName) {
+        return getCluster(appID, clusterName, true);
+    }
+
+    /**
+     * Get the definition of a cluster created by {@link #defineCluster}.<p>
+     *
+     * @param appID The application ID.
+     * @param clusterName The cluster name, as given in {@link defineCluster}.
+     * @param removeEnvVars true if the {@code env-var-script} key should be
+     *  removed.  This is strongly recommended for security reasons.
+     * @return The cluster definition, or null in case of error.
+     */
+    public JsonNode getCluster(String appID, String clusterName, boolean removeEnvVars) {
         Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return null; }
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher getCluster = new SyncedPublisher(
@@ -775,6 +790,9 @@ public class ExnConnector {
             context.registerPublisher(getCluster);
 	    Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
             JsonNode payload = extractPayloadFromExnResponse(response, "getCluster");
+            if (removeEnvVars && payload.isObject()) {
+                ((ObjectNode)payload).remove("env-var-script");
+            }
             return payload.isMissingNode() ? null : payload;
         } finally {
             context.unregisterPublisher(getCluster.key());
