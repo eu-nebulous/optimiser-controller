@@ -312,6 +312,7 @@ public class NebulousAppDeployer {
                 return false;
             } else {
                 if (!status.equals("submited" /* [sic] */)
+                    && !status.equals("submitted" /* SAL fixed the spelling at some point */)
                     && !status.equals("scaling")) {
                     // Better paranoid than sorry
                     log.warn("Unknown 'status' value in getCluster result: {}", status);
