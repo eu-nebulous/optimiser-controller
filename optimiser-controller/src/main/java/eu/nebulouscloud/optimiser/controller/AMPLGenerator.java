@@ -235,7 +235,6 @@ public class AMPLGenerator {
         out.println("# Variables");
         for (final JsonNode p : app.getKubevelaVariables().values()) {
             ObjectNode param = (ObjectNode) p;
-            List<String> integerMeanings = List.of("cpu", "memory", "replicas");
             String paramName = param.get("key").textValue();
             String paramPath = param.get("path").textValue();
             String paramType = param.get("type").textValue();
@@ -244,7 +243,8 @@ public class AMPLGenerator {
             // Even if these variables are sent over as "float", we know they
             // have to be treated as integers for kubevela (replicas, memory)
             // or SAL (cpu).  I.e., paramMeaning overrides paramType.
-            boolean shouldBeInt = paramType.equals("int") || integerMeanings.contains(paramMeaning);
+            boolean shouldBeInt = paramType.equals("int")
+                                  || KubevelaAnalyzer.isKubevelaInteger(paramMeaning);
             ObjectNode value = (ObjectNode)param.get("value");
             if (paramType.equals("int") || paramType.equals("float")) {
                 out.format("var %s", paramName);

@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Collectors;
@@ -242,6 +241,15 @@ public class KubevelaAnalyzer {
             // no spec given
             return -1;
         }
+    }
+
+    /**
+     * Check if the number should be an integer.  CPU, memory, replica count
+     * should be integers.
+     */
+    public static boolean isKubevelaInteger(String meaning) {
+        List<String> integerMeanings = List.of("cpu", "memory", "replicas");
+        return integerMeanings.contains(meaning);
     }
 
     /**
