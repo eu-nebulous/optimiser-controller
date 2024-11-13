@@ -82,7 +82,12 @@ public class LocalExecution implements Callable<Integer> {
                 }
             } else {
                 log.info("No deploy requested, printing AMPL and performance metric list");
-                String ampl = AMPLGenerator.generateAMPL(app, app.getOriginalKubevela());
+                JsonNode solverMessage = app.calculateAMPLMessage();
+                String ampl = solverMessage.at("/ModelFileContent").asText();
+                System.out.println("--------------------");
+                System.out.println("Message");
+                System.out.println("--------------------");
+                System.out.println(solverMessage.toPrettyString());
                 System.out.println("--------------------");
                 System.out.println("AMPL");
                 System.out.println("--------------------");

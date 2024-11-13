@@ -403,7 +403,7 @@ public class ExnConnector {
                 } else {
                     // This should be very quick, no need to start a thread
                     MDC.put("clusterName", app.getClusterName());
-                    app.sendAMPL();
+                    app.sendAMPL(app.calculateAMPLMessage());
                     app.sendMetricList(); // re-send for solver
                 }
             } finally {
