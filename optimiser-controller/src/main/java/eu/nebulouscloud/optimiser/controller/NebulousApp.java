@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
+import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import lombok.Getter;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
@@ -576,9 +577,9 @@ public class NebulousApp {
     }
 
     /**
-     * Calculate AMPL file and send it off to the solver.
+     * Calculate the AMPL message to send to the solver.
      */
-    public void sendAMPL() {
+    public JsonNode calculateAMPLMessage() {
         String ampl_model = AMPLGenerator.generateAMPL(this,
             this.deployedKubevela == null ? this.originalKubevela : this.deployedKubevela);
         String ampl_data = relevantPerformanceIndicators.at("/initialDataFile").textValue();
@@ -606,18 +607,36 @@ public class NebulousApp {
             // function body is a single variable defined in the "Variables"
             // section and pointing to KubeVela, and the
             // `functionExpressionVariables` array contains one entry.
-            JsonNode variable = function.withArray("/expression/variables").get(0);
-            String variableName = variable.get("value").asText();
+            JsonNode functionVariable = function.withArray("/expression/variables").get(0);
+            String variableName = functionVariable.get("value").asText();
+            JsonNode variable = this.getKubevelaVariables().getOrDefault(variableName, jsonMapper.missingNode());
             JsonPointer path = kubevelaVariablePaths.get(variableName);
             JsonNode value = originalKubevela.at(path);
             ObjectNode constant = constants.withObject(function.get("name").asText());
             constant.put("Variable", variableName);
-            constant.set("Value", value);
+            String meaning = variable.at("/meaning").asText("unknown");
+            if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
+                // Given the right meaning, the method handles converting "8Gi" to 8192
+                constant.put("Value", KubevelaAnalyzer.kubevelaNumberToLong(value, meaning));
+            } else {
+                constant.set("Value", value);
+            }
         }
+        return msg;
+    }
+
+    /**
+     * Calculate AMPL file and send it off to the solver.
+     *
+     * @param solverMessage The JSON message to the solver, as produced by
+     *  {@link #calculateAMPLMessage()}.
+     */
+    public void sendAMPL(JsonNode solverMessage) {
         log.info("Sending AMPL files to solver");
-        exnConnector.getAmplMessagePublisher().send(jsonMapper.convertValue(msg, Map.class), getUUID(), true);
-        Main.logFile("to-solver-" + getUUID() + ".json", msg.toPrettyString());
-        Main.logFile("to-solver-" + getUUID() + ".ampl", ampl_model);
+        exnConnector.getAmplMessagePublisher().send(jsonMapper.convertValue(solverMessage, Map.class), getUUID(), true);
+        Main.logFile("to-solver-" + getUUID() + ".json", solverMessage.toPrettyString());
+        Main.logFile("to-solver-" + getUUID() + ".ampl",
+            solverMessage.at("/ModelFileContent").asText());
     }
 
     /**
