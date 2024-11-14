@@ -1023,4 +1023,24 @@ public class ExnConnector {
         appStatusPublisher.send(msg, appID);
     }
 
+    /**
+     * Broadcasts an application's state, with an auxiliary data value
+     * attached.<p>
+     *
+     * Messages are in the same form as sent by {@link #sendAppStatus(String,
+     * NebulousApp.State)} but with an additional {@code key: value} entry in
+     * the status message.
+     *
+     * @param appID the application id.
+     * @param state the state of the application.
+     * @param key the key of an additional entry in the status message
+     * @param value the value of an additional entry in the status message
+     */
+    public void sendAppStatus(String appID, NebulousApp.State state, String key, JsonNode value) {
+        Map<String, Object> msg = Map.of(
+            "state", state.toString(),
+            key, mapper.convertValue(value, Map.class));
+        appStatusPublisher.send(msg, appID);
+    }
+
 }
