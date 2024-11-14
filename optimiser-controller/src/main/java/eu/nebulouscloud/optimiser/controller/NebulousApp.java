@@ -389,6 +389,24 @@ public class NebulousApp {
         }
     }
 
+    /**
+     * If app is in the DEPLOYING state, sends a DEPLOYING state message, with
+     * the cluster status as reported by SAL.  Otherwise does nothing.
+     *
+     * @param clusterStatus a JSON node with the cluster status returned by
+     *  the getCluster endpoint.
+     * @return true if status message sent, false otherwise.
+     */
+    @Synchronized
+    public boolean sendDeploymentStatus(JsonNode clusterState) {
+        if (state == State.DEPLOYING) {
+            exnConnector.sendAppStatus(UUID, state, "clusterState", clusterState);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
       * @return false if not in state deploying, otherwise true. */
     @Synchronized

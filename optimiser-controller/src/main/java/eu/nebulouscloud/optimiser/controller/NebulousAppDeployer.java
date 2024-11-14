@@ -290,7 +290,9 @@ public class NebulousAppDeployer {
      * @param appID The application id.
      * @param clusterName The name of the cluster to poll.
      */
-    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, String appID, String clusterName) {
+    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, NebulousApp app) {
+        String appID = app.getUUID();
+        String clusterName = app.getClusterName();
         final int pollInterval = 10000; // Check status every 10s
         int callsSincePrinting = 0; // number of intervals since we last logged what we're doing
         int failedCalls = 0;
@@ -310,6 +312,7 @@ public class NebulousAppDeployer {
             if (clusterState != null) {
                 JsonNode jsonState = clusterState.at("/status");
                 status = jsonState.isMissingNode() ? null : jsonState.asText();
+                app.sendDeploymentStatus(clusterState);
             } else {
                 status = null;
             }
@@ -611,7 +614,7 @@ public class NebulousAppDeployer {
             return;
         }
 
-        if (!waitForClusterDeploymentFinished(conn, appUUID, clusterName)) {
+        if (!waitForClusterDeploymentFinished(conn, app)) {
             log.error("Error while waiting for deployCluster to finish, trying to delete cluster {} and aborting deployment",
                 cluster);
             app.setStateFailed();
@@ -844,7 +847,9 @@ public class NebulousAppDeployer {
                 log.info("Starting scaleout: {}", nodesToAdd);
                 Main.logFile("redeploy-scaleout-" + appUUID + ".json", nodesToAdd.toPrettyString());
                 conn.scaleOut(appUUID, clusterName, nodesToAdd);
-                waitForClusterDeploymentFinished(conn, appUUID, clusterName);
+                // TODO: check for error and set app state failed?  (See the
+                // other call to waitForClusterDeploymentFinished)
+                waitForClusterDeploymentFinished(conn, app);
             } else {
                 log.info("No nodes added, skipping scaleout");
             }
