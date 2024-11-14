@@ -64,6 +64,13 @@ public class NebulousApps {
     }
 
     /**
+     * Remove all application objects.
+     */
+    public static synchronized void clear() {
+        apps.clear();
+    }
+
+    /**
      * Return all currently registered apps.
      *
      * @return a collection of all apps
