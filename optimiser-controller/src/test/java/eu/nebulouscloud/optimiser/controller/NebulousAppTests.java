@@ -63,9 +63,12 @@ public class NebulousAppTests {
 
     @Test
     void readMultipleAppCreationMessages() throws IOException, URISyntaxException {
+        NebulousApps.clear();   // We are not restarted between tests, so app
+                                // objects can accumulate; reset state
         NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
         NebulousApp app2 = appFromTestFile("app-message-2.json");
-        assertTrue(NebulousApps.values().size() == 2);
+        assertTrue(NebulousApps.values().size() == 2,
+            "Expected 2 app objects but got " + NebulousApps.values().size());
     }
 
     @Test
@@ -147,6 +150,14 @@ public class NebulousAppTests {
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/1")), NebulousAppDeployer.ComponentLocationType.CLOUD_ONLY); // explicitly specified CLOUD
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/2")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // explicity specified ANY
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/3")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // default unspecified
+    }
+
+    @Test
+    void bug42() throws IOException, URISyntaxException {
+        // https://github.com/eu-nebulous/optimiser-controller/issues/42
+        NebulousApp app = appFromTestFile("bug-42-app-creation-message.json");
+        JsonNode solverMessage = app.calculateAMPLMessage();
+        assertEquals(solverMessage.at("/Constants/deployed_memory/Value").asLong(),  8192L);
     }
 
 }
