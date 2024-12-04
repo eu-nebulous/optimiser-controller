@@ -46,7 +46,7 @@ dependencies {
     implementation 'info.picocli:picocli:4.7.6'
 
     // SAL client library
-    implementation('org.ow2.proactive:sal-common:13.1.0-SNAPSHOT') {
+    implementation('org.ow2.proactive:sal-common:14.1.0-SNAPSHOT') {
         changing = true
     }
 
