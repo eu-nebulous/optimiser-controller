@@ -46,7 +46,9 @@ dependencies {
     implementation 'info.picocli:picocli:4.7.6'
 
     // SAL client library
-    implementation 'org.ow2.proactive:sal-common:13.1.0-SNAPSHOT'
+    implementation('org.ow2.proactive:sal-common:13.1.0-SNAPSHOT') {
+        changing = true
+    }
 
     // Logging: SLF4J (implemented by Logback)
     implementation 'ch.qos.logback:logback-classic:1.5.6'
@@ -55,8 +57,9 @@ dependencies {
 
     // the EXN Middleware:
     // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/asynchronous-messaging-specification
-    implementation ('eu.nebulouscloud:exn-connector-java:1.0-SNAPSHOT') {
+    implementation('eu.nebulouscloud:exn-connector-java:1.0-SNAPSHOT') {
         exclude group: 'org.slf4j', module: 'slf4j-simple'
+        changing = true
     }
 
     // Analysing KubeVela
