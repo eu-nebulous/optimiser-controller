@@ -196,14 +196,15 @@ public class KubevelaAnalyzer {
     /**
      * Add the following requirements:
      * <ul>
-     * <li> 2GB of RAM (until we know more about the size / cpu requirements
-     * of the nebulous runtime.)
+     * <li> 2GB of RAM
+     * <li> 2 cores
      * </ul>
      *
      * @param reqs The list of requirements to add to.
      */
     public static void addNebulousRequirements(List<Requirement> reqs) {
         reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
+        reqs.add(new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "2"));
     }
 
     /**
