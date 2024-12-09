@@ -218,6 +218,7 @@ public class KubevelaAnalyzer {
                 RequirementOperator.EQ, loc));
         }
         reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
+        reqs.add(new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "2"));
     }
 
     /**
