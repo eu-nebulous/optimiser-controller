@@ -200,11 +200,11 @@ public class KubevelaAnalyzer {
      *
      * We currently add the following requirements:
      * <ul>
-     * <li> 2GB of RAM (until we know more about the size / cpu requirements
-     * of the nebulous runtime.)
+     * <li> 2GB of RAM
+     * <li> 2 cores
      * <li> The geolocation of the component -- this uses an {@link
-     * AttributeRequirement} that SAL doesn't know about; the CFSB is expected
-     * to filter this out before sending the requirements to SAL.
+     *   AttributeRequirement} that SAL doesn't know about; the CFSB is
+     *   expected to filter this out before sending the requirements to SAL.
      * </ul>
      *
      * @param component The nebulous component in question.
