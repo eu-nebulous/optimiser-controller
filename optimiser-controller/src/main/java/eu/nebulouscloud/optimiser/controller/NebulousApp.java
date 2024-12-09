@@ -160,7 +160,7 @@ public class NebulousApp {
      * The clouds to be used.  These are given in the `resources` section of
      * the app message; we collect all cloud IDs where `enabled:true` holds,
      * each mapped to the regions specified for that cloud, or an empty set if
-     * no regions specified..
+     * no regions specified.
      */
     @Getter private Map<String, Set<String>> clouds;
 
@@ -316,6 +316,7 @@ public class NebulousApp {
                 (c) -> c.at("/uuid").asText(),
                 (c) -> Arrays.stream(c.at("/regions").asText().split(","))
                     .filter(regionName -> !regionName.isBlank())
+                    .filter(regionName -> !regionName.equals("null")) // https://github.com/eu-nebulous/optimiser-controller/issues/56
                     .collect(Collectors.toSet())));
         if (clouds.isEmpty()) {
             log.error("No enabled clouds given in app creation message, setting app status to FAILED and aborting deployment.");
