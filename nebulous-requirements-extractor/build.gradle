@@ -16,7 +16,7 @@ plugins {
     // ./gradlew dependencyUpdates
     id "com.github.ben-manes.versions" version "0.51.0"
     // https://docs.freefair.io/gradle-plugins/8.4/reference/#_lombok
-    id "io.freefair.lombok" version "8.6"
+    id "io.freefair.lombok" version "8.11"
 }
 
 repositories {
@@ -25,7 +25,7 @@ repositories {
 
     // 7bulls, activeeon maven repositories for SAL
     maven {
-        url 'http://repository.activeeon.com/content/groups/proactive/'
+        url = 'http://repository.activeeon.com/content/groups/proactive/'
         allowInsecureProtocol = true
     }
 }
@@ -35,7 +35,7 @@ dependencies {
 
     // JSON parsing; exported to consumers
     // https://github.com/FasterXML/jackson
-    api 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+    api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 
     // SAL client library; exported to consumers
     api('org.ow2.proactive:sal-common:14.1.0-SNAPSHOT') {
@@ -43,9 +43,9 @@ dependencies {
     }
 
     // YAML parsing: https://github.com/FasterXML/jackson-dataformats-text
-    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2'
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2'
     // Logging (only the API; backends will be set up by the application)
-    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'org.slf4j:slf4j-api:2.0.16'
 
 }
 
