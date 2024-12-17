@@ -70,14 +70,23 @@ public class AMPLGenerator {
     }
 
     private static void generateConstraints(NebulousApp app, PrintWriter out) {
-        // We only care about SLOs defined over performance indicators
-        out.println("# Constraints. For constraints we don't have name from GUI, must be created");
+        out.println("# Constraints extracted from `/sloViolations`. For these we don't have name from GUI, must be created");
         int counter = 0;
         for (JsonNode slo : app.getEffectiveConstraints()) {
             out.format("subject to constraint_%d : ", counter);
             emitCondition(out, slo);
             out.println(";");
             counter = counter + 1;
+        }
+        out.println("# Constraints specified with `type: constraint` in `/utilityFunctions`");
+        for (JsonNode c : app.getSpecifiedConstraints()) {
+            String formula = replaceVariables(
+                c.at("/expression/formula").asText(),
+                c.withArray("/expression/variables"));
+            String operator = c.at("/expression/operator").asText();
+            if (operator.equals("==")) operator = "=";
+            out.format("subject to %s :%n	%s %s 0;%n",
+                c.at("/name").asText(), formula, operator);
         }
     }
 
@@ -111,8 +120,6 @@ public class AMPLGenerator {
     private static void generateUtilityFunctions(NebulousApp app, PrintWriter out) {
         out.println("# Utility functions");
         for (JsonNode f : app.getUtilityFunctions().values()) {
-            if (f.get("type").asText().equals("constant"))
-                continue;
             String formula = replaceVariables(
                 f.at("/expression/formula").asText(),
                 f.withArray("/expression/variables"));
