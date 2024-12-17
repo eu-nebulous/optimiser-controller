@@ -146,6 +146,11 @@ public class NebulousApp {
      * solver, so it should not be included in the AMPL file.
      */
     @Getter private Set<JsonNode> effectiveConstraints = new HashSet<>();
+    /**
+     * The constraints that are specified in the `utilityFunctions` array,
+     * with a `type` of `constraint`.
+     */
+    @Getter private Set<JsonNode> specifiedConstraints = new HashSet<>();
 
     // ----------------------------------------
     // Deployment stuff
@@ -251,7 +256,11 @@ public class NebulousApp {
             log.error("Cannot read parameters from app message, continuing without parameters");
         }
         for (JsonNode f : originalAppMessage.withArray(utility_function_path)) {
-            utilityFunctions.put(f.get("name").asText(), f);
+            if (f.at("/type").asText().equals("constraint")) {
+                specifiedConstraints.add(f);
+            } else {
+                utilityFunctions.put(f.at("/name").asText(), f);
+            }
         }
 
         // We need to know which metrics are raw, composite, and which ones
@@ -295,7 +304,7 @@ public class NebulousApp {
             // What's left is neither a raw nor composite metric.
             utilityFunctions.put(f.get("name").asText(), f);
         }
-        // In the current app message, constraints is not an array.  When this
+        // In the current app message, `constraints` is not an array.  When this
         // changes, wrap this for loop in another loop over the constraints
         // (Constraints are called sloViolations in the app message).
         for (String key : app_message.withObject(constraints_path).findValuesAsText("metricName")) {

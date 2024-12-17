@@ -48,10 +48,13 @@ public class NebulousAppTests {
     void readValidAppCreationMessage() throws URISyntaxException, IOException {
         NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
         NebulousApp app2 = appFromTestFile("app-creation-message-complex.json");
+        NebulousApp app3 = appFromTestFile("task-787/app-message-with-var-constraint.json");
         assertNotNull(app);
         assertNotNull(app2);
+        assertNotNull(app3);
         assertTrue(app.validatePaths());
         assertTrue(app2.validatePaths());
+        assertTrue(app3.validatePaths());
     }
 
     @Test
