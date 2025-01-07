@@ -261,13 +261,63 @@ public class NebulousAppDeployer {
      * @return a node name, unique if componentNames are "sufficiently unique"
      *  (see above).
      */
-    public static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
+    private static String createNodeName(String clusterName, String componentName, int deployGeneration, int nodeNumber) {
         String nodename = String.format("n%s-%s-%s-%s", clusterName, componentName, deployGeneration, nodeNumber);
         nodename = nodename.toLowerCase();
         nodename = nodename.replaceAll("[^a-z0-9-]", "-");
         return nodename;
     }
-    
+
+    /**
+     * Return all suitable node candidates for each component.  Note that
+     * candidate lists can be empty; this case needs to be handled by the
+     * caller.
+     *
+     * @param conn the connector to the CFSB.
+     * @param appUUID the app ID.
+     * @param clouds the cloud / region names for active clouds.
+     * @param components a map of component name to YAML component description.
+     * @param componentRequirements a map of component name to its
+     *  requirements (without geo-location).
+     * @return a map of component name to list of candidates.
+     */
+    private static Map<String, List<NodeCandidate>> findComponentNodeCandidates(
+        ExnConnector conn,
+        String appUUID,
+        Map<String, Set<String>> clouds,
+        Map<String, JsonNode> components,
+        Map<String, List<Requirement>> componentRequirements)
+    {
+        Map<String, List<NodeCandidate>> componentCandidates = new HashMap<>();
+        for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
+            String nodeName = e.getKey();
+            List<Requirement> requirements = e.getValue();
+            List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
+                requirementsWithLocations(requirements, appUUID, clouds,
+                    getComponentLocation(components.get(nodeName))),
+                appUUID);
+            componentCandidates.put(nodeName, candidates);
+        }
+        return componentCandidates;
+    }
+
+    /**
+     * Log a message for every component that has no node candidates, and
+     * return false if any component has no node candidates.
+     */
+    private static boolean checkComponentNodeCandidates(Map<String, List<NodeCandidate>> componentCandidates,
+        Map<String, List<Requirement>> componentRequirements)
+    {
+        boolean allGood = true;
+        for (Map.Entry<String, List<NodeCandidate>> e : componentCandidates.entrySet()) {
+            if (e.getValue().isEmpty()) {
+                log.error("Could not find node candidates for for node {}, requirements: {}", e.getKey(), componentRequirements.get(e.getKey()));
+                allGood = false;
+            }
+        }
+        return allGood;
+    }
+
     /**
      * Check if SAL knows about the cluster.  Note that the result of this
      * method does not depend on the status of the cluster, only whether it
@@ -321,7 +371,12 @@ public class NebulousAppDeployer {
         final int maxFailedCalls = 3; // number of retries if getCluster returns null
         while (true) {
             // Note: values for the "status" field come from SAL source:
-            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/887b19b1c1f991b517a3983133bd8857e7e9cc2b/sal-service/src/main/java/org/ow2/proactive/sal/service/service/ClusterService.java#L200
+            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/service/ClusterService.java
+            // Also see
+            // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-common/src/main/java/org/ow2/proactive/sal/model/Cluster.java
+            // for the definition of the JSON structure returned by
+            // getCluster, where the valid field values will be defined after
+            // some refactoring.
 
             try {
                 // Immediately sleep on first loop iteration, so SAL has a chance to catch up
@@ -461,29 +516,22 @@ public class NebulousAppDeployer {
         // ----------------------------------------
         // Find node candidates
         List<NodeCandidate> controllerCandidates = conn.findNodeCandidatesMultiple(
-            requirementsWithLocations(controllerRequirements, app.getUUID(),
+            requirementsWithLocations(controllerRequirements, appUUID,
                 app.getClouds(), ComponentLocationType.CLOUD_ONLY),
             appUUID);
         if (controllerCandidates.isEmpty()) {
-            log.error("Could not find node candidates for requirements: {}, aborting deployment",
+            log.error("Could not find node candidates for controller, requirements: {}",
                 controllerRequirements);
             app.setStateFailed();
+            log.error("Aborting deployment");
             return;
         }
-        Map<String, List<NodeCandidate>> componentCandidates = new HashMap<>();
-        for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
-            String nodeName = e.getKey();
-            List<Requirement> requirements = e.getValue();
-            List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
-                requirementsWithLocations(requirements, app.getUUID(), app.getClouds(),
-                    getComponentLocation(components.get(nodeName))),
-                appUUID);
-            if (candidates.isEmpty()) {
-                log.error("Could not find node candidates for for node {}, requirements: {}, aborting deployment", nodeName, requirements);
-                app.setStateFailed();
-                return;
-            }
-            componentCandidates.put(nodeName, candidates);
+
+        Map<String, List<NodeCandidate>> componentCandidates = findComponentNodeCandidates(conn, appUUID, app.getClouds(), components, componentRequirements);
+        if (!checkComponentNodeCandidates(componentCandidates, componentRequirements)) {
+            app.setStateFailed();
+            log.error("Aborting deployment");
+            return;
         }
 
         // ------------------------------------------------------------
@@ -682,7 +730,7 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // Update NebulousApp state
 
-        app.setStateDeploymentFinished(componentRequirements, nodeCounts, componentNodeNames, nodeEdgeCandidates, rewritten);
+        app.setStateDeploymentFinished(componentRequirements, nodeCounts, componentNodeNames, componentCandidates, nodeEdgeCandidates, rewritten);
         log.info("App deployment finished.");
     }
 
@@ -705,9 +753,6 @@ public class NebulousAppDeployer {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
-        Map<String, JsonNode> components = new HashMap<>();
-        updatedKubevela.withArray("/spec/components").forEach(
-            c -> components.put(c.at("/name").asText(), c));
 
         if (!clusterExists(conn, appUUID, clusterName)) {
             log.error("Cluster with ID {} does not exist according to SAL, aborting redeployment.",
@@ -721,42 +766,40 @@ public class NebulousAppDeployer {
             return;
         }
 
+        // Calculate the cluster's Kubevela here so we catch these (unlikely)
+        // errors as early as possible, before we start modifying cluster
+        // state etc.
+        String deploymentKubevela = "---\n# Did not manage to rewrite KubeVela for deployment";
+        try {
+            JsonNode rewritten = createDeploymentKubevela(updatedKubevela);;
+            deploymentKubevela = yamlMapper.writeValueAsString(rewritten);
+        } catch (IllegalStateException e) {
+            log.error("Failed to create deployment kubevela, aborting redeployment.", e);
+            return;
+        } catch (JsonProcessingException e) {
+            log.error("Failed to convert KubeVela to YAML; this should never happen; aborting redeployment.", e);
+            return;
+        }
+        Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", deploymentKubevela);
+
         log.info("Starting redeployment generation {}", app.getDeployGeneration());
+
         // The overall flow:
         //
         // 1. Extract node requirements and node counts from the updated
         //    KubeVela definition.
-        // 2. Calculate new (to be started) and superfluous (to be shutdown)
-        //    nodes by comparing against previous deployment.
-        // 3. Find node candidates for new nodes (from Step 2) according to
-        //    their requirements (from Step 1)
+        // 2. Find node candidates for all components.
+        // 3. Calculate new (to be started) and superfluous (to be shutdown)
+        //    nodes by, per component, comparing current number of nodes their
+        //    node candidates to results from Step 2.
         // 4. Call scaleOut endpoint with list of added nodes
         // 5. Call labelNodes for added nodes, to-be-removed nodes
         // 6. Call deployApplication
         // 7. call scaleIn endpoint with list of removed node names
+        Map<String, JsonNode> components = new HashMap<>();
+        updatedKubevela.withArray("/spec/components").forEach(
+            c -> components.put(c.at("/name").asText(), c));
 
-        // ------------------------------------------------------------
-        // Rewrite KubeVela
-        JsonNode rewritten;
-        try {
-            rewritten = createDeploymentKubevela(updatedKubevela);
-        } catch (IllegalStateException e) {
-            log.error("Failed to create deployment kubevela", e);
-            app.setStateFailed();
-            return;
-        }
-        String rewritten_kubevela = "---\n# Did not manage to create rewritten KubeVela";
-        try {
-            rewritten_kubevela = yamlMapper.writeValueAsString(rewritten);
-        } catch (JsonProcessingException e) {
-            log.error("Failed to convert KubeVela to YAML; this should never happen", e);
-            app.setStateFailed();
-            return;
-        }
-        Main.logFile("rewritten-kubevela-" + appUUID + ".yaml", rewritten_kubevela);
-
-        // ------------------------------------------------------------
-        // 1. Extract node requirements
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(updatedKubevela);
         Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(updatedKubevela);
 
@@ -769,15 +812,24 @@ public class NebulousAppDeployer {
         List<String> nodesToRemove = new ArrayList<>();
         ArrayNode nodesToAdd = mapper.createArrayNode();
 
+        Map<String, List<NodeCandidate>> componentCandidates = findComponentNodeCandidates(conn, appUUID,
+            app.getClouds(), components, componentRequirements);
+        if (!checkComponentNodeCandidates(componentCandidates, componentRequirements)) {
+            log.error("Aborting redeployment");
+            return;
+        }
+
         // We know that the component names are identical and that the maps
         // contain all keys, so it's safe to iterate through the keys of one
         // map and use it in all maps.
-        for (String componentName : componentRequirements.keySet()) {
+        for (String componentName : components.keySet()) {
             // The variable `allMachineNames` shall, at the end of the loop
             // body, contain the machine names for this component.
             Set<String> allMachineNames;
             List<Requirement> oldR = oldComponentRequirements.get(componentName);
             List<Requirement> newR = componentRequirements.get(componentName);
+            List<NodeCandidate> candidates = componentCandidates.get(componentName);
+
             if (oldR.containsAll(newR) && newR.containsAll(oldR)) {
                 // Requirements did not change
                 int oldCount = oldComponentReplicaCounts.get(componentName);
@@ -786,14 +838,6 @@ public class NebulousAppDeployer {
                     int nAdd = newCount - oldCount;
                     allMachineNames = componentNodeNames.get(componentName);
                     log.info("Node requirements unchanged but need to add {} nodes to component {}", nAdd, componentName);
-                    List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
-                        requirementsWithLocations(newR, app.getUUID(), app.getClouds(),
-                            getComponentLocation(components.get(componentName))),
-                        appUUID);
-                    if (candidates.isEmpty()) {
-                        log.error("Could not find node candidates for requirements: {}", newR);
-                        continue;
-                    }
                     for (int nodeNumber = 1; nodeNumber <= nAdd; nodeNumber++) {
                         String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                         NodeCandidate candidate = candidates.stream()
@@ -801,7 +845,7 @@ public class NebulousAppDeployer {
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
-                            log.error("No available node candidate for node {} of component {}", nodeNumber, componentName);
+                            log.error("No available node candidate for node {} of component {} (out of edge nodes?)", nodeNumber, componentName);
                             continue;
                         }
                         if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
@@ -842,14 +886,6 @@ public class NebulousAppDeployer {
                 nodesToRemove.addAll(componentNodeNames.get(componentName));
                 allMachineNames = new HashSet<>();
                 log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
-                List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
-                    requirementsWithLocations(newR, app.getUUID(), app.getClouds(),
-                        getComponentLocation(components.get(componentName))),
-                    appUUID);
-                if (candidates.size() == 0) {
-                    log.error("Empty node candidate list for component {}, continuing without creating node", componentName);
-                    continue;
-                }
                 for (int nodeNumber = 1; nodeNumber <= componentReplicaCounts.get(componentName); nodeNumber++) {
                     String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                     NodeCandidate candidate = candidates.stream()
@@ -857,7 +893,7 @@ public class NebulousAppDeployer {
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
-                        log.error("No available node candidate for node {} of component {}", nodeNumber, componentName);
+                        log.error("No available node candidate for node {} of component {} (out of edge nodes?)", nodeNumber, componentName);
                         continue;
                     }
                     if (Set.of(NodeCandidateTypeEnum.BYON, NodeCandidateTypeEnum.EDGE).contains(candidate.getNodeCandidateType())) {
@@ -892,8 +928,8 @@ public class NebulousAppDeployer {
             Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
             conn.labelNodes(appUUID, clusterName, nodeLabels);
 
-            log.info("Redeploying application: {}", rewritten_kubevela);
-            conn.deployApplication(appUUID, clusterName, app.getName(), rewritten_kubevela);
+            log.info("Redeploying application: {}", deploymentKubevela);
+            conn.deployApplication(appUUID, clusterName, app.getName(), deploymentKubevela);
 
             if (!nodesToRemove.isEmpty()) {
                 Main.logFile("redeploy-scalein-" + appUUID + ".json", nodesToRemove);
@@ -907,7 +943,7 @@ public class NebulousAppDeployer {
         }
 
         app.setStateDeploymentFinished(componentRequirements, componentReplicaCounts,
-            componentNodeNames, nodeEdgeCandidates, updatedKubevela);
+            componentNodeNames, componentCandidates, nodeEdgeCandidates, updatedKubevela);
         log.info("Redeployment finished");
     }
 

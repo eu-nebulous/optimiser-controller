@@ -162,10 +162,11 @@ public class NebulousApp {
     private ObjectNode originalKubevela;
 
     /**
-     * The clouds to be used.  These are given in the `resources` section of
-     * the app message; we collect all cloud IDs where `enabled:true` holds,
-     * each mapped to the regions specified for that cloud, or an empty set if
-     * no regions specified.
+     * A map from cloud name to its regions, for all clouds where components
+     * of this application can be deployed. This information comes from the
+     * `resources` section of the app message; we collect all cloud IDs where
+     * `enabled:true` holds, each mapped to the regions specified for that
+     * cloud, or an empty set if no regions specified.
      */
     @Getter private Map<String, Set<String>> clouds;
 
@@ -188,6 +189,15 @@ public class NebulousApp {
      */
     @Getter
     private Map<String, Set<String>> componentNodeNames = Map.of();
+    /**
+     * Unmodifiable map of component name to node candidate(s) for that
+     * component, as computed during the most recent deployment or
+     * redeployment.  We keep track of the node candidates so we can redeploy
+     * if the CFSB finds more suitable node candidates for the given
+     * component, even if the component requirements did not change.
+     */
+    @Getter
+    private Map<String, List<NodeCandidate>> componentNodeCandidates = Map.of();
     /**
      * Unmodifiable map from node name to deployed edge or BYON node
      * candidate.  We keep track of assigned edge candidates, since we do not
@@ -420,15 +430,17 @@ public class NebulousApp {
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
       * @return false if not in state deploying, otherwise true. */
     @Synchronized
-    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, NodeCandidate> nodeEdgeCandidates, JsonNode deployedKubevela) {
+    public boolean setStateDeploymentFinished(Map<String, List<Requirement>> componentRequirements, Map<String, Integer> nodeCounts, Map<String, Set<String>> componentNodeNames, Map<String, List<NodeCandidate>> componentNodeCandidates, Map<String, NodeCandidate> nodeEdgeCandidates, JsonNode deployedKubevela) {
         if (state != State.DEPLOYING) {
             return false;
         } else {
-            // We keep all state read-only so we cannot modify the app object
-            // before we know deployment is successful
+            // We keep all state read-only so we cannot accidentally modify
+            // part of the app object's state before we know deployment is
+            // successful
             this.componentRequirements = Map.copyOf(componentRequirements);
             this.componentReplicaCounts = Map.copyOf(nodeCounts);
             this.componentNodeNames = Map.copyOf(componentNodeNames);
+            this.componentNodeCandidates = Map.copyOf(componentNodeCandidates);
             this.deployedKubevela = deployedKubevela;
             this.nodeEdgeCandidates = Map.copyOf(nodeEdgeCandidates);
             state = State.RUNNING;
@@ -478,6 +490,7 @@ public class NebulousApp {
         this.componentRequirements = Map.of();
         this.componentReplicaCounts = Map.of();
         this.componentNodeNames = Map.of();
+        this.componentNodeCandidates = Map.of();
         this.deployedKubevela = null;
         this.nodeEdgeCandidates = Map.of();
         state = State.READY;
