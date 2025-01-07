@@ -267,6 +267,28 @@ public class NebulousAppDeployer {
         nodename = nodename.replaceAll("[^a-z0-9-]", "-");
         return nodename;
     }
+    
+    /**
+     * Check if SAL knows about the cluster.  Note that the result of this
+     * method does not depend on the status of the cluster, only whether it
+     * exists.
+     *
+     * @param conn the exn connector.
+     * @param appID the application id.
+     * @param clusterID the cluster id.
+     * @return true if {@link ExnConnector#getCluster} returns non-{@code
+     *  null}, false otherwise.
+     */
+    private static boolean clusterExists(ExnConnector conn, String  appID, String clusterID) {
+        JsonNode clusterState = conn.getCluster(appID, clusterID);
+        if (clusterState != null) {
+            log.debug("Checking if cluster {} exists... yes", clusterID);
+            return true;
+        } else {
+            log.debug("Checking if cluster {} exists... no", clusterID);
+            return false;
+        }
+    }
 
     /**
      * Wait until cluster deployment is finished.
@@ -373,6 +395,12 @@ public class NebulousAppDeployer {
         }
         ExnConnector conn = app.getExnConnector();
         log.info("Starting initial deployment for application");
+
+        if (clusterExists(conn, appUUID, clusterName)) {
+            log.error("Cluster with ID {} already exists somehow, aborting deployment.", clusterName);
+            app.setStateFailed();
+            return;
+        }
 
         // The overall flow:
         //
@@ -680,6 +708,12 @@ public class NebulousAppDeployer {
         Map<String, JsonNode> components = new HashMap<>();
         updatedKubevela.withArray("/spec/components").forEach(
             c -> components.put(c.at("/name").asText(), c));
+
+        if (!clusterExists(conn, appUUID, clusterName)) {
+            log.error("Cluster with ID {} does not exist according to SAL, aborting redeployment.",
+                clusterName);
+            return;
+        }
 
         if (!app.setStateRedeploying()) {
             log.warn("Trying to redeploy app that is in state {} (can only redeploy in state RUNNING), aborting",
