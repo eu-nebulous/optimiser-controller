@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import org.ow2.proactive.sal.model.AttributeRequirement;
+import org.ow2.proactive.sal.model.ClusterStatus;
 import org.ow2.proactive.sal.model.NodeCandidate;
 import org.ow2.proactive.sal.model.NodeCandidate.NodeCandidateTypeEnum;
 import org.ow2.proactive.sal.model.NodeType;
@@ -32,28 +33,6 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class NebulousAppDeployer {
-
-    // Copied verbatim from
-    // https://github.com/ow2-proactive/scheduling-abstraction-layer/blob/master/sal-service/src/main/java/org/ow2/proactive/sal/service/service/ClusterService.java
-    // since there is no public definition or documentation of the cluster
-    // state values
-
-    // BEGIN COPY
-
-    // Define cluster state constants
-    private static final String STATUS_DEFINED = "Defined";
-
-    private static final String STATUS_DEPLOYED = "Deployed";
-
-    private static final String STATUS_FAILED = "Failed";
-
-    private static final String STATUS_SUBMITTED = "Submitted"; // New status
-
-    private static final String STATUS_SCALING = "Scaling";
-
-    private static final String STATUS_FINISHED = "Finished";
-
-    // END COPY
 
     private static final ObjectMapper yamlMapper
         = new ObjectMapper(YAMLFactory.builder().build());
@@ -385,10 +364,10 @@ public class NebulousAppDeployer {
                 // ignore
             }
             JsonNode clusterState = conn.getCluster(appID, clusterName);
-            final String status;
+            final ClusterStatus status;
             if (clusterState != null) {
                 JsonNode jsonState = clusterState.at("/status");
-                status = jsonState.isMissingNode() ? null : jsonState.asText();
+                status = jsonState.isMissingNode() ? null : ClusterStatus.fromValue(jsonState.asText());
                 app.sendDeploymentStatus(clusterState);
             } else {
                 status = null;
@@ -406,16 +385,17 @@ public class NebulousAppDeployer {
                 // Forget about intermittent failures
                 failedCalls = 0;
             }
-            if (status.equals(STATUS_DEPLOYED)) {
+            if (status.equals(ClusterStatus.DEPLOYED)) {
                 log.info("Cluster deployment finished successfully");
                 return true;
-            } else if (status.equals(STATUS_FAILED)) {
+            } else if (status.equals(ClusterStatus.FAILED)) {
                 log.warn("Cluster deployment failed");
                 return false;
             } else {
-                if (!status.equals(STATUS_SUBMITTED)
-                    && !status.equals(STATUS_SCALING)) {
-                    // Better paranoid than sorry
+                if (!status.equals(ClusterStatus.SUBMITTED)
+                    && !status.equals(ClusterStatus.SCALING)) {
+                    // Better paranoid than sorry; ClusterStatus#fromValue
+                    // returns ClusterStatus.OTHER for unknown status values
                     log.warn("Unknown 'status' value in getCluster result: {}", status);
                 }
                 // still waiting, log every minute
