@@ -311,10 +311,10 @@ public class NebulousAppDeployer {
     private static boolean clusterExists(ExnConnector conn, String  appID, String clusterID) {
         JsonNode clusterState = conn.getCluster(appID, clusterID);
         if (clusterState != null) {
-            log.debug("Checking if cluster {} exists... yes", clusterID);
+            log.debug("Checking if cluster {} exists... yes (got clusterState reply {})", clusterID, clusterState);
             return true;
         } else {
-            log.debug("Checking if cluster {} exists... no", clusterID);
+            log.debug("Checking if cluster {} exists... no (got clusterState reply {})", clusterID, clusterState);
             return false;
         }
     }
