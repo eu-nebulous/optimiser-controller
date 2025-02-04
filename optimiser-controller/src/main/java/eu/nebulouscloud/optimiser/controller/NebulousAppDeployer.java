@@ -361,7 +361,7 @@ public class NebulousAppDeployer {
                 // Immediately sleep on first loop iteration, so SAL has a chance to catch up
                 Thread.sleep(pollInterval);
             } catch (InterruptedException e1) {
-                // ignore
+                log.debug("Thread.sleep got interrupted while polling for cluster status", e1);
             }
             JsonNode clusterState = conn.getCluster(appID, clusterName);
             final ClusterStatus status;
