@@ -123,6 +123,14 @@ public class NebulousApp {
     private static final ObjectMapper jsonMapper = new ObjectMapper();
 
     // ----------------------------------------
+    // Solver message stuff
+
+    // These two property names come from the solver solution message; not
+    // owned by us.
+    private static final String DEPLOY_PROPERTY = "DeploySolution";
+    private static final String VARIABLEVALUES_PROPERTY = "VariableValues";
+
+    // ----------------------------------------
     // AMPL stuff
 
     /** The array of KubeVela variables in the app message. */
@@ -596,6 +604,32 @@ public class NebulousApp {
     }
 
     /**
+     * Create a synthetic solver solution message from a kubevela file.
+     *
+     * <p>This is the reverse to {@link #rewriteKubevelaWithSolution}.  It is
+     * used during initial deployment to generate an initial "solution"
+     * message to send to EMS.  The message will have an entry {@code
+     * DeploySolution: false}, just to make sure we don't try to redeploy
+     * immediately.
+     *
+     * @param kubevela The kubevela file holding the variable values.
+     * @return A synthetic solver solution message.
+     */
+    public ObjectNode createSolutionFromKubevela(JsonNode kubevela) {
+        ObjectNode syntheticSolution = jsonMapper.createObjectNode();
+        syntheticSolution.put(DEPLOY_PROPERTY, false);
+        ObjectNode variableValues = syntheticSolution.withObjectProperty(VARIABLEVALUES_PROPERTY);
+        for (Map.Entry<String, JsonPointer> variable : kubevelaVariablePaths.entrySet()) {
+            String name = variable.getKey();
+            JsonNode value = kubevela.at(variable.getValue());
+            if (!value.isMissingNode()) {
+                variableValues.set(name, value);
+            }
+        }
+        return syntheticSolution;
+    }
+
+    /**
      * Calculate the AMPL message to send to the solver.
      */
     public JsonNode calculateAMPLMessage() {
@@ -706,7 +740,7 @@ public class NebulousApp {
      */
     @Synchronized
     public void redeployWithSolution(ObjectNode solution) {
-        if (!solution.has("DeploySolution")) {
+        if (!solution.has(DEPLOY_PROPERTY)) {
             log.warn("Received solver solution without DeploySolution field, ignoring.");
             return;
         }
@@ -716,7 +750,7 @@ public class NebulousApp {
             log.info("Received solver solution with DeploySolution=false, ignoring.");
             return;
         }
-        ObjectNode variables = solution.withObjectProperty("VariableValues");
+        ObjectNode variables = solution.withObjectProperty(VARIABLEVALUES_PROPERTY);
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
         if (deployGeneration > 0) {
             NebulousAppDeployer.redeployApplication(this, kubevela);
