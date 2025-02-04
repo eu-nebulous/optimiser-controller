@@ -375,7 +375,7 @@ public class NebulousAppDeployer {
         log.info("Starting initial deployment for application");
 
         // The overall flow:
-        //
+        // 
         // - Extract node requirements and node counts from the KubeVela
         //   definition.
         // - Rewrite KubeVela: remove performance requirements, add affinity
@@ -384,11 +384,13 @@ public class NebulousAppDeployer {
         //   controller.
         // - Select node candidates, making sure to only select edge nodes
         //   once.
-        // - (Before deploying the cluster) send metric name list.
+        // - (Before deploying the cluster) send metric name list to EMS.
         // - Create a SAL cluster.
         // - Deploy the SAL cluster.
         // - Add node affinity traits to the KubeVela file.
         // - Deploy the SAL application.
+        // - Send the initial variable values as a synthetic solver solution
+        //   message to EMS.
         // - Store cluster state (deployed KubeVela file, etc.) in
         //   NebulousApp object.
         // - Asynchronously, triggered via solver readiness message: wait for
@@ -651,6 +653,12 @@ public class NebulousAppDeployer {
             conn.deleteCluster(appUUID, clusterName);
             return;
         }
+
+        // ------------------------------------------------------------
+        // Send variables to EMS
+        ObjectNode syntheticSolverSolution = app.createSolutionFromKubevela(rewritten);
+        conn.sendSyntheticSolutionMessage(appUUID, syntheticSolverSolution);
+
         // ------------------------------------------------------------
         // Update NebulousApp state
 
