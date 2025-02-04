@@ -129,6 +129,15 @@ public class ExnConnector {
     private final Publisher appStatusPublisher;
 
     /**
+     * The publisher for a first synthetic solver solution.  This is needed
+     * for EMS during initial deployment to get the initial variable values
+     * (number of replicas, etc.).  Subsequent messages on this topic come
+     * from the solver, of course.
+     */
+    @Getter
+    private final Publisher solverSolutionPublisher;
+
+    /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
      * initial publishers and consumers.
      *
@@ -141,6 +150,7 @@ public class ExnConnector {
         amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
         metricListPublisher = new Publisher("controller_metric_list", metric_list_channel, true, true);
         appStatusPublisher = new Publisher("app_status", app_status_channel, true, true);
+        solverSolutionPublisher = new Publisher("controller_synthetic_solution", solver_solution_channel, true, true);
 
         conn = new Connector(
             "optimiser_controller",
@@ -159,7 +169,8 @@ public class ExnConnector {
                 // here.
                 amplMessagePublisher,
                 metricListPublisher,
-                appStatusPublisher),
+                appStatusPublisher,
+                solverSolutionPublisher),
             List.of(
                 new Consumer("solver_status", solver_status_channel,
                     new SolverStatusMessageHandler(), true, true),
@@ -1041,6 +1052,11 @@ public class ExnConnector {
             "state", state.toString(),
             key, mapper.convertValue(value, Map.class));
         appStatusPublisher.send(msg, appID);
+    }
+
+    public void sendSyntheticSolutionMessage(String appID, ObjectNode solutions) {
+        Map<String, Object> msg = mapper.convertValue(solutions, Map.class);
+        solverSolutionPublisher.send(msg, appID);
     }
 
 }
