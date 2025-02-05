@@ -41,7 +41,9 @@ public class NebulousAppTests {
         String app_message_string = Files.readString(getResourcePath(filename),
             StandardCharsets.UTF_8);
         JsonNode msg = mapper.readTree(app_message_string);
-        return NebulousApp.newFromAppMessage(msg, null);
+        NebulousApp result = NebulousApp.newFromAppMessage(msg, null);
+        NebulousApps.add(result);
+        return result;
     }
 
     @Test
