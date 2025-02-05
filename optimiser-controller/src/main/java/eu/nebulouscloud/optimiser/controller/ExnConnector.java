@@ -237,19 +237,28 @@ public class ExnConnector {
                 final JsonNode appMessage = mapper.valueToTree(body);
                 final String appID = appMessage.at("/uuid").asText();
                 MDC.put("appId", appID);
+                if (NebulousApps.get(appID) != null) {
+                    log.error("Incoming app creation message contains duplicate ID {}, an app with that ID already exists.  Aborting.", appID);
+                    return;
+                }
                 Main.logFile("app-message-" + appID + ".json", appMessage.toPrettyString());
-                // FIXME: here's a race condition here: if the app object
-                // isn't registered yet when the performance indicators
-                // arrive, and the performance indicators aren't yet
-                // registered when we reach the `if` statement below, the app
-                // will never be deployed...
+                final JsonNode appPerformanceIndicators;
                 final NebulousApp app = NebulousApp.newFromAppMessage(mapper.valueToTree(body), ExnConnector.this);
                 final String appIdFromMessage = app.getUUID();
                 MDC.put("appId", appIdFromMessage);
                 MDC.put("clusterName", app.getClusterName());
-                if (NebulousApps.relevantPerformanceIndicators.containsKey(appIdFromMessage)) {
-                    // If the performance indicators haven't arrived yet, this
-                    // will happen in PerformanceIndicatorMessageHandler below.
+                synchronized(ExnConnector.this) {
+                    // Make sure PerformanceIndicatorMessageHandler and
+                    // AppCreationMessageHandler agree on which messages have
+                    // already arrived
+                    NebulousApps.add(app);
+                    appPerformanceIndicators
+                      = NebulousApps.relevantPerformanceIndicators.getOrDefault(appIdFromMessage, null);
+                }
+                if (appPerformanceIndicators == null) {
+                    log.info("Received app creation message, created app object and awaiting performance indicator message");
+                } else {
+                    log.info("Received app creation message and performance indicator message, starting deployment");
                     app.setStateReady(NebulousApps.relevantPerformanceIndicators.get(appIdFromMessage));
                     final Map<String, String> contextMap = MDC.getCopyOfContextMap();
                     new Thread(() -> {
@@ -353,15 +362,22 @@ public class ExnConnector {
                     appId = appIdObject.toString(); // should be a string already
                 }
                 MDC.put("appId", appId);
-                NebulousApp app = NebulousApps.get(appId);
                 JsonNode appMessage = mapper.valueToTree(body);
                 Main.logFile("performance-indicators-" + appIdObject + ".json", appMessage.toPrettyString());
-                if (app == null) {
+                NebulousApp app;
+                synchronized(ExnConnector.this) {
+                    // Make sure PerformanceIndicatorMessageHandler and
+                    // AppCreationMessageHandler agree on which messages have
+                    // already arrived
                     NebulousApps.relevantPerformanceIndicators.put(appId, appMessage);
-                    log.info("Received performance indicator message for unknown app, storing and awaiting app creation message");
+                    app = NebulousApps.get(appId);
+                }
+                if (app == null) {
+                    log.info("Received performance indicator message, storing and awaiting app creation message");
                 } else {
                     MDC.put("clusterName", app.getClusterName());
                     if (app.getState().equals(NebulousApp.State.NEW)) {
+                        log.info("Received app creation message and performance indicator message, starting deployment");
                         final Map<String, String> contextMap = MDC.getCopyOfContextMap();
                         new Thread(() -> {
                                 MDC.setContextMap(contextMap);
@@ -369,8 +385,11 @@ public class ExnConnector {
                                 app.setStateReady(appMessage);
                                 app.deploy();
                             }).start();
+                        // Not strictly necessary to remove the performance
+                        // indicators, but let's not leave unneeded data around
+                        NebulousApps.relevantPerformanceIndicators.remove(appId);
                     } else {
-                        log.warn("Received duplicate performance indicator message for app, ignoring");
+                        log.warn("Ignoring incoming performance indicator message since app is not in state NEW");
                     }
                 }
             } finally {

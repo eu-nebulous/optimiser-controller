@@ -355,7 +355,11 @@ public class NebulousApp {
 
     /**
      * Create a NebulousApp object given an app creation message parsed into
-     * JSON, and register it via {@link NebulousApps#add}.
+     * JSON.
+     *
+     * <p>Note that the result should be registered via {@link
+     * NebulousApps#add} afterwards.  This is not done automatically since
+     * registering an app happens on the hot path inside a mutex.
      *
      * @param app_message the app creation message, including valid KubeVela
      *  YAML et al
@@ -375,7 +379,6 @@ public class NebulousApp {
             } else {
                 Main.logFile("incoming-kubevela-" + UUID + ".yaml", kubevela_string);
                 NebulousApp result = new NebulousApp(app_message, kubevela_string, exnConnector);
-                NebulousApps.add(result);
                 return result;
             }
         } catch (Exception e) {
