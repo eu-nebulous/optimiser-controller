@@ -51,6 +51,23 @@ public class NebulousAppDeployer {
     }
 
     /**
+     * Check if an edge node has a job id assigned.
+     *
+     * @param c the edge node
+     * @return true if c is an edge node with job id set, false otherwise
+     */
+    private static boolean isEdgeNodeBusy(NodeCandidate c) {
+        if (!c.isEdgeNodeCandidate()) return false;
+        String id = c.getJobIdForEDGE();
+        if (id == null
+            || id.isBlank()
+            || id.equals("0")
+            || id.equals("any")
+            || id.equals("all-applications")) return false;
+        return true;
+    }
+
+    /**
      * Given a list of requirements for a component, create one list each for
      * each of the locations the component can be deployed on.  This
      * transforms a list of requirements suitable for {@link
@@ -537,7 +554,7 @@ public class NebulousAppDeployer {
             // iteration; we just need to retry in case an edge node is
             // already owned by another app.
             if (candidate.isEdgeNodeCandidate()) {
-                if (EdgeNodes.acquire(appUUID, candidate)) {
+                if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
                     masterNodeCandidate = candidate;
                     break;
                 } else {
@@ -583,7 +600,7 @@ public class NebulousAppDeployer {
                     app.setStateFailed(deployedNodeCandidates.values());
                     return;
                 }
-                if (candidate.isEdgeNodeCandidate()) {
+                if (!isEdgeNodeBusy(candidate) && candidate.isEdgeNodeCandidate()) {
                     if (EdgeNodes.acquire(appUUID, candidate)) {
                         nodeNumber++;
                     } else {
@@ -858,6 +875,7 @@ public class NebulousAppDeployer {
                             continue;
                         }
                         if (candidate.isEdgeNodeCandidate()) {
+                            // TODO: check isEdgeNodeBusy
                             if (EdgeNodes.acquire(appUUID, candidate)) {
                                 newNodeCandidatesRegistered.add(candidate);
                                 nodeNumber++;
@@ -927,6 +945,7 @@ public class NebulousAppDeployer {
                         continue;
                     }
                     if (candidate.isEdgeNodeCandidate()) {
+                        // TODO: check isEdgeNodeBusy
                         if (EdgeNodes.acquire(appUUID, candidate)) {
                             nodeNumber++;
                         } else {
