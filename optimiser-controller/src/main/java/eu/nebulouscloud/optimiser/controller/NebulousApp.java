@@ -445,7 +445,10 @@ public class NebulousApp {
     @Synchronized
     public boolean sendDeploymentStatus(JsonNode clusterState) {
         if (state == State.DEPLOYING) {
-            exnConnector.sendAppStatus(UUID, state, Map.of("clusterState", clusterState));
+            exnConnector.sendAppStatus(UUID, state
+                // FIXME convert this to something that doesn't crash the middleware.  Comment out for now.
+                // , Map.of("clusterState", clusterState)
+            );
             return true;
         } else {
             return false;
