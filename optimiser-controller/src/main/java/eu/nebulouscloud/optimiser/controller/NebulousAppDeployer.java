@@ -592,7 +592,8 @@ public class NebulousAppDeployer {
             while (nodeNumber < numberOfNodes) {
                 String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                 NodeCandidate candidate = candidates.stream()
-                    .filter(each -> !EdgeNodes.ownedEdgeNodes(appUUID).contains(each))
+                    .filter(each -> !isEdgeNodeBusy(each)
+                                    && !EdgeNodes.ownedEdgeNodes(appUUID).contains(each))
                     .findFirst()
                     .orElse(null);
                 if (candidate == null) {
@@ -867,7 +868,8 @@ public class NebulousAppDeployer {
                     while (nodeNumber <= nAdd) {
                         String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                         NodeCandidate candidate = candidates.stream()
-                            .filter(each -> !EdgeNodes.ownedEdgeNodes(appUUID).contains(each))
+                            .filter(each -> !isEdgeNodeBusy(each)
+                                            && !EdgeNodes.ownedEdgeNodes(appUUID).contains(each))
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
@@ -941,7 +943,8 @@ public class NebulousAppDeployer {
                 while (nodeNumber <= componentReplicaCounts.get(componentName)) {
                     String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                     NodeCandidate candidate = candidates.stream()
-                        .filter(each -> !EdgeNodes.ownedEdgeNodes(appUUID).contains(each))
+                        .filter(each -> !isEdgeNodeBusy(each)
+                                        && !EdgeNodes.ownedEdgeNodes(appUUID).contains(each))
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
