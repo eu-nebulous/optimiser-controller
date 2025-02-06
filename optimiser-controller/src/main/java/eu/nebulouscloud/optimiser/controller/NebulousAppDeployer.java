@@ -600,8 +600,8 @@ public class NebulousAppDeployer {
                     app.setStateFailed(deployedNodeCandidates.values());
                     return;
                 }
-                if (!isEdgeNodeBusy(candidate) && candidate.isEdgeNodeCandidate()) {
-                    if (EdgeNodes.acquire(appUUID, candidate)) {
+                if (candidate.isEdgeNodeCandidate()) {
+                    if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
                         nodeNumber++;
                     } else {
                         // We hit the race condition!  An edge node that was
@@ -875,8 +875,12 @@ public class NebulousAppDeployer {
                             continue;
                         }
                         if (candidate.isEdgeNodeCandidate()) {
-                            // TODO: check isEdgeNodeBusy
-                            if (EdgeNodes.acquire(appUUID, candidate)) {
+                            //  If we already own the edge node, it's busy but
+                            // we might want to reassign it if the component
+                            // currently using it doesn't need it anymore ...
+                            // something to be considered while implementing
+                            // #30
+                            if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
                                 newNodeCandidatesRegistered.add(candidate);
                                 nodeNumber++;
                             } else {
@@ -945,8 +949,11 @@ public class NebulousAppDeployer {
                         continue;
                     }
                     if (candidate.isEdgeNodeCandidate()) {
-                        // TODO: check isEdgeNodeBusy
-                        if (EdgeNodes.acquire(appUUID, candidate)) {
+                        //  If we already own the edge node, it's busy but we
+                        // might want to reassign it if the component
+                        // currently using it doesn't need it anymore ...
+                        // something to be considered while implementing #30
+                        if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
                             nodeNumber++;
                         } else {
                             // We hit the race condition!  An edge node that was
