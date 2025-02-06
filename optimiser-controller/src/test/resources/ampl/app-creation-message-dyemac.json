@@ -1,0 +1,362 @@
+{
+  "title": "DYEMAC Cloud T7 6_2_25",
+  "status": "deploying",
+  "content": "apiVersion: core.oam.dev/v1beta1\nkind: \"Application\"\nmetadata:\n  name: \"dyemac-app-20241016\"\nspec:\n  components:\n    - name: \"data-collection-module\"\n      type: \"webservice\"\n      properties:\n        image: \"eliarge/data_collection_api_module:1.9\"\n        cpu: \"3.0\"\n        memory: \"1024Mi\"\n        imagePullPolicy: \"Always\"\n        exposeType: NodePort\n        ports:\n          - name: collect-api\n            expose: true\n            port: 5050\n            nodePort: 32111\n            protocol: TCP\n        env:    \n          - name: \"report_metrics_to_ems\"\n            value: \"True\"\n          - name: \"nebulous_ems_ip\"\n            valueFrom:\n              fieldRef:\n                fieldPath: status.hostIP\n          - name: \"nebulous_ems_port\"\n            value: \"61610\"\n          - name: \"nebulous_ems_user\"\n            value: \"aaa\"\n          - name: \"nebulous_ems_password\"\n            value: \"111\"\n      traits:\n        - type: \"scaler\"\n          properties:\n            replicas: 1\n    - name: \"dosage-analysis-module\"\n      type: \"webservice\"\n      properties:\n        image: \"eliarge/dosage_performance_analysis:v1.29\"\n        cpu: \"3.0\"\n        memory: \"1024Mi\"\n        imagePullPolicy: \"Always\"\n        exposeType: NodePort\n        ports:\n          - name: analysis-api\n            expose: true\n            port: 5002\n            nodePort: 32110\n            protocol: TCP\n        env:    \n          - name: \"report_metrics_to_ems\"\n            value: \"True\"\n          - name: \"nebulous_ems_ip\"\n            valueFrom:\n              fieldRef:\n                fieldPath: status.hostIP\n          - name: \"nebulous_ems_port\"\n            value: \"61610\"\n          - name: \"nebulous_ems_user\"\n            value: \"aaa\"\n          - name: \"nebulous_ems_password\"\n            value: \"111\"\n      traits:\n        - type: \"scaler\"\n          properties:\n            replicas: 1\n        - type: \"annotations\"\n          properties:\n            \"nebulous-placement-constraint\": \"CLOUD\"",
+  "variables": [
+    {
+      "key": "spec_components_0_traits_0_properties_replicas",
+      "path": "/spec/components/0/traits/0/properties/replicas",
+      "type": "float",
+      "meaning": "replicas",
+      "value": {
+        "lower_bound": 1,
+        "higher_bound": 3
+      }
+    },
+    {
+      "key": "spec_components_1_traits_0_properties_replicas",
+      "path": "/spec/components/1/traits/0/properties/replicas",
+      "type": "float",
+      "meaning": "replicas",
+      "value": {
+        "lower_bound": 1,
+        "higher_bound": 3
+      }
+    }
+  ],
+  "environmentVariables": [
+    {
+      "name": "iccs_user",
+      "value": "iccs@imuexperiments1",
+      "secret": true
+    },
+    {
+      "name": "AMPL_LICENSE",
+      "value": "NjYxZTQzNDQ5ODE2NDczZWIzNDIwNDc2NzZlZjI5Mzc1MjQ0MDUyMGM3MzczYzI5MTg1ODBjNWFmNzBmMzZiN2U3YWYxNzZjYTY2NjQyYTZjMWYzYzFiNjQwNmFlYTgxMTRiZjhhNDg5ZjQ0OGJjZGIyYTc2MDYzNzNiMjNiMTdjNWQ4ZjlhMjg2MjcyYzg4ZjIxOWZjZWZjMTY0MzIxMmU2ZWFjZTY5M2EzMDliYjNlMzBkN2UzNTI3MjA3OTgxZTBhMjNhNWNkOGIzYjcyOGUwZTc2ZWJiZDQwMjNhZTZiNGJkZmFiYmY1MDdkZTJlODM0M2UyNmNjNDc4NjlhNjQ0ZmZkODYxZmQzNjE0ZmVmYTJkYmZhNzI0YmMyODU3MTFmM2Q1Zjg3M2IyOTk0ODViZGNlOTBiYTRlNzc1YjQwMjI1MTI3MzIzNTBlYzZhNjExOGI4NjkyNmUwMDhjNjg1OTQwNjAyYjA5NzhlYzAxMjlmY2Q4NzM0ZDhjNGM2NDIwYmQ4MzE4OWU0NWM0MTk1ZWE4MzMxMzI0NjE4ZjBjN2RlYTViMTk0MTQ0MTJjN2MzMTNiOTIzMmQ4MTVlMGIxZDYzZjYxY2M0MWM1MzIzMDdkOTBiYjkwMWMyYTM0NTZhMWU0MGQ0OTkzOTAxMWEwMTIwMjEwYzNkYWE1YjNlN2YzZTk4ZGNhMDRmZTgyNDA3ZDc4MzQ0NGIzODcwMGU1MzdlNGJkOWI3MmY3MGY1NDQwZGM4YmE1OWE5MjU1YzJlMWM0OGRmYWM2ZTAwNmE5MGZkMzI1ODYwYzVkMzFkNDRlZTBhNTZjZTJlNTM2OWM3MTMzOTE4NWNhZjAxMWIxNzY2NGE3YTRjNWRhZjM5MjMxM2Q4YWUxODdmZTI0NzY2M2JmYjI2MDIwMGFjNGIyN2JmNGI0NDIzNTYxMzE1MmJlZDQxODMzYTZlOWViNTE1YjBjMjNiNjkzMmRhNjE2MmQ3OTE0OWY4NTE1MTdiYTgwNDY4MjAzMzcwODA0YjYyZmZi",
+      "secret": true
+    }
+  ],
+  "resources": [
+    {
+      "title": "AWS 2",
+      "uuid": "6739ee4c-552d-40d8-9f0a-ca09c53c806b",
+      "platform": "AWS",
+      "enabled": true,
+      "regions": "us-east-1",
+      "valid_instance_types": []
+    },
+    {
+      "title": "AWS working old",
+      "uuid": "97290af7-4359-4dfa-92d7-9a5b17fff783",
+      "platform": "AWS",
+      "enabled": false,
+      "regions": "us-east-1",
+      "valid_instance_types": []
+    },
+    {
+      "title": "AWS 1",
+      "uuid": "782437cd-4d18-4110-8218-058f840fd837",
+      "platform": "AWS",
+      "enabled": false,
+      "regions": "us-east-1",
+      "valid_instance_types": []
+    }
+  ],
+  "templates": [
+    {
+      "id": "positive_real_num",
+      "type": "double",
+      "minValue": 0,
+      "maxValue": 99999999999,
+      "unit": "n/a"
+    },
+    {
+      "id": "percentage",
+      "type": "int",
+      "minValue": 0,
+      "maxValue": 100,
+      "unit": "percentage"
+    },
+    {
+      "id": "request_limit",
+      "type": "int",
+      "minValue": 0,
+      "maxValue": 50,
+      "unit": "requests"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "dosage_analysis_replica_count_const",
+      "template": "positive_real_num"
+    },
+    {
+      "name": "data_collection_replica_count_const",
+      "template": "positive_real_num"
+    }
+  ],
+  "metrics": [
+    {
+      "type": "raw",
+      "name": "cpu_consumption_all",
+      "level": "global",
+      "components": [],
+      "sensor": "netdata system.cpu",
+      "config": [
+        {
+          "name": "results-aggregation",
+          "value": "SUM",
+          "_id": "cm6rzm92k00m601rnejzfeadp",
+          "metaType": "arrayItem",
+          "scopedArrayName": "doc.application.config",
+          "_docId": "cm6tk1h4j00tt01rn6cucbube:en:published",
+          "_edit": true
+        }
+      ],
+      "isWindowOutputRaw": true,
+      "outputRaw": {
+        "type": "all",
+        "interval": 1,
+        "unit": "sec"
+      }
+    },
+    {
+      "type": "composite",
+      "level": "global",
+      "components": [],
+      "name": "sum_cpu_consumption_all",
+      "template": "positive_real_num",
+      "formula": "add(cpu_consumption_all)/180.0",
+      "isWindowInput": true,
+      "input": {
+        "type": "sliding",
+        "interval": 180,
+        "unit": "sec"
+      },
+      "isWindowOutput": true,
+      "output": {
+        "type": "all",
+        "interval": 120,
+        "unit": "sec"
+      },
+      "arguments": [
+        "cpu_consumption_all"
+      ]
+    },
+    {
+      "type": "raw",
+      "name": "requests_per_second",
+      "level": "global",
+      "components": [],
+      "sensor": "prometheus",
+      "config": [
+        {
+          "name": "metric",
+          "value": "requests_per_second",
+          "_id": "cm6rzm92k00m901rn08vc8zi6",
+          "metaType": "arrayItem",
+          "scopedArrayName": "doc.application.config",
+          "_docId": "cm6tk1h4j00tt01rn6cucbube:en:published",
+          "_edit": true
+        },
+        {
+          "name": "port",
+          "value": "5050",
+          "_id": "cm6rzm92k00ma01rn73uig0xn",
+          "metaType": "arrayItem",
+          "scopedArrayName": "doc.application.config",
+          "_docId": "cm6tk1h4j00tt01rn6cucbube:en:published",
+          "_edit": true
+        },
+        {
+          "name": "path",
+          "value": "/metrics",
+          "_id": "cm6rzm92k00mb01rn4ktde0by",
+          "metaType": "arrayItem",
+          "scopedArrayName": "doc.application.config",
+          "_docId": "cm6tk1h4j00tt01rn6cucbube:en:published",
+          "_edit": true
+        },
+        {
+          "name": "delay",
+          "value": "3",
+          "_id": "cm6rzm92k00mc01rnaipw0e8m",
+          "metaType": "arrayItem",
+          "scopedArrayName": "doc.application.config",
+          "_docId": "cm6tk1h4j00tt01rn6cucbube:en:published",
+          "_edit": true
+        }
+      ],
+      "isWindowOutputRaw": true,
+      "outputRaw": {
+        "type": "all",
+        "interval": 1,
+        "unit": "sec"
+      }
+    },
+    {
+      "type": "composite",
+      "level": "global",
+      "components": [],
+      "name": "sum_requests_per_second",
+      "template": "request_limit",
+      "formula": "add(requests_per_second)/30.0",
+      "isWindowInput": true,
+      "input": {
+        "type": "sliding",
+        "interval": 30,
+        "unit": "sec"
+      },
+      "isWindowOutput": true,
+      "output": {
+        "type": "all",
+        "interval": 20,
+        "unit": "sec"
+      },
+      "arguments": [
+        "requests_per_second"
+      ]
+    },
+    {
+      "type": "composite",
+      "level": "global",
+      "components": [],
+      "name": "mean_requests_per_second",
+      "template": "request_limit",
+      "formula": "sum_requests_per_second/data_collection_replica_count_const",
+      "isWindowInput": true,
+      "input": {
+        "type": "sliding",
+        "interval": 12,
+        "unit": "sec"
+      },
+      "isWindowOutput": true,
+      "output": {
+        "type": "all",
+        "interval": 1,
+        "unit": "sec"
+      },
+      "arguments": [
+        "sum_requests_per_second",
+        "data_collection_replica_count_const"
+      ]
+    },
+    {
+      "type": "composite",
+      "level": "global",
+      "components": [],
+      "name": "mean_cpu_consumption_all",
+      "template": "percentage",
+      "formula": "sum_cpu_consumption_all/dosage_analysis_replica_count_const",
+      "isWindowInput": true,
+      "input": {
+        "type": "sliding",
+        "interval": 40,
+        "unit": "sec"
+      },
+      "isWindowOutput": true,
+      "output": {
+        "type": "all",
+        "interval": 2,
+        "unit": "sec"
+      },
+      "arguments": [
+        "sum_cpu_consumption_all",
+        "dosage_analysis_replica_count_const"
+      ]
+    }
+  ],
+  "sloViolations": {
+    "nodeKey": "eb5158c5-f247-4f2f-8e5c-5e5cb9a3a24f",
+    "isComposite": true,
+    "condition": "OR",
+    "not": false,
+    "children": [
+      {
+        "nodeKey": "548728c8-5bcc-459e-8187-103856cf357a",
+        "isComposite": false,
+        "metricName": "mean_cpu_consumption_all",
+        "operator": "<=",
+        "value": -1000000000
+      },
+      {
+        "nodeKey": "e2cb7ac9-4e18-43b3-8317-667dd3d00077",
+        "isComposite": false,
+        "metricName": "mean_cpu_consumption_all",
+        "operator": ">",
+        "value": 70
+      },
+      {
+        "nodeKey": "c09c046f-8aa6-4b8b-9a1b-2166e43a2335",
+        "isComposite": false,
+        "metricName": "mean_requests_per_second",
+        "operator": ">",
+        "value": 8
+      },
+      {
+        "nodeKey": "dddfab05-4a13-42b6-9902-019672f7266c",
+        "isComposite": false,
+        "metricName": "mean_requests_per_second",
+        "operator": "<=",
+        "value": -1000000000
+      }
+    ]
+  },
+  "utilityFunctions": [
+    {
+      "name": "test_utility",
+      "type": "maximize",
+      "expression": {
+        "formula": "0.5*exp(-20*(sum_cpu_consumption_all-80*dosage_analysis_replica_count)^2)+0.5*exp(-0.12*(sum_requests_per_second-8*data_collection_replica_count)^2)",
+        "variables": [
+          {
+            "name": "sum_cpu_consumption_all",
+            "value": "sum_cpu_consumption_all"
+          },
+          {
+            "name": "dosage_analysis_replica_count",
+            "value": "spec_components_1_traits_0_properties_replicas"
+          },
+          {
+            "name": "sum_requests_per_second",
+            "value": "sum_requests_per_second"
+          },
+          {
+            "name": "data_collection_replica_count",
+            "value": "spec_components_0_traits_0_properties_replicas"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dosage_analysis_replica_count_const",
+      "type": "constant",
+      "expression": {
+        "formula": "dosage_analysis_replica_count",
+        "variables": [
+          {
+            "name": "dosage_analysis_replica_count",
+            "value": "spec_components_1_traits_0_properties_replicas"
+          }
+        ]
+      }
+    },
+    {
+      "name": "data_collection_replica_count_const",
+      "type": "constant",
+      "expression": {
+        "formula": "data_collection_replica_count",
+        "variables": [
+          {
+            "name": "data_collection_replica_count",
+            "value": "spec_components_0_traits_0_properties_replicas"
+          }
+        ]
+      }
+    }
+  ],
+  "uuid": "e05cfbf0-3f29-40e0-a3db-ebb7fd2732df",
+  "_create": true,
+  "_delete": true
+}
+

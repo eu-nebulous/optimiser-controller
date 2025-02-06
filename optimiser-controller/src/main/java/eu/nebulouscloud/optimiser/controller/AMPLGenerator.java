@@ -5,6 +5,7 @@ import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
@@ -33,6 +34,19 @@ public class AMPLGenerator {
     public static List<String> getMetricList(NebulousApp app) {
         return new ArrayList<>(usedMetrics(app));
     }
+
+    /** Table with negated AMPL operators. */
+    private static Map<String, String> negatedAMPLOperators = Map.of(
+        // Note that solvers want closed intervals, hence always converting to >=
+        "<", ">=",
+        "<=", ">=",
+        ">", "<=",
+        ">=", "<=",
+        "==", "=",
+        // these are to flip the boolean combinator on composite conditions
+        "or", "and",
+        "and", "or"
+    );
 
     /**
      * Generate AMPL code.
@@ -71,12 +85,38 @@ public class AMPLGenerator {
 
     private static void generateConstraints(NebulousApp app, PrintWriter out) {
         out.println("# Constraints extracted from `/sloViolations`. For these we don't have name from GUI, must be created");
+        out.println("# For the solver, SLOs must be negated and operators must be >=, <= (not '>', '<')");
         int counter = 0;
         for (JsonNode slo : app.getEffectiveConstraints()) {
-            out.format("subject to constraint_%d : ", counter);
-            emitCondition(out, slo);
-            out.println(";");
-            counter = counter + 1;
+            if (slo instanceof ObjectNode slo_obj) {
+                ObjectNode constraint = normalizeSLO(slo_obj);
+                // go from forbidden regions to allowed regions
+                negateCondition(constraint);
+                if (constraint.at("/isComposite").asBoolean()
+                    && constraint.at("/condition").asText()
+                        .equalsIgnoreCase("and"))
+                {
+                    // The moderately happy path: the constraint was a
+                    // disjunction "a or b", we emit its negation "not a and
+                    // not b".  If a or b are composite, we still lose.
+                    for (JsonNode child : constraint.withArray("/children")) {
+                        out.format("subject to constraint_%d : ", counter);
+                        emitCondition(out, child);
+                        out.println(";");
+                        counter = counter + 1;
+                    }
+                } else {
+                    // The unhappy path: the slo was not a disjunction; we
+                    // emit the negated complex formula as-is and hope the
+                    // solver is up to it
+                    out.format("subject to constraint_%d : ", counter);
+                    emitCondition(out, slo);
+                    out.println(";");
+                    counter = counter + 1;
+                }
+            } else {
+                // impossible situation: SLO is always a JSON object
+            }
         }
         out.println("# Constraints specified with `type: constraint` in `/utilityFunctions`");
         for (JsonNode c : app.getSpecifiedConstraints()) {
@@ -87,6 +127,48 @@ public class AMPLGenerator {
             if (operator.equals("==")) operator = "=";
             out.format("subject to %s :%n	%s %s 0;%n",
                 c.at("/name").asText(), formula, operator);
+        }
+    }
+
+    public static ObjectNode normalizeSLO(ObjectNode slo) {
+        ObjectNode s = slo.deepCopy(); // don't mutate our argument
+        normalizeCondition(s);
+        return s;
+    }
+
+    /**
+     * Eliminate negations in all composite conditions (from not (a and b) to
+     * not a or not b).
+     */
+    private static void normalizeCondition(ObjectNode condition) {
+        if (condition.at("/isComposite").asBoolean()) {
+            ArrayNode children = condition.withArray("/children");
+            for (JsonNode c : children) {
+                if (c instanceof ObjectNode child) { // should always be
+                    normalizeCondition(child);
+                }
+            }
+            if (condition.at("/not").asBoolean()) {
+                negateCondition(condition);
+            }
+            // TODO: if any children are composite and have the same operator
+            // as we do, merge their children into our children.
+        }
+    }
+
+    /**
+     * Negate condition: go from x<5 to x>=5, go from a and b to not a or not b
+     */
+    public static void negateCondition(ObjectNode condition) {
+        if (condition.at("/isComposite").asBoolean()) {
+            condition.put("condition",
+                negatedAMPLOperators.get(condition.at("/condition").asText().toLowerCase()));
+            for (JsonNode c : condition.withArray("/children")) {
+                negateCondition((ObjectNode) c);
+            }
+        } else {
+            String operator = condition.at("/operator").asText();
+            condition.put("operator", negatedAMPLOperators.getOrDefault(operator, operator));
         }
     }
 
@@ -334,5 +416,6 @@ public class AMPLGenerator {
         }
         return result.toString();
     }
+
 }
 
