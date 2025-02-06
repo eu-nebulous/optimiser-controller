@@ -120,6 +120,8 @@ public class AMPLGenerator {
     private static void generateUtilityFunctions(NebulousApp app, PrintWriter out) {
         out.println("# Utility functions");
         for (JsonNode f : app.getUtilityFunctions().values()) {
+            if (f.get("type").asText().equals("constant"))
+                continue;
             String formula = replaceVariables(
                 f.at("/expression/formula").asText(),
                 f.withArray("/expression/variables"));
