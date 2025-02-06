@@ -21,8 +21,8 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -32,12 +32,12 @@ public class NebulousAppTests {
     private static final ObjectMapper mapper = new ObjectMapper();
     private static final ObjectMapper yaml_mapper = new ObjectMapper(new YAMLFactory());
 
-    private Path getResourcePath(String name) throws URISyntaxException {
-        URL resourceUrl = getClass().getClassLoader().getResource(name);
+    static Path getResourcePath(String name) throws URISyntaxException {
+        URL resourceUrl = NebulousAppTests.class.getClassLoader().getResource(name);
         return Paths.get(resourceUrl.toURI());
     }
 
-    private NebulousApp appFromTestFile(String filename) throws IOException, URISyntaxException {
+    static NebulousApp appFromTestFile(String filename) throws IOException, URISyntaxException {
         String app_message_string = Files.readString(getResourcePath(filename),
             StandardCharsets.UTF_8);
         JsonNode msg = mapper.readTree(app_message_string);
@@ -155,14 +155,6 @@ public class NebulousAppTests {
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/1")), NebulousAppDeployer.ComponentLocationType.CLOUD_ONLY); // explicitly specified CLOUD
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/2")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // explicity specified ANY
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/3")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // default unspecified
-    }
-
-    @Test
-    void bug42() throws IOException, URISyntaxException {
-        // https://github.com/eu-nebulous/optimiser-controller/issues/42
-        NebulousApp app = appFromTestFile("bug-42-app-creation-message.json");
-        JsonNode solverMessage = app.calculateAMPLMessage();
-        assertEquals(solverMessage.at("/Constants/deployed_memory/Value").asLong(),  8192L);
     }
 
 }

@@ -69,6 +69,8 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
     testImplementation 'org.wiremock:wiremock:3.10.0'
+    // google truth shows a diff when comparing two strings
+    testImplementation 'com.google.truth:truth:1.4.4'
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
