@@ -18,8 +18,8 @@ param data_collection_replica_count_const;
 var mean_cpu_consumption_all;
 var mean_requests_per_second;
 # Performance indicator formulas
-subject to define_mean_cpu_consumption_all : mean_cpu_consumption_all = sum_cpu_consumption_all/dosage_analysis_replica_count_const;
-subject to define_mean_requests_per_second : mean_requests_per_second = sum_requests_per_second/data_collection_replica_count_const;
+subject to define_mean_cpu_consumption_all : mean_cpu_consumption_all = sum_cpu_consumption_all/spec_components_1_traits_0_properties_replicas;
+subject to define_mean_requests_per_second : mean_requests_per_second = sum_requests_per_second/spec_components_0_traits_0_properties_replicas;
 
 # Cost parameters - for all components, and use of node-candidates tensor
 # Utility functions
