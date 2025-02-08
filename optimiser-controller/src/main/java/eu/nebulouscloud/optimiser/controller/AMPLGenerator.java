@@ -3,17 +3,15 @@ package eu.nebulouscloud.optimiser.controller;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.StreamSupport;
-
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -34,6 +32,8 @@ public class AMPLGenerator {
     public static List<String> getMetricList(NebulousApp app) {
         return new ArrayList<>(usedMetrics(app));
     }
+
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     /** Table with negated AMPL operators. */
     private static Map<String, String> negatedAMPLOperators = Map.of(
@@ -256,10 +256,31 @@ public class AMPLGenerator {
         out.println("# Performance indicator formulas");
         for (final JsonNode m : app.getPerformanceIndicators().values()) {
             String name = m.get("name").asText();
-            String formula = m.get("formula").asText();
+            String formula = replaceConstantsWithDefinitions(app, m);
             out.format("subject to define_%s : %s = %s;%n", name, name, formula);
         }
         out.println();
+    }
+
+    private static String replaceConstantsWithDefinitions(NebulousApp app, JsonNode performanceIndicator) {
+        // loop through arguments, check if any is a constant (as defined in
+        // utilityFunctions), string-replace argument name in formula with its definition
+        String formula = performanceIndicator.at("/formula").asText();
+        for (JsonNode arg : performanceIndicator.withArray("/arguments")) {
+            String argname = arg.asText();
+            JsonNode definition = app.getUtilityFunctions().get(argname);
+            if (definition != null) {
+                String constant_formula = definition.at("/expression/formula").asText();
+                ArrayNode constant_variables = definition.withArray("/expression/variables");
+                String definition_formula = replaceVariables(constant_formula, constant_variables);
+                formula = replaceVariables(formula,
+                    mapper.createArrayNode()
+                        .add(mapper.createObjectNode()
+                            .put("name", argname)
+                            .put("value", definition_formula)));
+            }
+        }
+        return formula;
     }
 
     private static void generateMetricsSection(NebulousApp app, PrintWriter out) {
@@ -387,8 +408,8 @@ public class AMPLGenerator {
      * Replace variables in formulas.
      *
      * @param formula a string like "A + B".
-     * @param mappings an object with mapping from variables to their
-     *  replacements.
+     * @param mappings an array of ObjectNodes, mapping from variables to
+     *  their replacements.
      * @return the formula, with all variables replaced.
      */
     private static String replaceVariables(String formula, ArrayNode mappings) {
@@ -396,18 +417,17 @@ public class AMPLGenerator {
         // replacement, we should parse the formula here.  For now, since
         // variables are word-shaped, we can hopefully get by with regular
         // expressions on the string representation of the formula.
+        Map<String, String> mappings_ = new HashMap<>();
+        mappings.elements().forEachRemaining(
+            (v) -> mappings_.put(v.at("/name").asText(), v.at("/value").asText()));
         StringBuilder result = new StringBuilder(formula);
         Pattern id = Pattern.compile("\\b(\\w+)\\b");
         Matcher matcher = id.matcher(formula);
         int lengthDiff = 0;
         while (matcher.find()) {
             String var = matcher.group(1);
-
-            JsonNode re = StreamSupport.stream(Spliterators.spliteratorUnknownSize(mappings.elements(), Spliterator.ORDERED), false)
-                .filter(v -> v.at("/name").asText().equals(var))
-                .findFirst().orElse(null);
-            if (re != null) {
-                String replacement = re.get("value").asText();
+            if (mappings_.containsKey(var)) {
+                String replacement = mappings_.get(var);
                 int start = matcher.start(1) + lengthDiff;
                 int end = matcher.end(1) + lengthDiff;
                 result.replace(start, end, replacement);

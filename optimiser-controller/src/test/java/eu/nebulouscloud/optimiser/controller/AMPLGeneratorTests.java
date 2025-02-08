@@ -127,7 +127,6 @@ public class AMPLGeneratorTests {
         ObjectNode normalized = AMPLGenerator.normalizeSLO((ObjectNode)slo);
         AMPLGenerator.negateCondition(normalized);
         JsonNode expected = mapper.readTree(expected_str);
-        System.out.println("normalized: " + normalized.toPrettyString());
         com.google.common.truth.Truth
             .assertThat(normalized.toPrettyString())
             .isEqualTo(expected.toPrettyString());
