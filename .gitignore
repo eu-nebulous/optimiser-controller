@@ -25,5 +25,6 @@ bin/
 # Visual Studio Code files
 /.vscode/
 
-# Emacs files
+# Local development files
 /.dir-locals.el
+/.envrc

@@ -1,0 +1,149 @@
+{
+  "when": "2024-11-27T14:12:32.816777600Z",
+  "variables": [
+    {
+      "key": "spec_components_0_traits_0_properties_replicas",
+      "path": "/spec/components/1/traits/0/properties/replicas",
+      "type": "float",
+      "meaning": "replicas",
+      "value": {"lower_bound": 1, "higher_bound": 5}
+    }
+  ],
+  "templates": [],
+  "resources": [
+    {
+      "regions" : "us-east-1"                             ,
+      "title"   : "blah"                                  ,
+      "uuid"    : "9465459a-6b6e-408e-b468-129157498234rr",
+      "platform": "AWS"                                   ,
+      "enabled" : "true"
+    }
+  ],
+  "title": "1512312711rest-processor-app1732716751388",
+  "uuid": "1512312711rest-processor-app1732716751388",
+  "content": "apiVersion: \"core.oam.dev/v1beta1\"\nkind: \"Application\"\nmetadata:\n  name: \"1512312711rest-processor-app1732716751388\"\nspec:\n  components:\n  - name: \"dummy-app-controller\"\n    type: \"webservice\"\n    properties:\n      image: \"rsprat/dummy-rest-app-controller:v1\"\n      cpu: \"4.0\"\n      memory: \"8048Mi\"\n      imagePullPolicy: \"Always\"\n      imagePullSecrets: [\"regcred\"]\n      exposeType: NodePort\n      ports:\n        - name: controller-api\n          expose: true\n          port: 8000\n          nodePort: 30008\n          protocol: TCP\n      env:    \n      - name: \"report_metrics_to_ems\"\n        value: \"True\"\n      - name: \"nebulous_ems_ip\"\n        valueFrom:\n          fieldRef:\n            fieldPath: status.hostIP\n      - name: \"nebulous_ems_port\"\n        value: \"61610\"\n      - name: \"nebulous_ems_user\"\n        value: \"aaa\"\n      - name: \"nebulous_ems_password\"\n        value: \"111\"\n    traits:\n    - type: \"scaler\"\n      properties:\n        replicas: 1\n  - name: \"dummy-app-worker\"\n    type: \"webservice\"\n    properties:\n      image: \"rsprat/dummy-rest-app-worker:v1\"\n      cpu: \"4.0\"\n      memory: \"8048Mi\"      \n      imagePullPolicy: \"Always\"\n      imagePullSecrets: [\"regcred\"]\n      env:\n        - name: API_ADDRESS\n          value: http://dummy-app-controller:8000\n    traits:\n    - type: \"scaler\"\n      properties:\n        replicas: 1\n\n\n\n\n",
+  "_create": true,
+  "utilityFunctions": [
+    {
+      "name": "f",
+      "type": "minimize",
+      "expression": {
+        "formula": "AccumulatedSecondsPendingRequests/(spec_components_0_traits_0_properties_replicas*100)",
+        "variables": [
+          {
+            "name" : "AccumulatedSecondsPendingRequests",
+            "value": "AccumulatedSecondsPendingRequests"
+          },
+          {
+            "name" : "spec_components_0_traits_0_properties_replicas",
+            "value": "spec_components_0_traits_0_properties_replicas"
+          }
+        ]
+      }
+    },
+    {
+      "name": "example_constraint",
+      "type": "constraint",
+      "expression": {
+        "formula": "metric/(replicas*100)-100",
+        "operator": ">=",
+        "variables": [
+          {
+            "name" : "metric",
+            "value": "AccumulatedSecondsPendingRequests"
+          },
+          {
+            "name" : "replicas",
+            "value": "spec_components_0_traits_0_properties_replicas"
+          }
+        ]
+      }
+    }
+  ],
+  "environmentVariables": [
+    {
+      "name": "AMPL_LICENSE",
+      "secret": "false",
+      "value": "NjYxZTQzNDQ5ODE2NDczZWIzNDIwNDc2NzZlZjI5Mzc1MjQ0MDUyMGM3MzczYzI5MTg1ODBjNWFmNzBmMzZiN2U3YWYxNzZjYTY2NjQyYTZjMWYzYzFiNjQwNmFlYTgxMTRiZjhhNDg5ZjQ0OGJjZGIyYTc2MDYzNzNiMjNiMTdjNWQ4ZjlhMjg2MjcyYzg4ZjIxOWZjZWZjMTY0MzIxMmU2ZWFjZTY5M2EzMDliYjNlMzBkN2UzNTI3MjA3OTgxZTBhMjNhNWNkOGIzYjcyOGUwZTc2ZWJiZDQwMjNhZTZiNGJkZmFiYmY1MDdkZTJlODM0M2UyNmNjNDc4NjlhNjQ0ZmZkODYxZmQzNjE0ZmVmYTJkYmZhNzI0YmMyODU3MTFmM2Q1Zjg3M2IyOTk0ODViZGNlOTBiYTRlNzc1YjQwMjI1MTI3MzIzNTBlYzZhNjExOGI4NjkyNmUwMDhjNjg1OTQwNjAyYjA5NzhlYzAxMjlmY2Q4NzM0ZDhjNGM2NDIwYmQ4MzE4OWU0NWM0MTk1ZWE4MzMxMzI0NjE4ZjBjN2RlYTViMTk0MTQ0MTJjN2MzMTNiOTIzMmQ4MTVlMGIxZDYzZjYxY2M0MWM1MzIzMDdkOTBiYjkwMWMyYTM0NTZhMWU0MGQ0OTkzOTAxMWEwMTIwMjEwYzNkYWE1YjNlN2YzZTk4ZGNhMDRmZTgyNDA3ZDc4MzQ0NGIzODcwMGU1MzdlNGJkOWI3MmY3MGY1NDQwZGM4YmE1OWE5MjU1YzJlMWM0OGRmYWM2ZTAwNmE5MGZkMzI1ODYwYzVkMzFkNDRlZTBhNTZjZTJlNTM2OWM3MTMzOTE4NWNhZjAxMWIxNzY2NGE3YTRjNWRhZjM5MjMxM2Q4YWUxODdmZTI0NzY2M2JmYjI2MDIwMGFjNGIyN2JmNGI0NDIzNTYxMzE1MmJlZDQxODMzYTZlOWViNTE1YjBjMjNiNjkzMmRhNjE2MmQ3OTE0OWY4NTE1MTdiYTgwNDY4MjAzMzcwODA0YjYyZmZi"
+    }
+  ],
+  "sloViolations": {
+    "nodeKey": "5ce4273e-5ac3-478b-b460-075b053fb994",
+    "isComposite": true,
+    "condition": "AND",
+    "not": false,
+    "children": [
+      {
+        "nodeKey": "982c13a8-bbae-4574-b2be-eca15b865563",
+        "isComposite": false,
+        "metricName": "MeanMaxMessageAge",
+        "operator": ">",
+        "value": 50
+      }
+    ]
+  },
+  "metrics": [
+    {
+      "type": "raw",
+      "name": "RawMaxMessageAge",
+      "level": "global",
+      "components": [],
+      "sensor": "-",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {"type": "all", "interval": 30, "unit": "sec"}
+    },
+    {
+      "type": "raw",
+      "name": "NumWorkers",
+      "level": "global",
+      "components": [],
+      "sensor": "-",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {"type": "all", "interval": 30, "unit": "sec"}
+    },
+    {
+      "type": "raw",
+      "name": "NumPendingRequests",
+      "level": "global",
+      "components": [],
+      "sensor": "-",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {"type": "all", "interval": 30, "unit": "sec"}
+    },
+    {
+      "type": "raw",
+      "name": "AccumulatedSecondsPendingRequests",
+      "level": "global",
+      "components": [],
+      "sensor": "-",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {"type": "all", "interval": 30, "unit": "sec"}
+    },
+    {
+      "type": "composite",
+      "level": "global",
+      "components": [],
+      "name": "MeanMaxMessageAge",
+      "template": "",
+      "formula": "mean(RawMaxMessageAge)",
+      "isWindowInput": true,
+      "input": {"type": "sliding", "interval": 30, "unit": "sec"},
+      "isWindowOutput": true,
+      "output": {"type": "all", "interval": 30, "unit": "sec"},
+      "arguments": ["RawMaxMessageAge"]
+    },
+    {
+      "name": "currentcpu",
+      "type": "raw",
+      "sensor": {"type": "netdata k8s.cgroup.cpu", "config": {}},
+      "output": "all 10 sec"
+    }
+  ],
+  "_delete": true,
+  "parameters": [],
+  "status": "deploying"
+}
