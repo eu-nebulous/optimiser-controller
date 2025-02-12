@@ -628,7 +628,11 @@ public class NebulousApp {
             String key = entry.getKey();
             JsonNode replacementValue = entry.getValue();
             JsonNode param = kubevelaVariables.get(key);
-            JsonPointer path = kubevelaVariablePaths.get(key);
+            JsonPointer path = kubevelaVariablePaths.getOrDefault(key, null);
+            // The solver puts all variables into the solution message,
+            // including ones that are not referenced in the KubeVela file --
+            // ignore those.
+            if (path == null) continue;
             JsonNode nodeToBeReplaced = freshKubevela.at(path);
             boolean doReplacement = true;
 
