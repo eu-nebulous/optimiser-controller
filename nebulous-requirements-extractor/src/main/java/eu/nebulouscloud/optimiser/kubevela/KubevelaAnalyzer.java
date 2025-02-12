@@ -194,15 +194,29 @@ public class KubevelaAnalyzer {
     }
 
     /**
-     * Add the following requirements:
+     * Add requirements that are nebulous-specific and either not present in
+     * the KubeVela file (minimum node size) or non-standard and cannot be
+     * processed by SAL (component geolocation).
+     *
+     * We currently add the following requirements:
      * <ul>
      * <li> 2GB of RAM
      * <li> 2 cores
+     * <li> The geolocation of the component -- this uses an {@link
+     *   AttributeRequirement} that SAL doesn't know about; the CFSB is
+     *   expected to filter this out before sending the requirements to SAL.
      * </ul>
      *
-     * @param reqs The list of requirements to add to.
+     * @param component The nebulous component in question.
+     * @param reqs The list of requirements for that component; will be modified.
      */
-    public static void addNebulousRequirements(List<Requirement> reqs) {
+    public static void addNebulousRequirements(JsonNode component, List<Requirement> reqs) {
+        String loc = getComponentGeolocation(component);
+        if (loc != null) {
+            reqs.add(new AttributeRequirement(
+                "hardware", "CFSB-datasource-geolocations",
+                RequirementOperator.EQ, loc));
+        }
         reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
         reqs.add(new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "2"));
     }
@@ -312,6 +326,32 @@ public class KubevelaAnalyzer {
         }
     }
 
+    /**
+     * Given a KubeVela component, extract the node location, if present.<p>
+     *
+     * We currently look for the following component trait:
+     *
+     * <pre>{@code
+     * traits:
+     *   - type: annotations
+     *     properties:
+     *       datasource_geolocations: "[[54.5798,-3.5820],[45.4298,13.5820]]"
+     * }</pre>
+     *
+     * @param component the parsed KubeVela file.
+     * @return The component's geolocation information, or null.
+     */
+    private static String getComponentGeolocation(JsonNode component) {
+        for (final JsonNode t : component.withArray("/traits")) {
+            if (t.at("/type").asText().equals("annotations")
+                && !t.at("/properties/datasource_geolocations").isMissingNode())
+            {
+                return t.at("/properties/datasource_geolocations").asText();
+            }
+        }
+        return null;
+    }
+
 
     /**
      * Extract node requirements from a KubeVela file in a form we can send to
@@ -359,7 +399,7 @@ public class KubevelaAnalyzer {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
-                addNebulousRequirements(reqs);
+                addNebulousRequirements(c, reqs);
             }
             long cores = getCpuRequirement(c, componentName);
             if (cores > 0) {
@@ -372,8 +412,8 @@ public class KubevelaAnalyzer {
                         RequirementOperator.GEQ, Long.toString(memory)));
             }
             for (final JsonNode t : c.withArray("/traits")) {
-                // TODO: Check for node affinity / geoLocation / country /
-                // node type (edge or cloud)
+                // TODO: Check for node affinity / country / node type (edge
+                // or cloud)
             }
             // Finally, add requirements for this job to the map
             result.put(componentName, reqs);
@@ -405,7 +445,7 @@ public class KubevelaAnalyzer {
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
-            addNebulousRequirements(reqs);
+            addNebulousRequirements(c, reqs);
             long cores = getCpuRequirement(c, componentName);
             if (cores > 0) {
                 reqs.add(new AttributeRequirement("hardware", "cores",
@@ -423,8 +463,8 @@ public class KubevelaAnalyzer {
                     RequirementOperator.LEQ, Long.toString(Math.max(memory * 2, 2048))));
             }
             for (final JsonNode t : c.withArray("/traits")) {
-                // TODO: Check for node affinity / geoLocation / country /
-                // node type (edge or cloud)
+                // TODO: Check for node affinity / country / node type (edge
+                // or cloud)
             }
             // Finally, add requirements for this job to the map
             result.put(componentName, reqs);
@@ -445,7 +485,7 @@ public class KubevelaAnalyzer {
         for (final JsonNode c : components) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
-            addNebulousRequirements(reqs);
+            addNebulousRequirements(c, reqs);
             long cores = getCpuRequirement(c, componentName);
             if (cores > 0) {
                 reqs.add(new AttributeRequirement("hardware", "cores",
@@ -459,8 +499,8 @@ public class KubevelaAnalyzer {
                     RequirementOperator.EQ, Long.toString(Math.max(memory, 2048))));
             }
             for (final JsonNode t : c.withArray("/traits")) {
-                // TODO: Check for node affinity / geoLocation / country /
-                // node type (edge or cloud)
+                // TODO: Check for node affinity / country / node type (edge
+                // or cloud)
             }
             // Finally, add requirements for this job to the map
             result.put(componentName, reqs);

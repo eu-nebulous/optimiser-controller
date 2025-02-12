@@ -17,7 +17,7 @@ plugins {
     // rlwrap ./gradlew --console plain jshell
     id "com.github.mrsarm.jshell.plugin" version "1.2.1"
     // https://docs.freefair.io/gradle-plugins/8.4/reference/#_lombok
-    id "io.freefair.lombok" version "8.6"
+    id "io.freefair.lombok" version "8.11"
 }
 
 repositories {
@@ -26,21 +26,21 @@ repositories {
 
     // 7bulls, activeeon maven repositories for SAL
     maven {
-        url 'http://repository.activeeon.com/content/groups/proactive/'
+        url = 'http://repository.activeeon.com/content/groups/proactive/'
         allowInsecureProtocol = true
     }
     // NebulOuS-developed components
     maven {
-        url 'https://s01.oss.sonatype.org/content/repositories/snapshots/'
+        url = 'https://s01.oss.sonatype.org/content/repositories/snapshots/'
     }
 }
 
 dependencies {
     // JSON parsing, also used by the data classes defined in sal-common:
     // https://github.com/FasterXML/jackson
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
     // YAML parsing: https://github.com/FasterXML/jackson-dataformats-text
-    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2'
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2'
 
     // Command-line parsing: https://picocli.info
     implementation 'info.picocli:picocli:4.7.6'
@@ -51,7 +51,7 @@ dependencies {
     }
 
     // Logging: SLF4J (implemented by Logback)
-    implementation 'ch.qos.logback:logback-classic:1.5.6'
+    implementation 'ch.qos.logback:logback-classic:1.5.16'
     // Include logstash-logback-encoder for JSON formatting
     implementation 'net.logstash.logback:logstash-logback-encoder:8.0'
 
@@ -66,9 +66,11 @@ dependencies {
     implementation project(':nebulous-requirements-extractor')
 
     // Use JUnit Jupiter for testing.
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
-    testImplementation 'org.wiremock:wiremock:3.9.1'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+    testImplementation 'org.wiremock:wiremock:3.10.0'
+    // google truth shows a diff when comparing two strings
+    testImplementation 'com.google.truth:truth:1.4.4'
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
@@ -97,8 +99,8 @@ shadowJar {
 }
 
 task distJar(type: Copy, dependsOn: shadowJar) {
-    description 'Copies the fat jar into its documented location.'
-    group 'build'
+    description = 'Copies the fat jar into its documented location.'
+    group = 'build'
     from shadowJar.archiveFile
     into 'dist/'
 }

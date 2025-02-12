@@ -98,8 +98,6 @@ public class LocalExecution implements Callable<Integer> {
                 System.out.println("--------------------");
                 AMPLGenerator.getMetricList(app).forEach(System.out::println);
             }
-        }
-        if (connector != null) {
             if (keepalive) {
                 try {
                     exn_synchronizer.await();
@@ -115,6 +113,22 @@ public class LocalExecution implements Callable<Integer> {
                 // exn-connector-java throws spurious Groovy-internal error
                 // when stopping; let's not crash in the end
             }
+        } else {
+            log.info("Not connected to ActiveMQ, printing AMPL and (if given) performance metric list");
+            JsonNode solverMessage = app.calculateAMPLMessage();
+            String ampl = solverMessage.at("/ModelFileContent").asText();
+            System.out.println("--------------------");
+            System.out.println("Message");
+            System.out.println("--------------------");
+            System.out.println(solverMessage.toPrettyString());
+            System.out.println("--------------------");
+            System.out.println("AMPL");
+            System.out.println("--------------------");
+            System.out.println(ampl);
+            System.out.println("--------------------");
+            System.out.println("Metrics");
+            System.out.println("--------------------");
+            AMPLGenerator.getMetricList(app).forEach(System.out::println);
         }
         return 0;
     }

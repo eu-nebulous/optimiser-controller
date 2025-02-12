@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -1055,21 +1056,20 @@ public class ExnConnector {
 
     /**
      * Broadcasts an application's state, with an auxiliary data value
-     * attached.<p>
+     * attached.
      *
-     * Messages are in the same form as sent by {@link #sendAppStatus(String,
-     * NebulousApp.State)} but with an additional {@code key: value} entry in
-     * the status message.
+     * <p>Messages are in the same form as sent by {@link
+     * #sendAppStatus(String, NebulousApp.State)} but with additional entries
+     * in the status message.  If the additional entries contain fields named
+     * "state" or "when", they will be overwritten.
      *
      * @param appID the application id.
      * @param state the state of the application.
-     * @param key the key of an additional entry in the status message
-     * @param value the value of an additional entry in the status message
+     * @param additionalEntries Additional entries to add to the state message.
      */
-    public void sendAppStatus(String appID, NebulousApp.State state, String key, JsonNode value) {
-        Map<String, Object> msg = Map.of(
-            "state", state.toString(),
-            key, mapper.convertValue(value, Map.class));
+    public void sendAppStatus(String appID, NebulousApp.State state, Map<String, Object> additionalEntries) {
+        Map<String, Object> msg = new HashMap<>(additionalEntries);
+        msg.put("state", state.toString());
         appStatusPublisher.send(msg, appID);
     }
 

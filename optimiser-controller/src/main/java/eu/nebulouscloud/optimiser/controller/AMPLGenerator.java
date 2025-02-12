@@ -3,16 +3,15 @@ package eu.nebulouscloud.optimiser.controller;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.StreamSupport;
-
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -33,6 +32,21 @@ public class AMPLGenerator {
     public static List<String> getMetricList(NebulousApp app) {
         return new ArrayList<>(usedMetrics(app));
     }
+
+    private static final ObjectMapper mapper = new ObjectMapper();
+
+    /** Table with negated AMPL operators. */
+    private static Map<String, String> negatedAMPLOperators = Map.of(
+        // Note that solvers want closed intervals, hence always converting to >=
+        "<", ">=",
+        "<=", ">=",
+        ">", "<=",
+        ">=", "<=",
+        "==", "=",
+        // these are to flip the boolean combinator on composite conditions
+        "or", "and",
+        "and", "or"
+    );
 
     /**
      * Generate AMPL code.
@@ -70,14 +84,91 @@ public class AMPLGenerator {
     }
 
     private static void generateConstraints(NebulousApp app, PrintWriter out) {
-        // We only care about SLOs defined over performance indicators
-        out.println("# Constraints. For constraints we don't have name from GUI, must be created");
+        out.println("# Constraints extracted from `/sloViolations`. For these we don't have name from GUI, must be created");
+        out.println("# For the solver, SLOs must be negated and operators must be >=, <= (not '>', '<')");
         int counter = 0;
         for (JsonNode slo : app.getEffectiveConstraints()) {
-            out.format("subject to constraint_%d : ", counter);
-            emitCondition(out, slo);
-            out.println(";");
-            counter = counter + 1;
+            if (slo instanceof ObjectNode slo_obj) {
+                ObjectNode constraint = normalizeSLO(slo_obj);
+                // go from forbidden regions to allowed regions
+                negateCondition(constraint);
+                if (constraint.at("/isComposite").asBoolean()
+                    && constraint.at("/condition").asText()
+                        .equalsIgnoreCase("and"))
+                {
+                    // The moderately happy path: the constraint was a
+                    // disjunction "a or b", we emit its negation "not a and
+                    // not b".  If a or b are composite, we still lose.
+                    for (JsonNode child : constraint.withArray("/children")) {
+                        out.format("subject to constraint_%d : ", counter);
+                        emitCondition(out, child);
+                        out.println(";");
+                        counter = counter + 1;
+                    }
+                } else {
+                    // The unhappy path: the slo was not a disjunction; we
+                    // emit the negated complex formula as-is and hope the
+                    // solver is up to it
+                    out.format("subject to constraint_%d : ", counter);
+                    emitCondition(out, slo);
+                    out.println(";");
+                    counter = counter + 1;
+                }
+            } else {
+                // impossible situation: SLO is always a JSON object
+            }
+        }
+        out.println("# Constraints specified with `type: constraint` in `/utilityFunctions`");
+        for (JsonNode c : app.getSpecifiedConstraints()) {
+            String formula = replaceVariables(
+                c.at("/expression/formula").asText(),
+                c.withArray("/expression/variables"));
+            String operator = c.at("/expression/operator").asText();
+            if (operator.equals("==")) operator = "=";
+            out.format("subject to %s :%n	%s %s 0;%n",
+                c.at("/name").asText(), formula, operator);
+        }
+    }
+
+    public static ObjectNode normalizeSLO(ObjectNode slo) {
+        ObjectNode s = slo.deepCopy(); // don't mutate our argument
+        normalizeCondition(s);
+        return s;
+    }
+
+    /**
+     * Eliminate negations in all composite conditions (from not (a and b) to
+     * not a or not b).
+     */
+    private static void normalizeCondition(ObjectNode condition) {
+        if (condition.at("/isComposite").asBoolean()) {
+            ArrayNode children = condition.withArray("/children");
+            for (JsonNode c : children) {
+                if (c instanceof ObjectNode child) { // should always be
+                    normalizeCondition(child);
+                }
+            }
+            if (condition.at("/not").asBoolean()) {
+                negateCondition(condition);
+            }
+            // TODO: if any children are composite and have the same operator
+            // as we do, merge their children into our children.
+        }
+    }
+
+    /**
+     * Negate condition: go from x<5 to x>=5, go from a and b to not a or not b
+     */
+    public static void negateCondition(ObjectNode condition) {
+        if (condition.at("/isComposite").asBoolean()) {
+            condition.put("condition",
+                negatedAMPLOperators.get(condition.at("/condition").asText().toLowerCase()));
+            for (JsonNode c : condition.withArray("/children")) {
+                negateCondition((ObjectNode) c);
+            }
+        } else {
+            String operator = condition.at("/operator").asText();
+            condition.put("operator", negatedAMPLOperators.getOrDefault(operator, operator));
         }
     }
 
@@ -165,10 +256,31 @@ public class AMPLGenerator {
         out.println("# Performance indicator formulas");
         for (final JsonNode m : app.getPerformanceIndicators().values()) {
             String name = m.get("name").asText();
-            String formula = m.get("formula").asText();
+            String formula = replaceConstantsWithDefinitions(app, m);
             out.format("subject to define_%s : %s = %s;%n", name, name, formula);
         }
         out.println();
+    }
+
+    private static String replaceConstantsWithDefinitions(NebulousApp app, JsonNode performanceIndicator) {
+        // loop through arguments, check if any is a constant (as defined in
+        // utilityFunctions), string-replace argument name in formula with its definition
+        String formula = performanceIndicator.at("/formula").asText();
+        for (JsonNode arg : performanceIndicator.withArray("/arguments")) {
+            String argname = arg.asText();
+            JsonNode definition = app.getUtilityFunctions().get(argname);
+            if (definition != null) {
+                String constant_formula = definition.at("/expression/formula").asText();
+                ArrayNode constant_variables = definition.withArray("/expression/variables");
+                String definition_formula = replaceVariables(constant_formula, constant_variables);
+                formula = replaceVariables(formula,
+                    mapper.createArrayNode()
+                        .add(mapper.createObjectNode()
+                            .put("name", argname)
+                            .put("value", definition_formula)));
+            }
+        }
+        return formula;
     }
 
     private static void generateMetricsSection(NebulousApp app, PrintWriter out) {
@@ -296,8 +408,8 @@ public class AMPLGenerator {
      * Replace variables in formulas.
      *
      * @param formula a string like "A + B".
-     * @param mappings an object with mapping from variables to their
-     *  replacements.
+     * @param mappings an array of ObjectNodes, mapping from variables to
+     *  their replacements.
      * @return the formula, with all variables replaced.
      */
     private static String replaceVariables(String formula, ArrayNode mappings) {
@@ -305,18 +417,17 @@ public class AMPLGenerator {
         // replacement, we should parse the formula here.  For now, since
         // variables are word-shaped, we can hopefully get by with regular
         // expressions on the string representation of the formula.
+        Map<String, String> mappings_ = new HashMap<>();
+        mappings.elements().forEachRemaining(
+            (v) -> mappings_.put(v.at("/name").asText(), v.at("/value").asText()));
         StringBuilder result = new StringBuilder(formula);
         Pattern id = Pattern.compile("\\b(\\w+)\\b");
         Matcher matcher = id.matcher(formula);
         int lengthDiff = 0;
         while (matcher.find()) {
             String var = matcher.group(1);
-
-            JsonNode re = StreamSupport.stream(Spliterators.spliteratorUnknownSize(mappings.elements(), Spliterator.ORDERED), false)
-                .filter(v -> v.at("/name").asText().equals(var))
-                .findFirst().orElse(null);
-            if (re != null) {
-                String replacement = re.get("value").asText();
+            if (mappings_.containsKey(var)) {
+                String replacement = mappings_.get(var);
                 int start = matcher.start(1) + lengthDiff;
                 int end = matcher.end(1) + lengthDiff;
                 result.replace(start, end, replacement);
@@ -325,5 +436,6 @@ public class AMPLGenerator {
         }
         return result.toString();
     }
+
 }
 
