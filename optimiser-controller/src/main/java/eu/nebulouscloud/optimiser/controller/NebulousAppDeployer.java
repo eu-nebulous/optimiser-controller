@@ -377,7 +377,15 @@ public class NebulousAppDeployer {
                 // Immediately sleep on first loop iteration, so SAL has a chance to catch up
                 Thread.sleep(pollInterval);
             } catch (InterruptedException e1) {
-                log.debug("Thread.sleep got interrupted while polling for cluster status", e1);
+                // FIXME: we observe, in some cases, a tight loop of calls to
+                // SAL's getCluster endpoint.  We theorize that the calls
+                // originate from here, since no other getCluster calls are in
+                // a loop.  Until we get logs showing the exception (as logged
+                // here) and can diagnose this properly, just log the
+                // exception and clear the interrupted flag.
+                // https://github.com/eu-nebulous/optimiser-controller/issues/87
+                log.debug("Thread.sleep received InterruptedException while polling for cluster status", e1);
+                Thread.interrupted(); // clear interrupted flag
             }
             JsonNode clusterState = conn.getCluster(appID, clusterName);
             final ClusterStatus status;
