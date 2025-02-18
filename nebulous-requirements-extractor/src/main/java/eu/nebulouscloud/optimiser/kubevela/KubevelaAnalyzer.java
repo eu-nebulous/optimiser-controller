@@ -145,9 +145,7 @@ public class KubevelaAnalyzer {
 
     /**
      * Given a KubeVela file, extract how many nodes to deploy for each
-     * component.  Note that this can be zero when the component should not be
-     * deployed at all.  This can happen for example when there is a cloud and
-     * an edge version of the component and only one of them should run.<p>
+     * component.
      *
      * We currently look for the following component trait:
      *
@@ -160,14 +158,19 @@ public class KubevelaAnalyzer {
      *
      * If this trait is not found for a component, its count will be 1.
      *
+     * <p>Note that the map entry can be zero when the component should not be
+     * deployed at all.  This can happen for example when there is a cloud and
+     * an edge version of the component and only one of them should run.
+     *
+     * <p>Note that some components named in kubevela will not have entries in
+     * the map, among them serverless and volume components.
+     *
      * @param kubevela the parsed KubeVela file.
      * @return A map from component name to number of instances to generate.
      */
     public static Map<String, Integer> getNodeCount(JsonNode kubevela) {
         Map<String, Integer> result = new HashMap<>();
-        ArrayNode components = kubevela.withArray("/spec/components");
-        for (final JsonNode c : components) {
-            if (!componentNeedsNode(c)) continue;
+        for (final JsonNode c : getNodeComponents(kubevela).values()) {
             result.put(c.get("name").asText(), 1); // default value; might get overwritten
             for (final JsonNode t : c.withArray("/traits")) {
                 if (t.at("/type").asText().equals("scaler")
@@ -191,6 +194,24 @@ public class KubevelaAnalyzer {
      */
     public static Map<String, Integer> getNodeCount(String kubevela) throws JsonProcessingException {
         return getNodeCount(parseKubevela(kubevela));
+    }
+
+    /**
+     * Extract all components that need to be deployed on a node.
+     *
+     * <p>Serverless and volume components do not get their own node.
+     *
+     * @param kubevela The parsed kubevela file.
+     * @return A map from component name to its JSON node.
+     */
+    public static Map<String, JsonNode> getNodeComponents(JsonNode kubevela) {
+        Map<String, JsonNode> result = new HashMap<>();
+        for (final JsonNode c : kubevela.withArray("/spec/components")) {
+            if (componentNeedsNode(c)) {
+                result.put(c.get("name").asText(), c);
+            }
+        }
+        return result;
     }
 
     /**
@@ -383,6 +404,9 @@ public class KubevelaAnalyzer {
      *   up with needing, e.g., 3 cores, which is not a configuration commonly
      *   provided by cloud providers. <p>
      *
+     * <p>Note that some components named in kubevela will not have entries in
+     * the map, among them serverless and volume components.
+     *
      * @param kubevela the parsed KubeVela file.
      * @param includeNebulousRequirements if true, include requirements for
      *  minimum memory size, Ubuntu OS.  These requirements ensure that the
@@ -393,9 +417,7 @@ public class KubevelaAnalyzer {
      */
     public static Map<String, List<Requirement>> getBoundedRequirements(JsonNode kubevela, boolean includeNebulousRequirements) {
         Map<String, List<Requirement>> result = new HashMap<>();
-        ArrayNode components = kubevela.withArray("/spec/components");
-        for (final JsonNode c : components) {
-            if (!componentNeedsNode(c)) continue;
+        for (final JsonNode c : getNodeComponents(kubevela).values()) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             if (includeNebulousRequirements) {
@@ -438,11 +460,13 @@ public class KubevelaAnalyzer {
      * upper bound of twice the requirement size.  I.e., for cpu=2, we ask for
      * cpu >= 2, cpu <= 4.  Take care to not ask for less than 2048Mb of
      * memory since that's the minimum Nebulous requirement for now.
+     *
+     * <p>Note that some components named in kubevela will not have entries in
+     * the map, among them serverless and volume components.
      */
     public static Map<String, List<Requirement>> getClampedRequirements(JsonNode kubevela) {
         Map<String, List<Requirement>> result = new HashMap<>();
-        ArrayNode components = kubevela.withArray("/spec/components");
-        for (final JsonNode c : components) {
+        for (final JsonNode c : getNodeComponents(kubevela).values()) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             addNebulousRequirements(c, reqs);
@@ -478,11 +502,13 @@ public class KubevelaAnalyzer {
      * amounts, i.e., ask for precisely cpu == 2, memory == 2048 instead of
      * asking for >= or <=.  Note that we still ask for >= 2048 Mb since
      * that's the nebulous lower bound for now.
+     *
+     * <p>Note that some components named in kubevela will not have entries in
+     * the map, among them serverless and volume components.
      */
     public static Map<String, List<Requirement>> getPreciseRequirements(JsonNode kubevela) {
         Map<String, List<Requirement>> result = new HashMap<>();
-        ArrayNode components = kubevela.withArray("/spec/components");
-        for (final JsonNode c : components) {
+        for (final JsonNode c : getNodeComponents(kubevela).values()) {
             String componentName = c.get("name").asText();
             ArrayList<Requirement> reqs = new ArrayList<>();
             addNebulousRequirements(c, reqs);

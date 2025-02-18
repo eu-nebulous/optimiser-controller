@@ -488,9 +488,7 @@ public class NebulousAppDeployer {
         // ------------------------------------------------------------
         // Extract node requirements
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
-        Map<String, JsonNode> components = new HashMap<>();
-        kubevela.withArray("/spec/components").forEach(
-            c -> components.put(c.at("/name").asText(), c));
+        Map<String, JsonNode> nodeComponents = KubevelaAnalyzer.getNodeComponents(kubevela);
         Map<String, Integer> nodeCounts = KubevelaAnalyzer.getNodeCount(kubevela);
         List<Requirement> controllerRequirements = getControllerRequirements(appUUID);
         // // HACK: do this only when cloud id = nrec
@@ -535,7 +533,7 @@ public class NebulousAppDeployer {
             return;
         }
 
-        Map<String, List<NodeCandidate>> suggestedNodeCandidates = findComponentNodeCandidates(conn, appUUID, app.getClouds(), components, componentRequirements);
+        Map<String, List<NodeCandidate>> suggestedNodeCandidates = findComponentNodeCandidates(conn, appUUID, app.getClouds(), nodeComponents, componentRequirements);
         // Note that in this map we use the master _node name_ but the
         // KubeVela _component names_. The master node doesn't have an entry
         // in the KubeVela file, and we just need some identifier to keep
@@ -825,10 +823,7 @@ public class NebulousAppDeployer {
         // 5. Call labelNodes for added nodes, to-be-removed nodes
         // 6. Call deployApplication
         // 7. call scaleIn endpoint with list of removed node names
-        Map<String, JsonNode> components = new HashMap<>();
-        updatedKubevela.withArray("/spec/components").forEach(
-            c -> components.put(c.at("/name").asText(), c));
-
+        Map<String, JsonNode> components = KubevelaAnalyzer.getNodeComponents(updatedKubevela);
         Map<String, List<Requirement>> componentRequirements = KubevelaAnalyzer.getBoundedRequirements(updatedKubevela);
         Map<String, Integer> componentReplicaCounts = KubevelaAnalyzer.getNodeCount(updatedKubevela);
 
