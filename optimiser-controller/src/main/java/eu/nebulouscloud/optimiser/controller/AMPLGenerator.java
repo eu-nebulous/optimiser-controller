@@ -204,6 +204,8 @@ public class AMPLGenerator {
         for (JsonNode f : app.getUtilityFunctions().values()) {
             if (f.get("type").asText().equals("constant"))
                 continue;
+            if (f.get("type").asText().equals("constraint"))
+                continue;
             String formula = replaceVariables(
                 f.at("/expression/formula").asText(),
                 f.withArray("/expression/variables"));
