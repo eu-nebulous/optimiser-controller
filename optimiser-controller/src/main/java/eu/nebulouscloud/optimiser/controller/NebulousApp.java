@@ -724,9 +724,14 @@ public class NebulousApp {
             JsonNode functionVariable = function.withArray("/expression/variables").get(0);
             String variableName = functionVariable.get("value").asText();
             JsonNode variable = this.getKubevelaVariables().getOrDefault(variableName, jsonMapper.missingNode());
-            JsonPointer path = kubevelaVariablePaths.get(variableName);
+            JsonPointer path = kubevelaVariablePaths.getOrDefault(variableName, null);
+            if (path == null) {
+                // Not all constants might be references to kubevela
+                // locations; skip if we don't find an entry
+                continue;
+            }
             JsonNode value = originalKubevela.at(path);
-            ObjectNode constant = constants.withObject(function.get("name").asText());
+            ObjectNode constant = constants.withObject(function.at("/name").asText());
             constant.put("Variable", variableName);
             String meaning = variable.at("/meaning").asText("unknown");
             if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
