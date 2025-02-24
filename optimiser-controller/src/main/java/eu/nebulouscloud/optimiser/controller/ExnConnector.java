@@ -431,11 +431,13 @@ public class ExnConnector {
                 NebulousApp app = NebulousApps.get(appId);
                 if (app == null) {
                     log.info("Received solver status message {} for unknown app object, this should not happen", body);
-                } else {
+                } else try {
                     // This should be very quick, no need to start a thread
                     MDC.put("clusterName", app.getClusterName());
                     app.sendAMPL(app.calculateAMPLMessage());
                     app.sendMetricList(); // re-send for solver
+                } catch (Exception e) {
+                    log.error("Internal error while processing solver status message", e);
                 }
             } finally {
                 MDC.clear();
