@@ -1,0 +1,96 @@
+{
+   "content" : "apiVersion: core.oam.dev/v1beta1\nkind: Application\nmetadata:\n  name: pausaapp\nspec:\n  components:\n    - name: postgres\n      type: webservice\n      properties:\n        image: \"registry.gitlab.com/forcera/nebulous-pausa/database:latest\"\n        cpu: \"4\"\n        memory: \"8048Mi\"\n        env:\n          - name: POSTGRES_DB\n            value: mydatabase\n          - name: POSTGRES_USER\n            value: admin\n          - name: POSTGRES_PASSWORD\n            value: admin\n        readinessProbe:\n          exec:\n            command: [\"pg_isready\", \"-U\", \"admin\"]\n          initialDelaySeconds: 10\n          periodSeconds: 10\n          timeoutSeconds: 5\n          failureThreshold: 5\n        livenessProbe:\n          exec:\n            command: [\"pg_isready\", \"-U\", \"admin\"]\n          initialDelaySeconds: 10\n          periodSeconds: 10\n          timeoutSeconds: 5\n          failureThreshold: 5\n        ports:\n          - port: 5432\n            expose: true\n            protocol: TCP\n      traits:\n        - type: scaler\n          properties:\n            replicas: 1\n    - name: \"metabase\"\n      type: \"webservice\"\n      dependsOn:\n        - postgres\n      properties:\n        image: \"registry.gitlab.com/forcera/nebulous-pausa/user-interface\"\n        cpu: 4\n        memory: \"8048Mi\"\n        imagePullPolicy: \"Always\"\n        env:\n          - name: MB_DB_TYPE\n            value: postgres\n          - name: MB_DB_PORT\n            value: \"5432\"\n          - name: MB_DB_HOST\n            value: postgres\n          - name: MB_DB_PASS\n            value: admin\n          - name: MB_DB_USER\n            value: admin\n          - name: MB_DB_DBNAME\n            value: mydatabase\n        exposeType: NodePort\n        ports:\n          - name: meta-vis\n            port: 3000\n            expose: true\n            protocol: TCP\n            nodePort: 30008\n          - name: prom-metric\n            port: 9090\n            expose: true\n            protocol: TCP\n      traits:\n        - type: \"scaler\"\n          properties:\n            replicas: 1\n",
+   "environmentVariables" : [
+      {
+         "name" : "AMPL_LICENSE",
+         "secret" : "false",
+         "value" : "n/a"
+      }
+   ],
+   "metrics" : [
+      {
+         "name" : "current_cpu",
+         "output" : "all 20 sec",
+         "sensor" : {
+            "config" : {
+               "component" : "metabase",
+               "results-aggregation" : "SUM"
+            },
+            "type" : "netdata system.cpu"
+         },
+         "type" : "raw"
+      },
+      {
+         "formula" : "mean(current_cpu)",
+         "name" : "mean_cpu",
+         "output" : "all 60 sec",
+         "template" : "percentage",
+         "type" : "composite",
+         "window" : {
+            "size" : "60 sec",
+            "type" : "sliding"
+         }
+      }
+   ],
+   "resources" : [
+      {
+         "enabled" : "true",
+         "platform" : "AWS",
+         "regions" : "us-east-1",
+         "title" : "blah",
+         "uuid" : "eut-aws-cloud-prod-20250224"
+      }
+   ],
+   "status" : "deploying",
+   "title" : "Augmenta-30072024",
+   "utilityFunctions" : [
+      {
+         "expression" : {
+            "formula" : "abs(suggested_cores-ceil(current_cores-1.189062 + 0.388021*((current_cpu_load/(current_cores*100.0)))+ 1.223958*((current_cpu_load/(current_cores*100.0)))^2))",
+            "variables" : [
+               {
+                  "name" : "suggested_cores",
+                  "value" : "spec_components_1_properties_cpu"
+               },
+               {
+                  "name" : "current_cores",
+                  "value" : "current_cpu_ammount"
+               },
+               {
+                  "name" : "current_cpu_load",
+                  "value" : "mean_cpu"
+               }
+            ]
+         },
+         "name" : "UtilityFunction",
+         "type" : "minimize"
+      },
+      {
+         "expression" : {
+            "formula" : "a",
+            "variables" : [
+               {
+                  "name" : "a",
+                  "value" : "spec_components_1_properties_cpu"
+               }
+            ]
+         },
+         "name" : "current_cpu_ammount",
+         "type" : "constant"
+      }
+   ],
+   "uuid" : "1321032502FORCERA1740486063465",
+   "variables" : [
+      {
+         "key" : "spec_components_1_properties_cpu",
+         "meaning" : "cpu",
+         "path" : "/spec/components/1/properties/cpu",
+         "type" : "float",
+         "value" : {
+            "higher_bound" : 12,
+            "lower_bound" : 2
+         }
+      }
+   ],
+   "when" : "2025-02-25T12:21:05.228123100Z"
+}

@@ -255,22 +255,10 @@ public class KubevelaAnalyzer {
         JsonNode cpu = c.at("/properties/cpu");
         if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
         if (!cpu.isMissingNode()) {
-            // KubeVela has fractional core /cpu requirements, and the
-            // value might be given as a string instead of a number, so
-            // parse string in all cases.
-            double kubevela_cpu = -1;
             try {
-                kubevela_cpu = Double.parseDouble(cpu.asText());
+                return kubevelaNumberToLong(cpu, "cpu");
             } catch (NumberFormatException e) {
-                log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
-                return -1;
-            }
-            long sal_cores = Math.round(Math.ceil(kubevela_cpu));
-            if (sal_cores > 0) {
-                return sal_cores;
-            } else {
-                // floatValue returns 0.0 if node is not numeric
-                log.warn("CPU spec in " + componentName + " is not a number, value seen is " + cpu.asText());
+                log.warn("CPU spec in {} is not a number, value seen is {} -- optimistically resuming without CPU requirement", componentName, cpu.asText());
                 return -1;
             }
         } else {
@@ -290,7 +278,12 @@ public class KubevelaAnalyzer {
 
     /**
      * Return the long value of the given JSON node.  If the meaning is
-     * "memory", also handle "Mi" and "Gi" suffixes.
+     * "memory", also handle "Mi" and "Gi" suffixes.  If the meaning is "cpu",
+     * round up to the nearest integer.  For all other values of meaning,
+     * parse as long.
+     *
+     * @throws NumberFormatException if first argument cannot be parsed as a
+     *  number according to the given meaning.
      */
     public static long kubevelaNumberToLong(JsonNode number, String meaning) throws NumberFormatException {
         if ("memory".equals(meaning)) {
@@ -309,6 +302,14 @@ public class KubevelaAnalyzer {
                     return Long.parseLong(numericString);
                 }
             }
+        } else if ("cpu".equals(meaning)) {
+            // KubeVela has fractional core/cpu requirements, and the value
+            // might be given as a string instead of a number, so parse string
+            // in all cases.  Note that we don't protect against cpu=0 or
+            // negative values here.
+            double kubevela_cpu = Double.parseDouble(number.asText());
+            long sal_cores = Math.round(Math.ceil(kubevela_cpu));
+            return sal_cores;
         } else {
             if (number.canConvertToLong()) {
                 return number.asLong();
