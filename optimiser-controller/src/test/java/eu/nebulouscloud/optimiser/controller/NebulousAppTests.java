@@ -157,4 +157,17 @@ public class NebulousAppTests {
         assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/3")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // default unspecified
     }
 
+    @Test
+    void parseInvalidCPUValue() throws IOException, URISyntaxException {
+        // Check we handle "4.0" for CPU
+        NebulousApp app = appFromTestFile("bug-101-string.json");
+        assertNotNull(app.calculateAMPLMessage());
+        // Check we handle 4.0 for CPU
+        app = appFromTestFile("bug-101-float.json");
+        assertNotNull(app.calculateAMPLMessage());
+        // Check we handle 4 for CPU
+        app = appFromTestFile("bug-101-int.json");
+        assertNotNull(app.calculateAMPLMessage());
+    }
+
 }
