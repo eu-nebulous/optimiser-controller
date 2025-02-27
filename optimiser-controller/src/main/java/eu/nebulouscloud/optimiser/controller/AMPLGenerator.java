@@ -247,10 +247,18 @@ public class AMPLGenerator {
         }
         out.println(";");
         out.println();
+        // TODO: generate "var application_deployment_price =
+        // nReplica1 * cost1 + nReplica2 * cost2 + ..." if there's a
+        // variable with meaning "price" (and no path) in the variable
+        // list.  nReplica can be a variable name, or a literal from
+        // the kubevela file if no variable is defined for the number
+        // of replicas of that component.  costn comes from the cost
+        // parameters above.
     }
 
     private static void generatePerformanceIndicatorsSection(NebulousApp app, PrintWriter out) {
         out.println("# Performance indicators = composite metrics that have at least one variable in their formula");
+        // TODO: define directly, use topological sorting
         for (final JsonNode m : app.getPerformanceIndicators().values()) {
             String name = m.get("name").asText();
             out.format("var %s;%n", name);
