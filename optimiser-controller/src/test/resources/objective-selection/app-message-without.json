@@ -1,0 +1,150 @@
+{
+  "title": "Ubiwhere Test",
+  "uuid": "0f2b4837-b67d-427b-8eae-c734c21b7531",
+  "status": "draft",
+  "content": "apiVersion: core.oam.dev/v1beta1\nkind: Application\nmetadata:\n  name: nebulous-infrastructure\nspec:\n  publish-version: 1\n  components:\n    - name: nebulous-master\n      type: webservice\n      properties:\n        image: harbor.ubiwhere.com/nebulous/cv_image:nebulous\n        imagePullPolicy: \"Always\"\n        imagePullSecrets: [\"regcred\"]\n        cpu: \"4.0\"\n        memory: \"8Gi\"\n        cmd:\n          - \"python3\"\n          - \"/usr/src/app/algorithm/trackv7.py\"\n          - \"/usr/src/app/prometheus/prometheus_metrics.py\"\n        volumes:\n          - mountPath: /usr/src/app/runs\n            name: output-volume\n          - mountPath: /usr/src/app/algorithm/weights\n            name: weights-volume\n          - mountPath: /usr/src/app/videos\n            name: videos-volume\n          - mountPath: /usr/src/app/prometheus\n            name: prometheus-volume\n        env:\n          - name: \"CLASSES\"\n            value: \"0, 1, 2, 3, 5, 7\"         \n          - name: \"SAVE\"\n            value: \"True\"\n        gpu:\n          resourceType: \"nvidia.com/gpu\"\n          resourceLimit: 50\n        ports:\n          - port: 6379\n            protocol: TCP\n        traits:\n        - type: scaler\n          properties:\n            replicas: 3\n        dependsOn:\n          - redis\n\n    - name: redis\n      type: webservice\n      properties:\n        image: \"redis:6.2.6-alpine\"\n        cpu: \"4.0\"\n        memory: \"8Gi\"",
+  "variables": [
+    {
+      "key": "spec_components_0_properties_traits_0_properties_replicas",
+      "path": "/spec/components/0/properties/traits/0/properties/replicas",
+      "type": "float",
+      "meaning": "replicas",
+      "value": {
+        "lower_bound": 1,
+        "higher_bound": 3
+      }
+    },
+    {
+      "key": "spec_components_0_properties_cpu",
+      "path": "/spec/components/0/properties/cpu",
+      "type": "float",
+      "meaning": "cpu",
+      "value": {
+        "lower_bound": 1,
+        "higher_bound": 3
+      }
+    },
+    {
+      "key": "spec_components_0_properties_memory",
+      "path": "/spec/components/0/properties/memory",
+      "type": "float",
+      "meaning": "memory",
+      "value": {
+        "lower_bound": 4,
+        "higher_bound": 16
+      }
+    },
+    {
+      "key": "application_deployment_price",
+      "path": "",
+      "type": "float",
+      "meaning": "price",
+      "value": {
+        "lower_bound": 0,
+        "higher_bound": 0
+      }
+    }
+  ],
+  "environmentVariables": [],
+  "resources": [],
+  "templates": [],
+  "parameters": [],
+  "metrics": [
+    {
+      "type": "raw",
+      "name": "gpu_usage_percent",
+      "level": "global",
+      "components": [],
+      "sensor": "prometheus gpu_usage_percent",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {
+        "type": "all",
+        "interval": 0,
+        "unit": "ms",
+        "metaType": "object",
+        "scopedObjectName": "doc.application.outputRaw"
+      },
+      "_id": "cm7d5ha7c0011amskgjqf75pp",
+      "metaType": "arrayItem",
+      "scopedArrayName": "doc.application.metrics",
+      "_docId": "cm1663ky4007g01sda4v64jgd:en:published",
+      "_edit": true
+    },
+    {
+      "type": "raw",
+      "name": "cpu_usage_percent",
+      "level": "global",
+      "components": [],
+      "sensor": "prometheus cpu_usage_percent",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {
+        "type": "all",
+        "interval": 0,
+        "unit": "ms",
+        "metaType": "object",
+        "scopedObjectName": "doc.application.outputRaw"
+      },
+      "_id": "cm7d5ha7c0012amskazp1f5ui",
+      "metaType": "arrayItem",
+      "scopedArrayName": "doc.application.metrics",
+      "_docId": "cm1663ky4007g01sda4v64jgd:en:published",
+      "_edit": true
+    },
+    {
+      "type": "raw",
+      "name": "memory_usage_percent",
+      "level": "global",
+      "components": [],
+      "sensor": "prometheus memory_usage_percent",
+      "config": [],
+      "isWindowOutputRaw": true,
+      "outputRaw": {
+        "type": "all",
+        "interval": 0,
+        "unit": "ms",
+        "metaType": "object",
+        "scopedObjectName": "doc.application.outputRaw"
+      },
+      "_id": "cm7d5ha7c0013amsk35lu86kz",
+      "metaType": "arrayItem",
+      "scopedArrayName": "doc.application.metrics",
+      "_docId": "cm1663ky4007g01sda4v64jgd:en:published",
+      "_edit": true
+    }
+  ],
+  "sloViolations": {
+    "nodeKey": "d7d23dc9-16ec-4ab3-a2d6-ff6883cf9a74",
+    "isComposite": true,
+    "condition": "AND",
+    "not": false,
+    "children": [
+      {
+        "nodeKey": "8a4ad522-8fe9-4388-adb9-ff20b060339c",
+        "isComposite": false,
+        "metricName": "cpu_usage_percent",
+        "operator": ">=",
+        "value": 1000
+      }
+    ]
+  },
+  "utilityFunctions": [
+    {
+      "name": "a",
+      "type": "constraint",
+      "expression": {
+        "formula": "f",
+        "variables": [
+          {
+            "name": "f",
+            "value": "spec_components_0_properties_memory"
+          }
+        ]
+      },
+      "operator": "<="
+    }
+  ],
+  "_create": true,
+  "_delete": true
+}

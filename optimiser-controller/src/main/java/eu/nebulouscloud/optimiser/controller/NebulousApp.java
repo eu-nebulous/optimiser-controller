@@ -640,7 +640,7 @@ public class NebulousApp {
                 log.warn("Location {} not found in KubeVela, cannot replace with value {}",
                     key, replacementValue);
                 doReplacement = false;
-            }  else if (param.at("/meaning").asText().equals("memory")) {
+            } else if (param.at("/meaning").asText().equals("memory")) {
                 // Special case: the solver delivers a number for memory, but
                 // KubeVela wants a unit.
                 if (!replacementValue.asText().endsWith("Mi")) {
@@ -703,7 +703,7 @@ public class NebulousApp {
             msg.put("DataFileName", getUUID() + ".dat");
             msg.put("DataFileContent", ampl_data);
         }
-        msg.put("ObjectiveFunction", getObjectiveFunction());
+        msg.put("ObjectiveFunction", getSelectedUtilityFunction());
         ObjectNode constants = msg.withObject("Constants");
           // Define initial values for constant utility functions:
           // "Constants" : {
@@ -777,22 +777,38 @@ public class NebulousApp {
     }
 
     /**
-     * The objective function to use.  In case the app creation message
-     * specifies more than one and doesn't indicate which one to use, choose
-     * the first one.
+     * Return the utility function to use.  A utility function is a function
+     * of type "minimize" or "maximize" in the {@code /utilityFunctions} array
+     * of the app creation message.  (That array also contains functions of
+     * type "constraint" or "constant", which are not utility functions.)
      *
-     * @return the objective function specified in the app creation message.
+     * <p>The function selected by the user contains a "selected: true" flag.
+     * In case of multiple entries with that flag, return the first one; if no
+     * entry has that flag, return the first entry.
+     *
+     * @return the utility function specified in the app creation message, or
+     *  an empty string if none found.
      */
-    private String getObjectiveFunction() {
+    private String getSelectedUtilityFunction() {
         ArrayNode utility_functions = originalAppMessage.withArray(utility_function_path);
+        JsonNode maybeFunction = null;
         for (final JsonNode function : utility_functions) {
-            // do not optimize a constant function
-            if (!(function.get("type").asText().equals("constant"))) {
-                return function.get("name").asText();
-            }
+            if (!(function.at("/type").asText().equals("minimize")
+                  || function.at("/type").asText().equals("maximize")))
+                continue;
+            if (maybeFunction == null) maybeFunction = function;
+            if (function.at("/selected").asBoolean(false))
+                return function.at("/name").asText();
         }
-        log.warn("No non-constant utility function specified for application; solver will likely complain");
-        return "";
+        if (maybeFunction != null) {
+            String result = maybeFunction.at("/name").asText();
+            log.warn("No utility function selected in GUI; continuing with {} (the first function)",
+                result);
+            return result;
+        } else {
+            log.error("No utility function specified; continuing deployment but no optimization is possible.");
+            return "";
+        }
     }
 
     /**
