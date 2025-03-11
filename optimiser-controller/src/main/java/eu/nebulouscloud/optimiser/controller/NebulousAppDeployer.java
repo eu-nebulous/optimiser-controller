@@ -798,7 +798,7 @@ public class NebulousAppDeployer {
         // state etc.
         String deploymentKubevela = "---\n# Did not manage to rewrite KubeVela for deployment";
         try {
-            JsonNode rewritten = createDeploymentKubevela(updatedKubevela);;
+            JsonNode rewritten = createDeploymentKubevela(updatedKubevela);
             deploymentKubevela = yamlMapper.writeValueAsString(rewritten);
         } catch (IllegalStateException e) {
             log.error("Failed to create deployment kubevela, aborting redeployment.", e);
