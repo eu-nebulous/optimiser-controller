@@ -72,7 +72,7 @@ public class NebulousAppTests {
                                 // objects can accumulate; reset state
         NebulousApp app = appFromTestFile("app-creation-message-mercabana.json");
         NebulousApp app2 = appFromTestFile("app-message-2.json");
-        assertTrue(NebulousApps.values().size() == 2,
+        assertEquals(2, NebulousApps.values().size(),
             "Expected 2 app objects but got " + NebulousApps.values().size());
     }
 
@@ -88,12 +88,34 @@ public class NebulousAppTests {
         String kubevela_str = yaml_mapper.writeValueAsString(kubevela1);
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
         JsonNode replicas = kubevela.at("/spec/components/0/traits/0/properties/replicas");
-        assertTrue(replicas.asText().equals("8"));
-        JsonNode cpu = kubevela.at("/spec/components/0/properties/requests/cpu");
-        JsonNode memory = kubevela.at("/spec/components/0/properties/requests/memory");
-        assertTrue(cpu.asText().equals("3.5"));
-        assertTrue(memory.asText().equals("4096Mi"));
+        assertEquals("8", replicas.asText());
+        JsonNode component = kubevela.at("/spec/components/0");
+        JsonNode cpu = component.at("/properties/requests/cpu");
+        JsonNode memory = component.at("/properties/requests/memory");
+        assertEquals("3.5", cpu.asText());
+        assertEquals("4096Mi", memory.asText());
+        assertEquals(4096, KubevelaAnalyzer.getMemoryRequirement(component, "(component 0)"));
     }
+
+    @Test
+    void bug106() throws IOException, URISyntaxException {
+        // https://github.com/eu-nebulous/optimiser-controller/issues/106
+        NebulousApp app = appFromTestFile("bug-106/app-creation-message.json");
+        String solution_string = Files.readString(getResourcePath("bug-106/solver-message.json"),
+            StandardCharsets.UTF_8);
+        JsonNode solutions = mapper.readTree(solution_string);
+        ObjectNode replacements = solutions.withObject("VariableValues");
+        ObjectNode kubevela1 = app.rewriteKubevelaWithSolution(replacements);
+        // We deserialize and serialize, just for good measure
+        String kubevela_str = yaml_mapper.writeValueAsString(kubevela1);
+        JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
+        JsonNode c = kubevela.at("/spec/components/5");
+        JsonNode memory = kubevela.at("/spec/components/5/properties/memory");
+        assertEquals("8.0Gi", memory.asText());
+        assertEquals(8192, KubevelaAnalyzer.getMemoryRequirement(c, "(component 5)"));
+    }
+
+
 
     @Test
     void calculateNodeRequirementsSize() throws IOException, URISyntaxException {
@@ -106,7 +128,7 @@ public class NebulousAppTests {
         // essentially duplicate the method code--so we just make sure the
         // method runs without error for well-formed KubeVela and returns
         // one requirement for each component.
-        assertTrue(requirements.size() == kubevela.withArray("/spec/components").size());
+        assertEquals(kubevela.withArray("/spec/components").size(), requirements.size());
     }
 
     @Test
@@ -114,7 +136,7 @@ public class NebulousAppTests {
         JsonNode kubevela = KubevelaAnalyzer.parseKubevela(Files.readString(getResourcePath("serverless-deployment.yaml"), StandardCharsets.UTF_8));
         Map<String, List<Requirement>> requirements = KubevelaAnalyzer.getBoundedRequirements(kubevela);
         // We have one serverless component, so we need n-1 VMs
-        assertTrue(requirements.size() == kubevela.withArray("/spec/components").size() - 1);
+        assertEquals(kubevela.withArray("/spec/components").size() - 1, requirements.size());
         // Check that we detect serverless components
         assertTrue(KubevelaAnalyzer.hasServerlessComponents(kubevela));
         // Check that we actually find the serverless platform we want to deploy on
@@ -144,17 +166,17 @@ public class NebulousAppTests {
         // essentially duplicate the method code--so we just make sure the
         // method runs without error for well-formed KubeVela and returns
         // one requirement for each component.
-        assertTrue(requirements.size() == kubevela1.withArray("/spec/components").size());
+        assertEquals(kubevela1.withArray("/spec/components").size(), requirements.size());
     }
 
     @Test
     void checkComponentPlacements() throws IOException, URISyntaxException {
         NebulousApp app = appFromTestFile("app-creation-message-mercabana-edge.json");
         JsonNode kubevela = app.getOriginalKubevela();
-        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/0")), NebulousAppDeployer.ComponentLocationType.EDGE_ONLY); // explicitly specified EDGE
-        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/1")), NebulousAppDeployer.ComponentLocationType.CLOUD_ONLY); // explicitly specified CLOUD
-        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/2")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // explicity specified ANY
-        assertEquals(NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/3")), NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD); // default unspecified
+        assertEquals(NebulousAppDeployer.ComponentLocationType.EDGE_ONLY, NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/0"))); // explicitly specified EDGE
+        assertEquals(NebulousAppDeployer.ComponentLocationType.CLOUD_ONLY, NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/1"))); // explicitly specified CLOUD
+        assertEquals(NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD, NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/2"))); // explicity specified ANY
+        assertEquals(NebulousAppDeployer.ComponentLocationType.EDGE_AND_CLOUD, NebulousAppDeployer.getComponentLocation(kubevela.at("/spec/components/3"))); // default unspecified
     }
 
     @Test
