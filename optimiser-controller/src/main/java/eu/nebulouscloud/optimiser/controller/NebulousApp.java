@@ -642,11 +642,18 @@ public class NebulousApp {
                 doReplacement = false;
             } else if (param.at("/meaning").asText().equals("memory")) {
                 // Special case: the solver delivers a number for memory, but
-                // KubeVela wants a unit.
-                if (!replacementValue.asText().endsWith("Mi")) {
-                    // Don't add a second "Mi", just in case the solver has
-                    // become self-aware and starts adding it on its own
-                    replacementValue = new TextNode(replacementValue.asText() + "Mi");
+                // KubeVela wants a number with a unit, so we have to add one.
+                // Also, we have cases where the initial node size is
+                // specified in GB but the formulas and boundaries are
+                // expressed in MB (and vice versa), so we have to use a
+                // heuristic for guessing which unit the user meant.
+                if (!(replacementValue.asText().endsWith("Mi")
+                      || replacementValue.asText().endsWith("Gi"))) {
+                    if (replacementValue.asDouble() <= 512) {
+                        replacementValue = new TextNode(replacementValue.asText() + "Gi");
+                    } else {
+                        replacementValue = new TextNode(replacementValue.asText() + "Mi");
+                    }
                 }
             }              // Handle other special cases here, as they come up
             if (doReplacement) {

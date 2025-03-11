@@ -1,0 +1,12 @@
+{
+    "when":"2025-03-11T13:46:53.679146Z",
+    "ObjectiveValues":{
+        "f1":0
+    },
+    "DeploySolution":true,
+    "ObjectiveFunction":"f1",
+    "VariableValues": {
+        "spec_components_5_properties_memory":8.0
+    },
+    "Timestamp":1741700813672
+}

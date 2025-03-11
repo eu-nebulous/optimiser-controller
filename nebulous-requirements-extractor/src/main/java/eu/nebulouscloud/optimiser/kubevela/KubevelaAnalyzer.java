@@ -254,6 +254,7 @@ public class KubevelaAnalyzer {
     private static long getCpuRequirement(JsonNode c, String componentName) {
         JsonNode cpu = c.at("/properties/cpu");
         if (cpu.isMissingNode()) cpu = c.at("/properties/resources/requests/cpu");
+        if (cpu.isMissingNode()) cpu = c.at("/properties/requests/cpu");
         if (!cpu.isMissingNode()) {
             try {
                 return kubevelaNumberToLong(cpu, "cpu");
@@ -321,26 +322,33 @@ public class KubevelaAnalyzer {
 
     /**
      * Get memory requirement, taken from "memory" resource requirement in KubeVela
-     * and converted to Megabytes.  We currently handle the "Mi" and "Gi"
-     * suffixes that KubeVela uses.
+     * and converted to Megabytes.
+     *
+     * We currently handle the "Mi" and "Gi" suffixes that KubeVela uses.  The
+     * number can be integer or floating-point.  Floating-point values might
+     * come from the user, when specifying memory in GB, or from the solver.
      *
      * @param c A Component branch of the parsed KubeVela file.
      * @param componentName the component name, used only for logging.
      * @return an integer of memory required in Mb, or -1 in case of no
      *  requirement.
      */
-    private static long getMemoryRequirement(JsonNode c, String componentName) {
+    public static long getMemoryRequirement(JsonNode c, String componentName) {
         JsonNode memory = c.at("/properties/memory");
         if (memory.isMissingNode()) memory = c.at("/properties/resources/requests/memory");
+        if (memory.isMissingNode()) memory = c.at("/properties/requests/memory");
         if (!memory.isMissingNode()) {
             long sal_memory = -1;
             String sal_memory_str = memory.asText();
             if (sal_memory_str.endsWith("Mi")) {
-                sal_memory = Long.parseLong(sal_memory_str.substring(0, sal_memory_str.length() - 2));
+                sal_memory = Double.valueOf(sal_memory_str.substring(0, sal_memory_str.length() - 2))
+                    .longValue();
             } else if (sal_memory_str.endsWith("Gi")) {
-                sal_memory = Long.parseLong(sal_memory_str.substring(0, sal_memory_str.length() - 2)) * 1024;
+                sal_memory = Double.valueOf(sal_memory_str.substring(0, sal_memory_str.length() - 2))
+                    .longValue() * 1024;
             } else {
                 log.warn("Unsupported memory specification in component " + componentName + " : " + memory.asText() + " (wanted 'Mi' or 'Gi') ");
+                sal_memory = Double.valueOf(sal_memory_str).longValue();
             }
             return sal_memory;
         } else {
