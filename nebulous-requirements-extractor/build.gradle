@@ -38,7 +38,7 @@ dependencies {
     api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 
     // SAL client library; exported to consumers
-    api('org.ow2.proactive:sal-common:14.1.0-SNAPSHOT') {
+    api("org.ow2.proactive:sal-common:${project.property('salCommonVersion')}") {
         changing = true
     }
 
