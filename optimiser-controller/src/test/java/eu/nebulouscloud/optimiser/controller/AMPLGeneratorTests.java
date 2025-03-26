@@ -25,6 +25,17 @@ public class AMPLGeneratorTests {
     private static final ObjectWriter writer = mapper.writerWithDefaultPrettyPrinter();
 
     @Test
+    void bug112() throws IOException, URISyntaxException {
+        // https://github.com/eu-nebulous/optimiser-controller/issues/112
+        NebulousApp app = appFromTestFile("bug-112/app-creation-message.json");
+        String ampl_should = Files.readString(getResourcePath("bug-112/fire.ampl"), StandardCharsets.UTF_8);
+        JsonNode solverMessage = app.calculateAMPLMessage();
+        assertFalse(solverMessage.at("/ModelFileContent").isMissingNode(), "Missing AMPL file in result");
+        String ampl_is = solverMessage.at("/ModelFileContent").asText();
+        com.google.common.truth.Truth.assertThat(ampl_is).isEqualTo(ampl_should);
+    }
+
+    @Test
     void bug42() throws IOException, URISyntaxException {
         // https://github.com/eu-nebulous/optimiser-controller/issues/42
         NebulousApp app = appFromTestFile("bug-42-app-creation-message.json");
