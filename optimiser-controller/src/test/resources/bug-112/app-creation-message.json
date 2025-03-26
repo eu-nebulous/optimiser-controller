@@ -1,0 +1,173 @@
+{
+  "title" : "fireCOAT 2025-03-25 01",
+  "status" : "draft",
+  "content" : "apiVersion: core.oam.dev/v1beta1\r\nkind: Application\r\nmetadata:\r\n  name: firecoat\r\nspec:\r\n  components:\r\n    - name: firecoat-postgis-pvc\r\n      type: raw\r\n      properties:\r\n        apiVersion: \"v1\"\r\n        kind: \"PersistentVolumeClaim\"\r\n        metadata:\r\n          name: \"firecoat-postgis-pvc\"\r\n        spec:\r\n          accessModes:\r\n            - \"ReadWriteOnce\"\r\n          resources:\r\n            requests:\r\n              storage: \"8Gi\"\r\n          storageClassName: local-path\r\n    - name: firecoat-postgis\r\n      type: webservice\r\n      dependsOn:\r\n        - firecoat-postgis-pvc\r\n      properties:\r\n        image: postgis/postgis:latest\r\n        exposeType: NodePort\r\n        ports:\r\n          - name: postgres-api\r\n            expose: true\r\n            port: 5432\r\n            nodePort: 31032\r\n            protocol: TCP\r\n        env:\r\n          - name: POSTGRES_USER\r\n            value: \"postgres\"\r\n          - name: POSTGRES_PASSWORD\r\n            value: \"admin\"\r\n        volumeMounts:\r\n          pvc:\r\n            - name: postgis-storage\r\n              mountPath: \"/var/lib/postgresql/data\"\r\n              claimName: \"firecoat-postgis-pvc\"\r\n        labels:\r\n          app: firecoat-postgis\r\n        cpu: \"4\"\r\n        memory: \"8Gi\"\r\n    - name: firecoat-map\r\n      type: webservice\r\n      dependsOn:\r\n        - firecoat-postgis\r\n      properties:\r\n        image: reg.biba.uni-bremen.de/nebulous/map-postgresql:latest\r\n        imagePullSecrets: [\"regcred\"]\r\n        exposeType: NodePort\r\n        ports:\r\n          - name: map-ui\r\n            expose: true\r\n            port: 8081\r\n            nodePort: 31080\r\n            protocol: TCP\r\n        env:\r\n          - name: DB_HOST\r\n            value: \"firecoat-postgis\"\r\n          - name: DB_USER\r\n            value: \"postgres\"\r\n          - name: DB_PASSWORD\r\n            value: \"admin\"\r\n          - name: DB_DATABASE\r\n            value: \"nebulous\"\r\n          - name: DB_PORT\r\n            value: \"5432\"\r\n          - name: AUTH\r\n            value: \"false\"\r\n        labels:\r\n          app: firecoat-map\r\n        cpu: \"2\"\r\n        memory: \"4Gi\"\r\n    - name: firecoat-mqtt\r\n      type: webservice\r\n      properties:\r\n        image: reg.biba.uni-bremen.de/nebulous/nbls-fire-mosquitto:latest\r\n        imagePullSecrets: [\"regcred\"]\r\n        exposeType: NodePort\r\n        ports:\r\n          - name: mqtt-api\r\n            expose: true\r\n            port: 1883\r\n            nodePort: 31083\r\n            protocol: TCP\r\n        labels:\r\n          app: firecoat-mqtt \r\n        cpu: \"2\"\r\n        memory: \"4Gi\"\r\n    - name: firecoat-persist\r\n      type: webservice\r\n      dependsOn:\r\n        - firecoat-postgis\r\n        - firecoat-mqtt\r\n        - firecoat-map\r\n      properties:\r\n        image: reg.biba.uni-bremen.de/nebulous/store-postgres:latest\r\n        imagePullSecrets: [\"regcred\"]\r\n        env:\r\n          - name: DB_HOST\r\n            value: \"firecoat-postgis\"\r\n          - name: DB_USER\r\n            value: \"postgres\"\r\n          - name: DB_PASSWORD\r\n            value: \"admin\"\r\n          - name: DB_DATABASE\r\n            value: \"nebulous\"\r\n          - name: DB_PORT\r\n            value: \"5432\"\r\n          - name: MQTT_HOST\r\n            value: \"firecoat-mqtt\"\r\n          - name: MQTT_PORT\r\n            value: \"1883\"\r\n          - name: MQTT_USERNAME\r\n            value: \"persist\"\r\n          - name: MQTT_PASSWORD\r\n            value: \"3zk6_dJTCBK6MkcwnLnB\"\r\n        labels:\r\n          app: firecoat-persist\r\n        cpu: \"2\"\r\n        memory: \"4Gi\"\r\n        traits:\r\n        - type: \"scaler\"\r\n          properties:\r\n            replicas: 1",
+  "variables" : [ {
+    "key" : "spec_components_4_properties_traits_0_properties_replicas",
+    "path" : "/spec/components/4/properties/traits/0/properties/replicas",
+    "type" : "float",
+    "meaning" : "replicas",
+    "value" : {
+      "lower_bound" : 1.0,
+      "higher_bound" : 4.0
+    }
+  } ],
+  "environmentVariables" : [ {
+    "name" : "PRIVATE_DOCKER_REGISTRY_SERVER",
+    "value" : "reg.biba.uni-bremen.de",
+    "secret" : false
+  }, {
+    "name" : "PRIVATE_DOCKER_REGISTRY_USERNAME",
+    "value" : "robot+nebulous+nbls-deploy",
+    "secret" : false
+  }, {
+    "name" : "PRIVATE_DOCKER_REGISTRY_PASSWORD",
+    "value" : "YMI3NDkbot1CpX0G04UUh9gkz3Wc933a",
+    "secret" : false
+  }, {
+    "name" : "PRIVATE_DOCKER_REGISTRY_EMAIL",
+    "value" : "sti@biba.uni-bremen.de",
+    "secret" : false
+  } ],
+  "resources" : [ {
+    "title" : "AWS-BIBA-Frankfurt",
+    "uuid" : "9ecab055-5b9b-4fd0-a257-917853e87da1",
+    "platform" : "AWS",
+    "enabled" : true,
+    "regions" : "eu-central-1"
+  }, {
+    "title" : "eut_aws",
+    "uuid" : "760f0f61-dbd9-4616-80ff-d44f1f07d429",
+    "platform" : "AWS",
+    "enabled" : false,
+    "regions" : "us-east-1"
+  } ],
+  "templates" : [ {
+    "id" : "number",
+    "type" : "int",
+    "minValue" : 1.0,
+    "maxValue" : 100.0,
+    "unit" : "instances"
+  } ],
+  "parameters" : [ {
+    "name" : "replicas",
+    "template" : "number"
+  } ],
+  "metrics" : [ {
+    "type" : "raw",
+    "name" : "messages_per_minute",
+    "level" : "global",
+    "sensor" : "prometheus",
+    "config" : [ {
+      "name" : "port",
+      "value" : "9234",
+      "_id" : "cm6qblmfc03m401x61vt84b8n",
+      "metaType" : "arrayItem",
+      "scopedArrayName" : "doc.application.config",
+      "_docId" : "cm8onylka00g701wefpgl6j2s:en:published",
+      "_edit" : true
+    }, {
+      "name" : "metric",
+      "value" : "broker_load_messages_received_1min",
+      "_id" : "cm6qblmfc03m501x69juh8q4e",
+      "metaType" : "arrayItem",
+      "scopedArrayName" : "doc.application.config",
+      "_docId" : "cm8onylka00g701wefpgl6j2s:en:published",
+      "_edit" : true
+    }, {
+      "name" : "components",
+      "value" : "firecoat-mqtt",
+      "_id" : "cm6sb78tg00b701wca5127msk",
+      "metaType" : "arrayItem",
+      "scopedArrayName" : "doc.application.config",
+      "_docId" : "cm8onylka00g701wefpgl6j2s:en:published",
+      "_edit" : true
+    } ],
+    "isWindowOutputRaw" : true,
+    "outputRaw" : {
+      "type" : "all",
+      "interval" : 10.0,
+      "unit" : "sec"
+    }
+  }, {
+    "type" : "composite",
+    "level" : "global",
+    "components" : [ ],
+    "name" : "messages_per_minute_promille",
+    "template" : "",
+    "formula" : "messages_per_minute / 1000",
+    "isWindowInput" : false,
+    "input" : {
+      "type" : "batch",
+      "interval" : 0,
+      "unit" : "ms"
+    },
+    "isWindowOutput" : false,
+    "output" : {
+      "type" : "all",
+      "interval" : 0,
+      "unit" : "ms"
+    },
+    "arguments" : [ "messages_per_minute" ]
+  }, {
+    "type" : "composite",
+    "level" : "global",
+    "components" : [ ],
+    "name" : "loadfactor",
+    "template" : "",
+    "formula" : "messages_per_minute / replicas",
+    "isWindowInput" : false,
+    "input" : {
+      "type" : "batch",
+      "interval" : 0,
+      "unit" : "ms"
+    },
+    "isWindowOutput" : false,
+    "output" : {
+      "type" : "all",
+      "interval" : 0,
+      "unit" : "ms"
+    },
+    "arguments" : [ "messages_per_minute", "replicas" ]
+  } ],
+  "sloViolations" : {
+    "nodeKey" : "a321958c-4fa8-4236-b4bc-d2d42a3a905d",
+    "isComposite" : true,
+    "condition" : "AND",
+    "not" : false,
+    "children" : [ {
+      "nodeKey" : "7e249c46-b57d-4bdf-b0d8-b04837b6510a",
+      "isComposite" : false,
+      "metricName" : "loadfactor",
+      "operator" : ">",
+      "value" : 1000.0
+    } ]
+  },
+  "utilityFunctions" : [ {
+    "name" : "replicas",
+    "type" : "constant",
+    "expression" : {
+      "formula" : "rep",
+      "variables" : [ {
+        "name" : "rep",
+        "value" : "spec_components_4_properties_traits_0_properties_replicas"
+      } ]
+    }
+  }, {
+    "name" : "uf",
+    "type" : "maximize",
+    "expression" : {
+      "formula" : "exp( -(mpm/r -1)^2 )",
+      "variables" : [ {
+        "name" : "mpm",
+        "value" : "messages_per_minute_promille"
+      }, {
+        "name" : "r",
+        "value" : "spec_components_4_properties_traits_0_properties_replicas"
+      } ]
+    }
+  } ],
+  "uuid" : "03f9b974-d715-477a-971f-512fbad900b4",
+  "_create" : true,
+  "_delete" : true
+}
