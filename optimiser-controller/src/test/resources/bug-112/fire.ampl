@@ -26,5 +26,5 @@ maximize uf :
 
 # Constraints extracted from `/sloViolations`. For these we don't have name from GUI, must be created
 # For the solver, SLOs must be negated and operators must be >=, <= (not '>', '<')
-subject to constraint_0 : (loadfactor <= 1000.0);
+subject to constraint_0 : loadfactor <= 1000.0;
 # Constraints specified with `type: constraint` in `/utilityFunctions`
