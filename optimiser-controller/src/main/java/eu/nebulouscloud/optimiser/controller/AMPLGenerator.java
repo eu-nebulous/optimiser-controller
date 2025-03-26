@@ -90,15 +90,23 @@ public class AMPLGenerator {
         for (JsonNode slo : app.getEffectiveConstraints()) {
             if (slo instanceof ObjectNode slo_obj) {
                 ObjectNode constraint = normalizeSLO(slo_obj);
-                // go from forbidden regions to allowed regions
+                // convert from forbidden regions (SLOs) to allowed regions
+                // (solver constraints)
                 negateCondition(constraint);
-                if (constraint.at("/isComposite").asBoolean()
-                    && constraint.at("/condition").asText()
-                        .equalsIgnoreCase("and"))
-                {
-                    // The moderately happy path: the constraint was a
-                    // disjunction "a or b", we emit its negation "not a and
-                    // not b".  If a or b are composite, we still lose.
+                boolean canEmitCorrectly
+                    = constraint.at("/isComposite").asBoolean()
+                      // Either we're a conjunction, so we can emit all
+                      // conditions individually ...
+                      && (constraint.at("/condition").asText().equalsIgnoreCase("and")
+                          // ... or we only have one condition.
+                          || constraint.withArray("/children").size() == 1);
+                if (canEmitCorrectly) {
+                    // The moderately happy path: the constraint only had one
+                    // condition, or was a disjunction "a or b".  We emit the
+                    // negation "not a and not b" as a sequence of AMPL
+                    // constraints.  Note that if a or b are composite
+                    // themselves, we still lose because the constraints will
+                    // be too complex for many solvers.
                     for (JsonNode child : constraint.withArray("/children")) {
                         out.format("subject to constraint_%d : ", counter);
                         emitCondition(out, child);
@@ -106,11 +114,11 @@ public class AMPLGenerator {
                         counter = counter + 1;
                     }
                 } else {
-                    // The unhappy path: the slo was not a disjunction; we
-                    // emit the negated complex formula as-is and hope the
-                    // solver is up to it
+                    // The unhappy path: the slo was not a disjunction and had
+                    // more than one condition; we emit the negated complex
+                    // formula as-is and hope the solver is up to it.
                     out.format("subject to constraint_%d : ", counter);
-                    emitCondition(out, slo);
+                    emitCondition(out, constraint);
                     out.println(";");
                     counter = counter + 1;
                 }
