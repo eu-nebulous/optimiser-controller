@@ -4,6 +4,7 @@ on:
     branches:
       - main
       - r[1-9]
+      - componentsinappcluster
   pull_request:
     branches:
       - main
