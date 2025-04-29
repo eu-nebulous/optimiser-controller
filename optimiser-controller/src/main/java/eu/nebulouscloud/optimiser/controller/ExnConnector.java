@@ -770,7 +770,7 @@ public class ExnConnector {
         Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         Map<String, Object> msg;
         try {
-            msg = Map.of("metaData", Map.of("user", "admin"),
+            msg = Map.of(
                 "body", mapper.writeValueAsString(cluster));
         } catch (JsonProcessingException e) {
             log.error("Could not convert JSON to string (this should never happen)",
