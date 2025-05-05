@@ -433,6 +433,9 @@ public class NebulousAppDeployer {
         }
     }
 
+
+    
+    
     /**
      * Given a KubeVela file, extract node requirements, create the job, start
      * its nodes and submit KubeVela.
@@ -691,6 +694,15 @@ public class NebulousAppDeployer {
                 log.warn("Invalid environmentVariables entry: {}", v);
             }
         }
+        //If user hasn't specified APP_BROKER_ADMIN_PASSWORD, generate a random one.
+        if(!environment.has("APP_BROKER_ADMIN_PASSWORD"))
+        {
+        	environment.put("APP_BROKER_ADMIN_PASSWORD", PasswordUtils.generatePassword(10));
+        }
+        
+        //Generate a password to be used for the bridging between message broker in control plane and message broker in app cluster
+        environment.put("NEBULOUS_MESSAGE_BRIDGE_PASSWORD", PasswordUtils.generatePassword(10));
+        
         log.info("Calling defineCluster");
         boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, cluster);
         if (!defineClusterSuccess) {
