@@ -20,7 +20,8 @@ jobs:
           distribution: temurin
           java-version: '17'
           server-id: github
-          settings-path: ${{ github.workspace }}
+          overwrite-settings: false
+          settings-path: nebulous-requirements-extractor
 
       - name: Build Requirements Extractor
         working-directory: nebulous-requirements-extractor
@@ -28,6 +29,6 @@ jobs:
 
       - name: Publish to GitHub Packages Apache Maven
         working-directory: nebulous-requirements-extractor
-        run: mvn deploy -s $GITHUB_WORKSPACE/settings.xml
+        run: mvn deploy -s settings.xml
         env:
           GITHUB_TOKEN: ${{ secrets.MVN_ACCESS_TOKEN }}
