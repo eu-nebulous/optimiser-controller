@@ -23,6 +23,18 @@ jobs:
           overwrite-settings: false
           settings-path: nebulous-requirements-extractor
 
+      - name: Add Activeeon mirror to Maven settings
+        run: |
+          sed -i '/<\/servers>/a\
+            <mirrors>\
+              <mirror>\
+                <id>my-repository-http-unblocker</id>\
+                <mirrorOf>activeeon</mirrorOf>\
+                <name></name>\
+                <url>http://repository.activeeon.com/content/groups/proactive/</url>\
+                <blocked>false</blocked>\
+              </mirror>\
+            </mirrors>' nebulous-requirements-extractor/settings.xml
       - name: Cat setting.yaml
         run: cat nebulous-requirements-extractor/settings.xml
       - name: Build Requirements Extractor
