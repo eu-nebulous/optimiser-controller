@@ -17,6 +17,6 @@ jobs:
           distribution: 'temurin'
       - name: Publish package
         working-directory: nebulous-requirements-extractor
-        run: mvn --batch-mode deploy
+        run: mvn -B package --file pom.xml
         env:
           GITHUB_TOKEN: ${{ secrets.MVN_ACCESS_TOKEN }}
