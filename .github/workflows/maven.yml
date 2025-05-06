@@ -23,6 +23,8 @@ jobs:
           overwrite-settings: false
           settings-path: nebulous-requirements-extractor
 
+      - name: Cat setting.yaml
+        run: cat nebulous-requirements-extractor/settings.xml
       - name: Build Requirements Extractor
         working-directory: nebulous-requirements-extractor
         run: mvn -B package
