@@ -10,7 +10,7 @@
                 <httpHeaders>
                     <property>
                         <name>Authorization</name>
-                        <value>Bearer ${secrets.MVN_ACCESS_TOKEN}</value>
+                        <password>${env.MVN_ACCESS_TOKEN}</password>
                     </property>
                 </httpHeaders>
             </configuration>
