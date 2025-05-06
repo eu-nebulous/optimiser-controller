@@ -15,6 +15,14 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+      - uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: '17'
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: ${{ secrets.GITHUB_TOKEN }}
+          settings-path: ${{ github.workspace }}/.github
       - name: Publish package
         working-directory: nebulous-requirements-extractor
         run: mvn -B deploy --file pom.xml
