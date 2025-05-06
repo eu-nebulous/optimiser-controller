@@ -73,12 +73,9 @@
     <distributionManagement>
         <repository>
             <id>github</id>
+            <name>GitHub Nebulous Apache Maven Packages</name>
             <url>https://maven.pkg.github.com/eu-nebulous/optimiser-controller</url>
         </repository>
-        <snapshotRepository>
-            <id>github</id>
-            <url>https://maven.pkg.github.com/eu-nebulous/optimiser-controller</url>
-        </snapshotRepository>
     </distributionManagement>
 
     <repositories>
