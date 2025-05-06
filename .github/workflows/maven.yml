@@ -15,12 +15,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: s4u/maven-settings-action@v2.5.0
-        with:
-          servers: '[
-            {"id": "github","configuration": {"httpHeaders": {"property": {"name": "Authorization","value": "Bearer ${{ secrets.GITHUB_TOKEN }}"}}}}]'
-      - name: Publish package
-        working-directory: nebulous-requirements-extractor
-        run: mvn clean source:jar deploy -DuniqueVersion=false -Dmaven.source.useDefaultManifestFile=true -DdeplyAtEnd=true -Dmaven.source.includePom=true -Dmaven.install.skip=true
+      - name: Deploy to Github Package Registry
         env:
           GITHUB_TOKEN: ${{ secrets.MVN_ACCESS_TOKEN }}
+        run: |
+          mkdir ~/.m2
+          echo "<settings><servers><server><id>github</id><username>OWNER</username><password>${GITHUB_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
+          mvn deploy
