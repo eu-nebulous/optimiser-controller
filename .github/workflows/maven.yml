@@ -15,12 +15,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: ${{ secrets.MVN_ACCESS_TOKEN }}
-          settings-path: ${{ github.workspace }}/.github
       - name: Publish package
         working-directory: nebulous-requirements-extractor
-        run: mvn -B deploy --file pom.xml
+        run: mvn clean source:jar deploy -DuniqueVersion=false -Dmaven.source.useDefaultManifestFile=true -DdeplyAtEnd=true -Dmaven.source.includePom=true -Dmaven.install.skip=true
         env:
           GITHUB_TOKEN: ${{ secrets.MVN_ACCESS_TOKEN }}
