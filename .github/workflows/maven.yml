@@ -16,6 +16,7 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
       - name: Publish package
+        working-directory: nebulous-requirements-extractor
         run: mvn --batch-mode deploy
         env:
           GITHUB_TOKEN: ${{ secrets.MVN_ACCESS_TOKEN }}
