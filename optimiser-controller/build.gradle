@@ -24,14 +24,19 @@ repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
 
+    // NebulOuS-developed components
+    maven {
+        url = 'https://maven.pkg.github.com/eu-nebulous/*'
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+            password = project.findProperty("gpr.key") :? System.getenv("GITHUB_TOKEN")
+        }
+    }
+
     // 7bulls, activeeon maven repositories for SAL
     maven {
         url = 'http://repository.activeeon.com/content/groups/proactive/'
         allowInsecureProtocol = true
-    }
-    // NebulOuS-developed components
-    maven {
-        url = 'https://s01.oss.sonatype.org/content/repositories/snapshots/'
     }
 }
 

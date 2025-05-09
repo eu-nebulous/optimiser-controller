@@ -4,7 +4,7 @@
 FROM docker.io/library/gradle:8-jdk17-alpine AS build
 COPY . /home/optimiser-controller
 WORKDIR /home/optimiser-controller
-RUN gradle --no-daemon -Dorg.gradle.logging.level=info clean build
+RUN gradle --no-daemon -Dorg.gradle.logging.level=info -Pgpr.key=$GITHUB_TOKEN -Pgpr.user=$GITHUB_ACTOR clean build
 
 #
 # Package stage
