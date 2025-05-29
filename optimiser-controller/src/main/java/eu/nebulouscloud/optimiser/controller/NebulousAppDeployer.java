@@ -667,6 +667,8 @@ public class NebulousAppDeployer {
             environment.put("BROKER_ADDRESS", Main.getAppBrokerAddress());
             environment.put("ACTIVEMQ_HOST", Main.getAppBrokerAddress());
         }
+        
+        environment.put("NEBULOUS_SCRIPTS_BRANCH", Main.getAppNebulousScriptsBranch());        
         // Don't warn when those are unset, 5672 is usually the right call
         environment.put("BROKER_PORT", Integer.toString(Main.getAppBrokerPort()));
         environment.put("ACTIVEMQ_PORT", Integer.toString(Main.getAppBrokerPort()));
