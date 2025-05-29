@@ -146,4 +146,14 @@ public class AMPLGeneratorTests {
             .that(slo.toPrettyString())
             .isNotEqualTo(normalized.toPrettyString());
     }
+
+    @Test
+    private void testUtilityFunctionSelection() throws IOException, URISyntaxException {
+        NebulousApp app_selected = NebulousAppTests.appFromTestFile("objective-selection/app-message-with-selected.json");
+        NebulousApp app_unselected = NebulousAppTests.appFromTestFile("objective-selection/app-message-with-unselected.json");
+        NebulousApp app_without = NebulousAppTests.appFromTestFile("objective-selection/app-message-without.json");
+        assertEquals(app_selected.calculateAMPLMessage().at("/ObjectiveFunction").asText(), "b");
+        assertEquals(app_unselected.calculateAMPLMessage().at("/ObjectiveFunction").asText(), "a");
+        assertEquals(app_without.calculateAMPLMessage().at("/ObjectiveFunction").asText(), "");
+    }
 }

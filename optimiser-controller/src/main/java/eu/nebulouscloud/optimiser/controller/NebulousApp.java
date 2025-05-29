@@ -137,8 +137,6 @@ public class NebulousApp {
 
     /** The array of KubeVela variables in the app message. */
     @Getter private Map<String, JsonNode> kubevelaVariables = new HashMap<>();
-    /** Map from AMPL variable name to location in KubeVela. */
-    private Map<String, JsonPointer> kubevelaVariablePaths = new HashMap<>();
     /** The app's raw metrics, a map from key to the defining JSON node. */
     @Getter private Map<String, JsonNode> rawMetrics = new HashMap<>();
     /** The app's composite metrics, a map from key to the defining JSON node. */
@@ -281,8 +279,6 @@ public class NebulousApp {
         if (parameters.isArray()) {
             for (JsonNode p : parameters) {
                 kubevelaVariables.put(p.get("key").asText(), p);
-                kubevelaVariablePaths.put(p.get("key").asText(),
-                    JsonPointer.compile(p.get("path").asText()));
             }
         } else {
             log.error("Cannot read parameters from app message, continuing without parameters");
@@ -336,14 +332,14 @@ public class NebulousApp {
             // What's left is neither a raw nor composite metric.
             utilityFunctions.put(f.get("name").asText(), f);
         }
-        // In the current app message, `constraints` is not an array.  When this
-        // changes, wrap this for loop in another loop over the constraints
-        // (Constraints are called sloViolations in the app message).
         for (String key : app_message.withObject(constraints_path).findValuesAsText("metricName")) {
-            // Constraints that do not use variables, directly or via
-            // performance indicators, will be ignored.
-            if (kubevelaVariablePaths.keySet().contains(key)
-                || performanceIndicators.keySet().contains(key)) {
+            // In the current app message, `constraints` is not an array.
+            // When this changes, wrap this for loop in another loop over the
+            // constraints (Constraints are called sloViolations in the app
+            // message).
+            if (kubevelaVariables.keySet().contains(key) || performanceIndicators.keySet().contains(key)) {
+                // Only consider the constraint if it uses at least one
+                // variable (directly or via performance indicators).
                 effectiveConstraints.add(app_message.withObject(constraints_path));
                 break;
             }
@@ -628,22 +624,20 @@ public class NebulousApp {
             String key = entry.getKey();
             JsonNode replacementValue = entry.getValue();
             JsonNode param = kubevelaVariables.get(key);
-            JsonPointer path = kubevelaVariablePaths.getOrDefault(key, null);
-            // The solver puts all variables into the solution message,
-            // including ones that are not referenced in the KubeVela file --
-            // ignore those.
-            if (path == null) continue;
+            // The solver sends all defined AMPL variables, not only the ones
+            // that correspond to KubeVela locations
+            if (param == null) continue;
+            String pathstr = param.at("/path").asText();
+            // The "application_deployment_price" variable (with meaning:
+            // "price"), does not have a KubeVela path associated.
+            if (pathstr == null || pathstr.isEmpty()) continue;
+            JsonPointer path = JsonPointer.compile(pathstr);
             JsonNode nodeToBeReplaced = freshKubevela.at(path);
             boolean doReplacement = true;
 
             if (nodeToBeReplaced == null) {
                 // Didn't find location in KubeVela file (should never happen)
                 log.warn("Location {} not found in KubeVela, cannot replace with value {}",
-                    key, replacementValue);
-                doReplacement = false;
-            } else if (param == null) {
-                // Didn't find parameter definition (should never happen)
-                log.warn("Variable {} not found in user input, cannot replace with value {}",
                     key, replacementValue);
                 doReplacement = false;
             } else if (param.at("/meaning").asText().equals("memory")) {
@@ -687,9 +681,13 @@ public class NebulousApp {
         ObjectNode syntheticSolution = jsonMapper.createObjectNode();
         syntheticSolution.put(DEPLOY_PROPERTY, false);
         ObjectNode variableValues = syntheticSolution.withObjectProperty(VARIABLEVALUES_PROPERTY);
-        for (Map.Entry<String, JsonPointer> variable : kubevelaVariablePaths.entrySet()) {
-            String name = variable.getKey();
-            JsonNode value = kubevela.at(variable.getValue());
+        for (JsonNode variable : kubevelaVariables.values()) {
+            String name = variable.at("/key").asText();
+            String locationstr = variable.at("/path").asText();
+            // the "application_deployment_price" variable has an empty path
+            if (locationstr == null || locationstr.isEmpty()) continue;
+            var location = JsonPointer.compile(locationstr);
+            JsonNode value = kubevela.at(location);
             if (!value.isMissingNode()) {
                 variableValues.set(name, value);
             }
@@ -712,7 +710,7 @@ public class NebulousApp {
             msg.put("DataFileName", getUUID() + ".dat");
             msg.put("DataFileContent", ampl_data);
         }
-        msg.put("ObjectiveFunction", getObjectiveFunction());
+        msg.put("ObjectiveFunction", getSelectedUtilityFunction());
         ObjectNode constants = msg.withObject("Constants");
           // Define initial values for constant utility functions:
           // "Constants" : {
@@ -731,9 +729,15 @@ public class NebulousApp {
             JsonNode functionVariable = function.withArray("/expression/variables").get(0);
             String variableName = functionVariable.get("value").asText();
             JsonNode variable = this.getKubevelaVariables().getOrDefault(variableName, jsonMapper.missingNode());
-            JsonPointer path = kubevelaVariablePaths.get(variableName);
+            // Not all constants might be references to kubevela locations;
+            // skip if we don't find an entry
+            if (variable.isMissingNode()) continue;
+            // The "application_deployment_price" variable has no kubevela
+            // path and hence no value; skip it
+            if (variable.at("/path").asText().isEmpty()) continue;
+            JsonPointer path = JsonPointer.compile(variable.at("/path").asText());
             JsonNode value = originalKubevela.at(path);
-            ObjectNode constant = constants.withObject(function.get("name").asText());
+            ObjectNode constant = constants.withObject(function.at("/name").asText());
             constant.put("Variable", variableName);
             String meaning = variable.at("/meaning").asText("unknown");
             if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
@@ -780,22 +784,38 @@ public class NebulousApp {
     }
 
     /**
-     * The objective function to use.  In case the app creation message
-     * specifies more than one and doesn't indicate which one to use, choose
-     * the first one.
+     * Return the utility function to use.  A utility function is a function
+     * of type "minimize" or "maximize" in the {@code /utilityFunctions} array
+     * of the app creation message.  (That array also contains functions of
+     * type "constraint" or "constant", which are not utility functions.)
      *
-     * @return the objective function specified in the app creation message.
+     * <p>The function selected by the user contains a "selected: true" flag.
+     * In case of multiple entries with that flag, return the first one; if no
+     * entry has that flag, return the first entry.
+     *
+     * @return the utility function specified in the app creation message, or
+     *  an empty string if none found.
      */
-    private String getObjectiveFunction() {
+    private String getSelectedUtilityFunction() {
         ArrayNode utility_functions = originalAppMessage.withArray(utility_function_path);
+        JsonNode maybeFunction = null;
         for (final JsonNode function : utility_functions) {
-            // do not optimize a constant function
-            if (!(function.get("type").asText().equals("constant"))) {
-                return function.get("name").asText();
-            }
+            if (!(function.at("/type").asText().equals("minimize")
+                  || function.at("/type").asText().equals("maximize")))
+                continue;
+            if (maybeFunction == null) maybeFunction = function;
+            if (function.at("/selected").asBoolean(false))
+                return function.at("/name").asText();
         }
-        log.warn("No non-constant utility function specified for application; solver will likely complain");
-        return "";
+        if (maybeFunction != null) {
+            String result = maybeFunction.at("/name").asText();
+            log.warn("No utility function selected in GUI; continuing with {} (the first function)",
+                result);
+            return result;
+        } else {
+            log.error("No utility function specified; continuing deployment but no optimization is possible.");
+            return "";
+        }
     }
 
     /**
