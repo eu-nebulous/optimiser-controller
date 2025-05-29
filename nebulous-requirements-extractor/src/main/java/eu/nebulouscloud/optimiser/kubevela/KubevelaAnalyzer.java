@@ -221,8 +221,8 @@ public class KubevelaAnalyzer {
      *
      * We currently add the following requirements:
      * <ul>
-     * <li> 2GB of RAM
-     * <li> 2 cores
+     * <li> ~3GB of RAM
+     * <li> 3 cores
      * <li> The geolocation of the component -- this uses an {@link
      *   AttributeRequirement} that SAL doesn't know about; the CFSB is
      *   expected to filter this out before sending the requirements to SAL.
@@ -238,8 +238,8 @@ public class KubevelaAnalyzer {
                 "hardware", "CFSB-datasource-geolocations",
                 RequirementOperator.EQ, loc));
         }
-        reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "2048"));
-        reqs.add(new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "2"));
+        reqs.add(new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "3048"));
+        reqs.add(new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "3"));
     }
 
     /**
