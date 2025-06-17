@@ -38,9 +38,7 @@ dependencies {
     api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 
     // SAL client library; exported to consumers
-    api("org.ow2.proactive:sal-common:${project.property('salCommonVersion')}") {
-        changing = true
-    }
+    implementation files('../lib/sal-common-14.3.0-SNAPSHOT.jar')
 
     // YAML parsing: https://github.com/FasterXML/jackson-dataformats-text
     implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2'

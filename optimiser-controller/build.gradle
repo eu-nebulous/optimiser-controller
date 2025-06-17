@@ -24,11 +24,6 @@ repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
 
-    // 7bulls, activeeon maven repositories for SAL
-    maven {
-        url = 'http://repository.activeeon.com/content/groups/proactive/'
-        allowInsecureProtocol = true
-    }
     // NebulOuS-developed components
     maven {
         name = 'Central Portal Snapshots'
@@ -51,9 +46,8 @@ dependencies {
     implementation 'info.picocli:picocli:4.7.6'
 
     // SAL client library
-    implementation("org.ow2.proactive:sal-common:${project.property('salCommonVersion')}") {
-        changing = true
-    }
+    implementation("javax.persistence:javax.persistence-api:2.2")
+    implementation files('../lib/sal-common-14.3.0-SNAPSHOT.jar')
 
     // Logging: SLF4J (implemented by Logback)
     implementation 'ch.qos.logback:logback-classic:1.5.16'
