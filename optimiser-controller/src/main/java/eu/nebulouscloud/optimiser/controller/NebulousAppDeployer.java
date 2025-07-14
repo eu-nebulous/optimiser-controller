@@ -10,13 +10,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
-import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.ClusterStatus;
-import org.ow2.proactive.sal.model.NodeCandidate;
-import org.ow2.proactive.sal.model.NodeType;
-import org.ow2.proactive.sal.model.NodeTypeRequirement;
-import org.ow2.proactive.sal.model.Requirement;
-import org.ow2.proactive.sal.model.RequirementOperator;
+import eu.nebulouscloud.optimiser.sal.*;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,6 +91,7 @@ public class NebulousAppDeployer {
         Map<String, Set<String>> clouds,
         ComponentLocationType location)
     {
+    	
         List<List<Requirement>> result = new ArrayList<>();
         if (location != ComponentLocationType.EDGE_ONLY) {
             clouds.forEach((id, regions) -> {

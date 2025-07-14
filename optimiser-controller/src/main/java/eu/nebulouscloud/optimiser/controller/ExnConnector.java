@@ -13,8 +13,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
-import org.ow2.proactive.sal.model.NodeCandidate;
-import org.ow2.proactive.sal.model.Requirement;
+import eu.nebulouscloud.optimiser.sal.NodeCandidate;
+import eu.nebulouscloud.optimiser.sal.Requirement;
+
 import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;

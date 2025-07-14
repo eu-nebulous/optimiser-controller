@@ -8,11 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
+import eu.nebulouscloud.optimiser.sal.*;
 import lombok.extern.slf4j.Slf4j;
 
-import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.Requirement;
-import org.ow2.proactive.sal.model.RequirementOperator;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
