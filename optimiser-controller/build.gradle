@@ -46,7 +46,7 @@ dependencies {
     // Command-line parsing: https://picocli.info
     implementation 'info.picocli:picocli:4.7.6'
 
-    // SAL client library
+
     implementation("javax.persistence:javax.persistence-api:2.2")
 
 
