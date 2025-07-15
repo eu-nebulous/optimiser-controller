@@ -26,13 +26,10 @@ repositories {
 
     // NebulOuS-developed components
     maven {
-        name = 'Central Portal Snapshots'
-        url = 'https://central.sonatype.com/repository/maven-snapshots/'
-        // Only search this repository for the specific dependency
+        url "https://s01.oss.sonatype.org/content/repositories/snapshots/"
         content {
-            includeModule("io.github.eu-nebulous", "exn-connector-java")
+            includeModule("eu.nebulouscloud", "exn-connector-java")
         }
-    }
     
 }
 
@@ -57,7 +54,7 @@ dependencies {
 
     // the EXN Middleware:
     // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/asynchronous-messaging-specification
-    implementation('io.github.eu-nebulous:exn-connector-java:1.0-SNAPSHOT') {
+    implementation('eu.nebulouscloud:exn-connector-java:1.0-SNAPSHOT') {
         exclude group: 'org.slf4j', module: 'slf4j-simple'
         changing = true
     }
