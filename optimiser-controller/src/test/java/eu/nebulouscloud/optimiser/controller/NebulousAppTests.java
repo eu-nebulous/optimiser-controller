@@ -1,7 +1,6 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import org.junit.jupiter.api.Test;
-import org.ow2.proactive.sal.model.Requirement;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -10,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
+import eu.nebulouscloud.optimiser.sal.Requirement;
 
 import java.io.IOException;
 import java.net.URISyntaxException;

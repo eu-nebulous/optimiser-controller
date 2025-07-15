@@ -33,6 +33,7 @@ repositories {
             includeModule("io.github.eu-nebulous", "exn-connector-java")
         }
     }
+    
 }
 
 dependencies {
@@ -45,9 +46,9 @@ dependencies {
     // Command-line parsing: https://picocli.info
     implementation 'info.picocli:picocli:4.7.6'
 
-    // SAL client library
+
     implementation("javax.persistence:javax.persistence-api:2.2")
-    implementation files('../lib/sal-common-14.3.0-SNAPSHOT.jar')
+
 
     // Logging: SLF4J (implemented by Logback)
     implementation 'ch.qos.logback:logback-classic:1.5.16'

@@ -22,12 +22,6 @@ plugins {
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
-
-    // 7bulls, activeeon maven repositories for SAL
-    maven {
-        url = 'http://repository.activeeon.com/content/groups/proactive/'
-        allowInsecureProtocol = true
-    }
 }
 
 dependencies {
@@ -36,9 +30,6 @@ dependencies {
     // JSON parsing; exported to consumers
     // https://github.com/FasterXML/jackson
     api 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
-
-    // SAL client library; exported to consumers
-    implementation files('../lib/sal-common-14.3.0-SNAPSHOT.jar')
 
     // YAML parsing: https://github.com/FasterXML/jackson-dataformats-text
     implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2'
