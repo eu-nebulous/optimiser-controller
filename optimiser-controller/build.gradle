@@ -30,6 +30,7 @@ repositories {
         content {
             includeModule("eu.nebulouscloud", "exn-connector-java")
         }
+       }
     
 }
 
