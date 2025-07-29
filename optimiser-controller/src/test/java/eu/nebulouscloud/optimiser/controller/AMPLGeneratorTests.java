@@ -40,7 +40,7 @@ public class AMPLGeneratorTests {
         // https://github.com/eu-nebulous/optimiser-controller/issues/42
         NebulousApp app = appFromTestFile("bug-42-app-creation-message.json");
         JsonNode solverMessage = app.calculateAMPLMessage();
-        assertEquals(solverMessage.at("/Constants/deployed_memory/Value").asLong(),  8192L);
+        assertEquals(8192L, solverMessage.at("/Constants/deployed_memory/Value").asLong());
     }
 
     @Test
