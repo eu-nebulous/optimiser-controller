@@ -111,7 +111,7 @@ public class NebulousAppTests {
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
         JsonNode c = kubevela.at("/spec/components/5");
         JsonNode memory = kubevela.at("/spec/components/5/properties/memory");
-        assertEquals("8.0Gi", memory.asText());
+        assertEquals("8Gi", memory.asText());
         assertEquals(8192, KubevelaAnalyzer.getMemoryRequirement(c, "(component 5)"));
     }
 

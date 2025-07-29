@@ -267,11 +267,13 @@ public class KubevelaAnalyzer {
     }
 
     /**
-     * Check if the number should be an integer.  CPU, memory, replica count
-     * should be integers.
+     * Check if the number should be an integer already in the rewritten
+     * KubeVela file. The replica count should be an integer.  CPU can be a
+     * float in KubeVela and is converted to a ProActive requirement via
+     * {@link #getCpuRequirement}.
      */
     public static boolean isKubevelaInteger(String meaning) {
-        List<String> integerMeanings = List.of("cpu", "memory", "replicas");
+        List<String> integerMeanings = List.of("memory", "replicas");
         return integerMeanings.contains(meaning);
     }
 
