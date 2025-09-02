@@ -79,7 +79,7 @@ public class NebulousAppDeployer {
      * edge nodes whose name looks like {@code
      * application_id|<application_id>|<edge_device_id>}.
      *
-     * @param requirements the component requirements (cpu, ram, ...)
+     * @param requirements the component requirements (cpu, gpu, ram, ...)
      * @param appId the application id
      * @param clouds the clouds that the application can deploy on
      * @param location placement specification for the component
@@ -228,6 +228,7 @@ public class NebulousAppDeployer {
                 // Remove resources
                 c.withObject("/properties").remove("memory");
                 c.withObject("/properties").remove("cpu");
+                c.withObject("/properties").remove("gpu");
                 c.withObject("/properties/resources").remove("requests");
             }
         }
