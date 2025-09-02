@@ -753,7 +753,7 @@ public class NebulousApp {
             String meaning = variable.at("/meaning").asText("unknown");
             if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
                 // kubevelaNumberToLong handles converting "8Gi" to 8192 for
-                // meaning "memory", and rounds up kubevela cpu (floating
+                // meaning "memory", and rounds up kubevela cpu/gpu (floating
                 // point) to SAL number of cores (int) for meaning "cpu"
                 constant.put("Value", KubevelaAnalyzer.kubevelaNumberToLong(value, meaning));
             } else {
