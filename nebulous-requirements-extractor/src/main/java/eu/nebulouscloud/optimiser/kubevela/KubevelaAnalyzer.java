@@ -8,11 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
+import eu.nebulouscloud.optimiser.sal.*;
 import lombok.extern.slf4j.Slf4j;
 
-import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.Requirement;
-import org.ow2.proactive.sal.model.RequirementOperator;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -267,19 +265,47 @@ public class KubevelaAnalyzer {
             return -1;
         }
     }
+    
+    /**
+     * Get gpu requirement, taken from "gpu" resource requirement in KubeVela
+     * and rounding up to nearest whole number.
+     *
+     * @param c A Component branch of the parsed KubeVela file.
+     * @param componentName the component name, used only for logging.
+     * @return an integer of number of cores required, or -1 in case of no
+     *  requirement.
+     */
+    private static long getGpuRequirement(JsonNode c, String componentName) {
+        JsonNode gpu = c.at("/properties/gpu");
+        if (gpu.isMissingNode()) gpu = c.at("/properties/resources/requests/gpu");
+        if (gpu.isMissingNode()) gpu = c.at("/properties/requests/gpu");
+        if (!gpu.isMissingNode()) {
+            try {
+                return kubevelaNumberToLong(gpu, "gpu");
+            } catch (NumberFormatException e) {
+                log.warn("GPU spec in {} is not a number, value seen is {} -- optimistically resuming without GPU requirement", componentName, gpu.asText());
+                return -1;
+            }
+        } else {
+            // no spec given
+            return -1;
+        }
+    }
 
     /**
-     * Check if the number should be an integer.  CPU, memory, replica count
-     * should be integers.
+     * Check if the number should be an integer already in the rewritten
+     * KubeVela file. The replica count should be an integer.  CPU/GPU can be a
+     * float in KubeVela and is converted to a ProActive requirement via
+     * {@link #getCpuRequirement} {@link #getGpuRequirement}.
      */
     public static boolean isKubevelaInteger(String meaning) {
-        List<String> integerMeanings = List.of("cpu", "memory", "replicas");
+        List<String> integerMeanings = List.of("memory", "replicas");
         return integerMeanings.contains(meaning);
     }
 
     /**
      * Return the long value of the given JSON node.  If the meaning is
-     * "memory", also handle "Mi" and "Gi" suffixes.  If the meaning is "cpu",
+     * "memory", also handle "Mi" and "Gi" suffixes.  If the meaning is "cpu"/"gpu",
      * round up to the nearest integer.  For all other values of meaning,
      * parse as long.
      *
@@ -311,7 +337,16 @@ public class KubevelaAnalyzer {
             double kubevela_cpu = Double.parseDouble(number.asText());
             long sal_cores = Math.round(Math.ceil(kubevela_cpu));
             return sal_cores;
-        } else {
+        } else if ("gpu".equals(meaning))
+        {
+        	// KubeVela has fractional core/gpu requirements, and the value
+            // might be given as a string instead of a number, so parse string
+            // in all cases.  Note that we don't protect against gpu=0 or
+            // negative values here.
+            double kubevela_gpu = Double.parseDouble(number.asText());
+            long sal_gpu_cores = Math.round(Math.ceil(kubevela_gpu));
+            return sal_gpu_cores;
+        }else{
             if (number.canConvertToLong()) {
                 return number.asLong();
             } else {
@@ -391,7 +426,10 @@ public class KubevelaAnalyzer {
      *
      * - `properties.cpu`, `properties.resources.requests.cpu`: round up to
      *   next integer and generate requirement `hardware.cores`
-     *
+
+     * - `properties.gpu`, `properties.resources.requests.gpu`: round up to
+     *   next integer and generate requirement `hardware.gpu`
+
      * - `properties.memory`, `properties.resources.requests.memory`: Handle
      *   "200Mi", "0.2Gi" and bare number, convert to MB and generate
      *   requirement `hardware.memory`
@@ -407,7 +445,7 @@ public class KubevelaAnalyzer {
      *   equal", i.e., we might not find precisely the node candidates that
      *   are asked for. <p>
      *
-     * - Related, KubeVela specifies "cpu" as a fractional value, while SAL
+     * - Related, KubeVela specifies "cpu"/"gpu" as a fractional value, while SAL
      *   wants the number of cores as a whole number.  We round up to the
      *   nearest integer and ask for "this or more" cores, since we might end
      *   up with needing, e.g., 3 cores, which is not a configuration commonly
@@ -436,6 +474,11 @@ public class KubevelaAnalyzer {
             if (cores > 0) {
                 reqs.add(new AttributeRequirement("hardware", "cores",
                     RequirementOperator.GEQ, Long.toString(cores)));
+            }
+            long gpuCores = getGpuRequirement(c, componentName);
+            if (gpuCores > 0) {
+                reqs.add(new AttributeRequirement("hardware", "gpu",
+                    RequirementOperator.GEQ, Long.toString(gpuCores)));
             }
             long memory = getMemoryRequirement(c, componentName);
             if (memory > 0) {
@@ -486,6 +529,13 @@ public class KubevelaAnalyzer {
                 reqs.add(new AttributeRequirement("hardware", "cores",
                     RequirementOperator.LEQ, Long.toString(cores * 2)));
             }
+            long gpuCores = getGpuRequirement(c, componentName);
+            if (gpuCores > 0) {
+                reqs.add(new AttributeRequirement("hardware", "gpu",
+                    RequirementOperator.GEQ, Long.toString(gpuCores)));
+                reqs.add(new AttributeRequirement("hardware", "gpu",
+                    RequirementOperator.LEQ, Long.toString(gpuCores * 2)));
+            }
             long memory = getMemoryRequirement(c, componentName);
             if (memory > 0) {
                 reqs.add(new AttributeRequirement("hardware", "ram",
@@ -525,6 +575,11 @@ public class KubevelaAnalyzer {
             if (cores > 0) {
                 reqs.add(new AttributeRequirement("hardware", "cores",
                     RequirementOperator.EQ, Long.toString(cores)));
+            }
+            long gpuCores = getGpuRequirement(c, componentName);
+            if (gpuCores > 0) {
+                reqs.add(new AttributeRequirement("hardware", "gpu",
+                    RequirementOperator.EQ, Long.toString(gpuCores)));
             }
             long memory = getMemoryRequirement(c, componentName);
             if (memory > 0) {

@@ -76,6 +76,14 @@ public class Main implements Callable<Integer> {
     @Getter
     private static String appBrokerAddress;
 
+    
+    @Option(names = {"--app-nebulous-scripts-branch"},
+        description = "The name of the branch of the scripts to use for app deployment.  Can also be set via the @|bold APP_NEBULOUS_SCRIPTS_BRANCH|@ environment variable.",
+        paramLabel = "APP_NEBULOUS_SCRIPTS_BRANCH",
+        defaultValue = "${APP_NEBULOUS_SCRIPTS_BRANCH:-main}")
+    @Getter
+    private static String appNebulousScriptsBranch;    
+    
     @Option(names = {"--app-activemq-port"},
         description = "The port of the ActiveMQ server in a deployed app.  Can also be set via the @|bold APP_ACTIVEMQ_PORT|@ environment variable.",
         paramLabel = "APP_ACTIVEMQ_PORT",

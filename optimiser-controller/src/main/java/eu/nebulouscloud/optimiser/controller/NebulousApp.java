@@ -6,12 +6,14 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
+import eu.nebulouscloud.optimiser.sal.*;
 import lombok.Getter;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
@@ -33,8 +35,6 @@ import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-import org.ow2.proactive.sal.model.NodeCandidate;
-import org.ow2.proactive.sal.model.Requirement;
 
 /**
  * Internal representation of a NebulOus app.
@@ -640,19 +640,30 @@ public class NebulousApp {
                 log.warn("Location {} not found in KubeVela, cannot replace with value {}",
                     key, replacementValue);
                 doReplacement = false;
-            } else if (param.at("/meaning").asText().equals("memory")) {
-                // Special case: the solver delivers a number for memory, but
-                // KubeVela wants a number with a unit, so we have to add one.
-                // Also, we have cases where the initial node size is
-                // specified in GB but the formulas and boundaries are
-                // expressed in MB (and vice versa), so we have to use a
-                // heuristic for guessing which unit the user meant.
-                if (!(replacementValue.asText().endsWith("Mi")
-                      || replacementValue.asText().endsWith("Gi"))) {
-                    if (replacementValue.asDouble() <= 512) {
-                        replacementValue = new TextNode(replacementValue.asText() + "Gi");
-                    } else {
-                        replacementValue = new TextNode(replacementValue.asText() + "Mi");
+            } else {
+                String meaning = param.at("/meaning").asText();
+                if (KubevelaAnalyzer.isKubevelaInteger(meaning) && replacementValue.isFloatingPointNumber()) {
+                    // Workaround for
+                    // https://github.com/eu-nebulous/optimiser-controller/issues/119
+                    // -- we didn't get the dsl file so we can't check if we
+                    // (in the AMPL file) or the solver in its return value
+                    // produce the stray float value.
+                    replacementValue = new LongNode(replacementValue.asLong());
+                }
+                if (meaning.equals("memory")) {
+                    // Special case: the solver delivers a number for memory, but
+                    // KubeVela wants a number with a unit, so we have to add one.
+                    // Also, we have cases where the initial node size is
+                    // specified in GB but the formulas and boundaries are
+                    // expressed in MB (and vice versa), so we have to use a
+                    // heuristic for guessing which unit the user meant.
+                    if (!(replacementValue.asText().endsWith("Mi")
+                          || replacementValue.asText().endsWith("Gi"))) {
+                        if (replacementValue.asDouble() <= 512) {
+                            replacementValue = new TextNode(replacementValue.asText() + "Gi");
+                        } else {
+                            replacementValue = new TextNode(replacementValue.asText() + "Mi");
+                        }
                     }
                 }
             }              // Handle other special cases here, as they come up
@@ -742,7 +753,7 @@ public class NebulousApp {
             String meaning = variable.at("/meaning").asText("unknown");
             if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
                 // kubevelaNumberToLong handles converting "8Gi" to 8192 for
-                // meaning "memory", and rounds up kubevela cpu (floating
+                // meaning "memory", and rounds up kubevela cpu/gpu (floating
                 // point) to SAL number of cores (int) for meaning "cpu"
                 constant.put("Value", KubevelaAnalyzer.kubevelaNumberToLong(value, meaning));
             } else {

@@ -28,3 +28,4 @@ bin/
 # Local development files
 /.dir-locals.el
 /.envrc
+optimiser-controller/logs

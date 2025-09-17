@@ -10,13 +10,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
-import org.ow2.proactive.sal.model.AttributeRequirement;
-import org.ow2.proactive.sal.model.ClusterStatus;
-import org.ow2.proactive.sal.model.NodeCandidate;
-import org.ow2.proactive.sal.model.NodeType;
-import org.ow2.proactive.sal.model.NodeTypeRequirement;
-import org.ow2.proactive.sal.model.Requirement;
-import org.ow2.proactive.sal.model.RequirementOperator;
+import eu.nebulouscloud.optimiser.sal.*;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,7 +79,7 @@ public class NebulousAppDeployer {
      * edge nodes whose name looks like {@code
      * application_id|<application_id>|<edge_device_id>}.
      *
-     * @param requirements the component requirements (cpu, ram, ...)
+     * @param requirements the component requirements (cpu, gpu, ram, ...)
      * @param appId the application id
      * @param clouds the clouds that the application can deploy on
      * @param location placement specification for the component
@@ -96,6 +91,7 @@ public class NebulousAppDeployer {
         Map<String, Set<String>> clouds,
         ComponentLocationType location)
     {
+    	
         List<List<Requirement>> result = new ArrayList<>();
         if (location != ComponentLocationType.EDGE_ONLY) {
             clouds.forEach((id, regions) -> {
@@ -232,6 +228,7 @@ public class NebulousAppDeployer {
                 // Remove resources
                 c.withObject("/properties").remove("memory");
                 c.withObject("/properties").remove("cpu");
+                c.withObject("/properties").remove("gpu");
                 c.withObject("/properties/resources").remove("requests");
             }
         }
@@ -667,6 +664,8 @@ public class NebulousAppDeployer {
             environment.put("BROKER_ADDRESS", Main.getAppBrokerAddress());
             environment.put("ACTIVEMQ_HOST", Main.getAppBrokerAddress());
         }
+        
+        environment.put("NEBULOUS_SCRIPTS_BRANCH", Main.getAppNebulousScriptsBranch());        
         // Don't warn when those are unset, 5672 is usually the right call
         environment.put("BROKER_PORT", Integer.toString(Main.getAppBrokerPort()));
         environment.put("ACTIVEMQ_PORT", Integer.toString(Main.getAppBrokerPort()));

@@ -1,26 +1,48 @@
-name: Build and Deploy Maven Package
-
+name: Publish package to GitHub Packages
 on:
   push:
     branches:
-      - main
+      - 'main'
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Set up JDK
+      - name: Set up JDK 17 & Maven settings
         uses: actions/setup-java@v3
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
+          server-id: github
+          overwrite-settings: false
+          settings-path: nebulous-requirements-extractor
 
-      - name: Build and deploy
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        working-directory: nebulous-requirements-extractor
+      - name: Add Activeeon mirror to Maven settings
         run: |
-          mvn --no-transfer-progress clean deploy
+          sed -i '/<\/servers>/a\
+            <mirrors>\
+              <mirror>\
+                <id>my-repository-http-unblocker</id>\
+                <mirrorOf>activeeon</mirrorOf>\
+                <name></name>\
+                <url>http://repository.activeeon.com/content/groups/proactive/</url>\
+                <blocked>false</blocked>\
+              </mirror>\
+            </mirrors>' nebulous-requirements-extractor/settings.xml
+      - name: Cat setting.yaml
+        run: cat nebulous-requirements-extractor/settings.xml
+      - name: Build Requirements Extractor
+        working-directory: nebulous-requirements-extractor
+        run: mvn -B package
+
+      - name: Publish to GitHub Packages Apache Maven
+        working-directory: nebulous-requirements-extractor
+        run: mvn deploy -s settings.xml
+        env:
+          GITHUB_TOKEN: ${{ secrets.MVN_ACCESS_TOKEN }}
