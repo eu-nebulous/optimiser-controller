@@ -80,7 +80,7 @@ java {
 
 application {
     // Define the main class for the application.
-    mainClass = 'io.github.eu-nebulous.optimiser.controller.Main'
+    mainClass = 'eu.nebulouscloud.optimiser.controller.Main'
 }
 
 jar {
