@@ -109,6 +109,8 @@ public class ExnConnector {
     /** The per-app status channel, read by at least the UI and the solver. */
     public static final String app_status_channel = "eu.nebulouscloud.optimiser.controller.app_state";
 
+    
+    private static final int findBrokerNodeCandidatesTimeout = 60*1000;
     /**
       * The Message producer for sending AMPL files, shared between all
       * NebulousApp instances.
@@ -565,7 +567,7 @@ public class ExnConnector {
         }
         SyncedPublisher findBrokerNodeCandidates = new SyncedPublisher(
             "findBrokerNodeCandidates" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
+            "eu.nebulouscloud.cfsb.get_node_candidates", true, true, findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findBrokerNodeCandidates);
             Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
@@ -642,7 +644,7 @@ public class ExnConnector {
         }
         SyncedPublisher findBrokerNodeCandidatesMultiple = new SyncedPublisher(
             "findBrokerNodeCandidatesMultiple" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true);
+            "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true,findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findBrokerNodeCandidatesMultiple);
             Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
@@ -710,7 +712,7 @@ public class ExnConnector {
         SyncedPublisher findSalNodeCandidates = new SyncedPublisher(
             "findSalNodeCandidates" + publisherNameCounter.incrementAndGet(),
             "eu.nebulouscloud.exn.sal.nodecandidate.get",
-            true, true);
+            true, true,findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findSalNodeCandidates);
 	    Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
@@ -789,7 +791,7 @@ public class ExnConnector {
         }
         SyncedPublisher defineCluster = new SyncedPublisher(
             "defineCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.define", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.define", true, true,10*60*1000);
         try {
             context.registerPublisher(defineCluster);
             Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
@@ -828,7 +830,7 @@ public class ExnConnector {
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher getCluster = new SyncedPublisher(
             "getCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.get", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.get", true, true, 30*1000);
         try {
             context.registerPublisher(getCluster);
 	    Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
@@ -862,7 +864,7 @@ public class ExnConnector {
         }
         SyncedPublisher labelNodes = new SyncedPublisher(
             "labelNodes" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.label", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.label", true, true,30*1000);
         try {
             context.registerPublisher(labelNodes);
 	    Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
@@ -890,7 +892,7 @@ public class ExnConnector {
             Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher deployCluster = new SyncedPublisher(
             "deployCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.deploy", true, true,10*60*1000);
         try {
             context.registerPublisher(deployCluster);
 	    Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
@@ -932,7 +934,7 @@ public class ExnConnector {
         }
         SyncedPublisher deployApplication = new SyncedPublisher(
             "deployApplication" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true,60*1000);
         try {
             context.registerPublisher(deployApplication);
             Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
@@ -966,7 +968,7 @@ public class ExnConnector {
         }
         SyncedPublisher scaleOut = new SyncedPublisher(
             "scaleOut" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true,10*60*1000);
         try {
             context.registerPublisher(scaleOut);
             Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
@@ -1003,7 +1005,7 @@ public class ExnConnector {
         }
         SyncedPublisher scaleIn = new SyncedPublisher(
             "scaleIn" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.scalein", true, true,10*60*1000);
         try {
             context.registerPublisher(scaleIn);
             Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
@@ -1028,7 +1030,7 @@ public class ExnConnector {
             Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher deleteCluster = new SyncedPublisher(
             "deleteCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.delete", true, true,10*60*1000);
         try {
             context.registerPublisher(deleteCluster);
             Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
