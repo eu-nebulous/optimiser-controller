@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import eu.nebulouscloud.optimiser.controller.NebulousApp.State;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import eu.nebulouscloud.optimiser.sal.*;
 
@@ -354,7 +355,7 @@ public class NebulousAppDeployer {
      * @param appID The application id.
      * @param clusterName The name of the cluster to poll.
      */
-    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, NebulousApp app) {
+    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, NebulousApp app, Map<String,Object> appStatusReport ) {
         String appID = app.getUUID();
         String clusterName = app.getClusterName();
         final int pollInterval = 10000; // Check status every 10s
@@ -389,7 +390,7 @@ public class NebulousAppDeployer {
             if (clusterState != null) {
                 JsonNode jsonState = clusterState.at("/status");
                 status = jsonState.isMissingNode() ? null : ClusterStatus.fromValue(jsonState.asText());
-                app.sendDeploymentStatus(clusterState);
+                app.sendDeploymentStatus(clusterState,appStatusReport);
             } else {
                 status = null;
             }
@@ -710,8 +711,12 @@ public class NebulousAppDeployer {
             conn.deleteCluster(appUUID, clusterName);
             return;
         }
+        
+        Map<String,Object> appStatusReport = NebulousApp.buildAppStatusReport(clusterName, app.getDeployGeneration(), componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
+        
+        conn.sendAppStatus(appUUID, State.DEPLOYING,appStatusReport);
 
-        if (!waitForClusterDeploymentFinished(conn, app)) {
+        if (!waitForClusterDeploymentFinished(conn, app,appStatusReport)) {
             log.error("Error while waiting for deployCluster to finish, trying to delete cluster {} and aborting deployment",
                 clusterName);
             app.setStateFailed(deployedNodeCandidates.values());
@@ -983,7 +988,11 @@ public class NebulousAppDeployer {
 
         Main.logFile("redeploy-worker-requirements-" + appUUID + ".txt", componentRequirements);
         Main.logFile("redeploy-worker-counts-" + appUUID + ".txt", componentReplicaCounts);
-
+        
+        
+        Map<String,Object> appStatusReport = NebulousApp.buildAppStatusReport(clusterName, app.getDeployGeneration(), componentRequirements, componentReplicaCounts, componentNodeNames, deployedNodeCandidates);
+        conn.sendAppStatus(appUUID, State.DEPLOYING,appStatusReport);
+        
         if (!nodesToRemove.isEmpty() || !nodesToAdd.isEmpty()) {
             if (!nodesToAdd.isEmpty()) {
                 log.info("Starting scaleout: {}", nodesToAdd);
@@ -991,7 +1000,8 @@ public class NebulousAppDeployer {
                 conn.scaleOut(appUUID, clusterName, nodesToAdd);
                 // TODO: check for error and set app state failed?  (See the
                 // other call to waitForClusterDeploymentFinished)
-                waitForClusterDeploymentFinished(conn, app);
+                waitForClusterDeploymentFinished(conn, app,appStatusReport);
+                
             } else {
                 log.info("No nodes added, skipping scaleout");
             }
