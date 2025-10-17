@@ -24,11 +24,10 @@ repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
 
-    // NebulOuS-developed components
     maven {
-        url "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+        url "https://central.sonatype.com/repository/maven-snapshots/"
         content {
-            includeModule("eu.nebulouscloud", "exn-connector-java")
+            includeModule("io.github.eu-nebulous", "exn-connector-java")
         }
     }
 }
@@ -44,6 +43,7 @@ dependencies {
     implementation 'info.picocli:picocli:4.7.6'
 
 
+
     implementation("javax.persistence:javax.persistence-api:2.2")
 
 
@@ -54,7 +54,8 @@ dependencies {
 
     // the EXN Middleware:
     // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/asynchronous-messaging-specification
-    implementation('eu.nebulouscloud:exn-connector-java:1.0-SNAPSHOT') {
+    implementation('io.github.eu-nebulous:exn-connector-java:1.0-SNAPSHOT') {
+    	
         exclude group: 'org.slf4j', module: 'slf4j-simple'
         changing = true
     }

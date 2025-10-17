@@ -27,6 +27,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -439,16 +440,64 @@ public class NebulousApp {
      * @return true if status message sent, false otherwise.
      */
     @Synchronized
-    public boolean sendDeploymentStatus(JsonNode clusterState) {
+    public boolean sendDeploymentStatus(JsonNode clusterState, Map<String,Object> additionalEntries) {
         if (state == State.DEPLOYING) {
-            exnConnector.sendAppStatus(UUID, state
-                // FIXME convert this to something that doesn't crash the middleware.  Comment out for now.
-                // , Map.of("clusterState", clusterState)
-            );
+            exnConnector.sendAppStatus(UUID, state,additionalEntries);
             return true;
         } else {
             return false;
         }
+    }
+    
+    public static Map<String,Object> buildAppStatusReport(
+    		String clusterName,
+    		int deployGeneration,
+    		  Map<String, List<Requirement>> componentRequirements,
+    	        Map<String, Integer> nodeCounts,
+    	        Map<String, Set<String>> componentNodeNames,
+    	        Map<String, NodeCandidate> deployedNodeCandidates)
+    {
+    	Map<String,Object> appStatusReport = new HashMap<>();
+    	try {
+    	
+	        appStatusReport.put("clusterName", clusterName);
+	        appStatusReport.put("deployGeneration", deployGeneration);
+	        Map<String,Object> components= new HashMap<>();
+	        appStatusReport.put("components",components);
+	        for(String componentName : componentNodeNames.keySet()) {
+	            Map<String,Object> componentStatusReport = new HashMap<>();
+	            componentStatusReport.put("componentName", componentName);
+	
+	            if(componentRequirements.containsKey(componentName)) {
+	                componentStatusReport.put("componentRequirements", componentRequirements.get(componentName));
+	            } else {
+	                componentStatusReport.put("componentRequirements", new LinkedList<>());
+	            }
+	            if(nodeCounts.containsKey(componentName)) {
+	                componentStatusReport.put("nodeCount", nodeCounts.get(componentName));
+	            } else {
+	                componentStatusReport.put("nodeCount", 0);
+	            }
+	            LinkedList<NodeCandidate> deployedNodes = new LinkedList<NodeCandidate>();
+	            componentStatusReport.put("deployedNodes",deployedNodes);
+	            componentNodeNames.get(componentName).forEach(nodeCandidate -> {
+	                if(deployedNodeCandidates.containsKey(nodeCandidate)) {
+	                	deployedNodes.add(deployedNodeCandidates.get(nodeCandidate));
+	                }
+	            });                
+
+	            components.put(componentName, componentStatusReport);
+	        }
+            NodeCandidate master = deployedNodeCandidates.entrySet().stream().filter(n->n.getKey().startsWith("m"+clusterName+"-master")).findFirst().get().getValue();
+            appStatusReport.put("master",master);	
+	        ObjectMapper om = new ObjectMapper();
+	       
+	        	return om.readValue(om.writeValueAsString(Map.of("details",appStatusReport)), new HashMap().getClass());
+			} catch (Exception ex) {
+				log.error("Failed to build appStatusReport",ex);
+			}
+        return new HashMap<String, Object>();
+        
     }
 
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
@@ -475,9 +524,8 @@ public class NebulousApp {
             this.deployedKubevela = deployedKubevela;
             this.deployedNodeCandidates = Map.copyOf(deployedNodeCandidates);
             state = State.RUNNING;
-            exnConnector.sendAppStatus(UUID, state
-                // , Map.of("nodeCandidates", deployedNodeCandidates, "nodeNames", componentNodeNames)
-            );
+            Map<String,Object> appStatusReport = buildAppStatusReport(clusterName, deployGeneration, componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
+            exnConnector.sendAppStatus(UUID, state,appStatusReport);
             return true;
         }
     }

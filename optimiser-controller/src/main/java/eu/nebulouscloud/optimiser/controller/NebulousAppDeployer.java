@@ -4,11 +4,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import eu.nebulouscloud.optimiser.controller.NebulousApp.State;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
 import eu.nebulouscloud.optimiser.sal.*;
 
@@ -95,9 +97,9 @@ public class NebulousAppDeployer {
         List<List<Requirement>> result = new ArrayList<>();
         if (location != ComponentLocationType.EDGE_ONLY) {
             clouds.forEach((id, regions) -> {
-                List<Requirement> cloud_reqs = new ArrayList<>(requirements);
-                cloud_reqs.add(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
-                cloud_reqs.add(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
+            	LinkedList<Requirement> cloud_reqs = new LinkedList<>(requirements);
+                cloud_reqs.addFirst(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
+                cloud_reqs.addFirst(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
                 if (!regions.isEmpty()) {
                     cloud_reqs.add(new AttributeRequirement("location", "name", RequirementOperator.IN, String.join(" ", regions)));
                 }
@@ -106,14 +108,14 @@ public class NebulousAppDeployer {
         }
         if (location != ComponentLocationType.CLOUD_ONLY) {
             String orgWideName = "application_id|all-applications|";
-            List<Requirement> org_edge_reqs = new ArrayList<>(requirements);
-            org_edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
-            org_edge_reqs.add(new AttributeRequirement("hardware", "name", RequirementOperator.INC, orgWideName));
+            LinkedList<Requirement> org_edge_reqs = new LinkedList<>(requirements);
+            org_edge_reqs.addFirst(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            org_edge_reqs.addFirst(new AttributeRequirement("hardware", "name", RequirementOperator.INC, orgWideName));
             result.add(org_edge_reqs);
             String appAssignedName = "application_id|" + appId + "|";
-            List<Requirement> app_edge_reqs = new ArrayList<>(requirements);
-            app_edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
-            app_edge_reqs.add(new AttributeRequirement("hardware", "name", RequirementOperator.INC, appAssignedName));
+            LinkedList<Requirement> app_edge_reqs = new LinkedList<>(requirements);
+            app_edge_reqs.addFirst(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            app_edge_reqs.addFirst(new AttributeRequirement("hardware", "name", RequirementOperator.INC, appAssignedName));
             result.add(app_edge_reqs);
         }
         return result;
@@ -354,7 +356,7 @@ public class NebulousAppDeployer {
      * @param appID The application id.
      * @param clusterName The name of the cluster to poll.
      */
-    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, NebulousApp app) {
+    private static boolean waitForClusterDeploymentFinished(ExnConnector conn, NebulousApp app, Map<String,Object> appStatusReport ) {
         String appID = app.getUUID();
         String clusterName = app.getClusterName();
         final int pollInterval = 10000; // Check status every 10s
@@ -389,7 +391,7 @@ public class NebulousAppDeployer {
             if (clusterState != null) {
                 JsonNode jsonState = clusterState.at("/status");
                 status = jsonState.isMissingNode() ? null : ClusterStatus.fromValue(jsonState.asText());
-                app.sendDeploymentStatus(clusterState);
+                app.sendDeploymentStatus(clusterState,appStatusReport);
             } else {
                 status = null;
             }
@@ -710,8 +712,12 @@ public class NebulousAppDeployer {
             conn.deleteCluster(appUUID, clusterName);
             return;
         }
+        
+        Map<String,Object> appStatusReport = NebulousApp.buildAppStatusReport(clusterName, app.getDeployGeneration(), componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
+        
+        conn.sendAppStatus(appUUID, State.DEPLOYING,appStatusReport);
 
-        if (!waitForClusterDeploymentFinished(conn, app)) {
+        if (!waitForClusterDeploymentFinished(conn, app,appStatusReport)) {
             log.error("Error while waiting for deployCluster to finish, trying to delete cluster {} and aborting deployment",
                 clusterName);
             app.setStateFailed(deployedNodeCandidates.values());
@@ -983,7 +989,11 @@ public class NebulousAppDeployer {
 
         Main.logFile("redeploy-worker-requirements-" + appUUID + ".txt", componentRequirements);
         Main.logFile("redeploy-worker-counts-" + appUUID + ".txt", componentReplicaCounts);
-
+        
+        
+        Map<String,Object> appStatusReport = NebulousApp.buildAppStatusReport(clusterName, app.getDeployGeneration(), componentRequirements, componentReplicaCounts, componentNodeNames, deployedNodeCandidates);
+        conn.sendAppStatus(appUUID, State.DEPLOYING,appStatusReport);
+        
         if (!nodesToRemove.isEmpty() || !nodesToAdd.isEmpty()) {
             if (!nodesToAdd.isEmpty()) {
                 log.info("Starting scaleout: {}", nodesToAdd);
@@ -991,7 +1001,8 @@ public class NebulousAppDeployer {
                 conn.scaleOut(appUUID, clusterName, nodesToAdd);
                 // TODO: check for error and set app state failed?  (See the
                 // other call to waitForClusterDeploymentFinished)
-                waitForClusterDeploymentFinished(conn, app);
+                waitForClusterDeploymentFinished(conn, app,appStatusReport);
+                
             } else {
                 log.info("No nodes added, skipping scaleout");
             }
