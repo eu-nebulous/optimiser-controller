@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -96,9 +97,9 @@ public class NebulousAppDeployer {
         List<List<Requirement>> result = new ArrayList<>();
         if (location != ComponentLocationType.EDGE_ONLY) {
             clouds.forEach((id, regions) -> {
-                List<Requirement> cloud_reqs = new ArrayList<>(requirements);
-                cloud_reqs.add(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
-                cloud_reqs.add(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
+            	LinkedList<Requirement> cloud_reqs = new LinkedList<>(requirements);
+                cloud_reqs.addFirst(new NodeTypeRequirement(List.of(NodeType.IAAS), "", ""));
+                cloud_reqs.addFirst(new AttributeRequirement("cloud", "id", RequirementOperator.EQ, id));
                 if (!regions.isEmpty()) {
                     cloud_reqs.add(new AttributeRequirement("location", "name", RequirementOperator.IN, String.join(" ", regions)));
                 }
@@ -107,14 +108,14 @@ public class NebulousAppDeployer {
         }
         if (location != ComponentLocationType.CLOUD_ONLY) {
             String orgWideName = "application_id|all-applications|";
-            List<Requirement> org_edge_reqs = new ArrayList<>(requirements);
-            org_edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
-            org_edge_reqs.add(new AttributeRequirement("hardware", "name", RequirementOperator.INC, orgWideName));
+            LinkedList<Requirement> org_edge_reqs = new LinkedList<>(requirements);
+            org_edge_reqs.addFirst(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            org_edge_reqs.addFirst(new AttributeRequirement("hardware", "name", RequirementOperator.INC, orgWideName));
             result.add(org_edge_reqs);
             String appAssignedName = "application_id|" + appId + "|";
-            List<Requirement> app_edge_reqs = new ArrayList<>(requirements);
-            app_edge_reqs.add(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
-            app_edge_reqs.add(new AttributeRequirement("hardware", "name", RequirementOperator.INC, appAssignedName));
+            LinkedList<Requirement> app_edge_reqs = new LinkedList<>(requirements);
+            app_edge_reqs.addFirst(new NodeTypeRequirement(List.of(NodeType.EDGE), "", ""));
+            app_edge_reqs.addFirst(new AttributeRequirement("hardware", "name", RequirementOperator.INC, appAssignedName));
             result.add(app_edge_reqs);
         }
         return result;
