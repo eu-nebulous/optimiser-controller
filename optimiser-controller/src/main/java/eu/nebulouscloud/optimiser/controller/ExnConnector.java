@@ -88,7 +88,7 @@ public class ExnConnector {
     /** The topic where we listen for app reset messages. */
     public static final String app_reset_channel = "eu.nebulouscloud.optimiser.controller.app_reset";
     /** The topic where we listen for app deletion messages. */
-    public static final String app_delete_channel = "eu.nebulouscloud.optimiser.controller.app_delete";
+    public static final String app_delete_channel = "eu.nebulouscloud.ui.application.undeploy";
     /** The topic with an application's relevant performance indicators. */
     public static final String performance_indicators_channel =
         "eu.nebulouscloud.optimiser.utilityevaluator.performanceindicators";
@@ -318,11 +318,11 @@ public class ExnConnector {
     public class AppDeletionMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
-            if (body.get("uuid") == null) {
-                log.error("Received app reset message without 'uuid' attribute, ignoring.");
+            if (body.get("applicationId") == null) {
+                log.error("Received app reset message without 'applicationId' attribute, ignoring.");
                 return;
             }
-            String appId = body.get("uuid").toString();
+            String appId = body.get("applicationId").toString();
             NebulousApp app = NebulousApps.get(appId);
             if (app == null) {
                 log.error("App with uuid {} not found, ignoring app reset message.", appId);
