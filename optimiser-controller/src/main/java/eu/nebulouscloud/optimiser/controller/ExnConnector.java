@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -110,7 +111,7 @@ public class ExnConnector {
     public static final String app_status_channel = "eu.nebulouscloud.optimiser.controller.app_state";
 
     
-    private static final int findBrokerNodeCandidatesTimeout = 60*1000;
+    private static final int findBrokerNodeCandidatesTimeout = 60*1000*2;
     /**
       * The Message producer for sending AMPL files, shared between all
       * NebulousApp instances.
@@ -571,6 +572,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(findBrokerNodeCandidates);
             Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to fetch node candidates");
+            	return Collections.emptyList();
+            }
             // Note: we do not call extractPayloadFromExnResponse here, since this
             // response does not come from the exn-middleware, so will not be
             // packaged into a string.
@@ -648,6 +654,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(findBrokerNodeCandidatesMultiple);
             Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to fetch node candidates");
+            	return Collections.emptyList();
+            }
             // Note: we do not call extractPayloadFromExnResponse here, since this
             // response does not come from the exn-middleware, so will not be
             // packaged into a string.
@@ -716,6 +727,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(findSalNodeCandidates);
 	    Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
+		    if(response==null)
+	        {
+	        	log.error("Failed to fetch node candidates");
+	        	return null;
+	        }
             JsonNode payload = extractPayloadFromExnResponse(response, "findNodeCandidatesFromSal");
             if (payload.isMissingNode()) return null;
             if (!payload.isArray()) return null;
@@ -793,8 +809,13 @@ public class ExnConnector {
             "defineCluster" + publisherNameCounter.incrementAndGet(),
             "eu.nebulouscloud.exn.sal.cluster.define", true, true,10*60*1000);
         try {
-            context.registerPublisher(defineCluster);
+            context.registerPublisher(defineCluster);           
             Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to define cluster");
+            	return false;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "defineCluster");
             return payload.asBoolean();
         } finally {
@@ -868,6 +889,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(labelNodes);
 	    Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
+		    if(response==null)
+	        {
+	        	log.error("Failed to label nodes");
+	        	return false;
+	        }	    
             JsonNode payload = extractPayloadFromExnResponse(response, "labelNodes");
             return payload.isMissingNode() ? false : true;
         } finally {
@@ -896,6 +922,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(deployCluster);
 	    Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+		    if(response==null)
+	        {
+	        	log.error("Failed to deploy cluster");
+	        	return false;
+	        }	    
             JsonNode payload = extractPayloadFromExnResponse(response, "deployCluster");
             return payload.asBoolean();
         } finally {
@@ -938,6 +969,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(deployApplication);
             Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to deploy application");
+            	return -1;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "deployApplication");
             return payload.asLong();
         } finally {
@@ -972,6 +1008,10 @@ public class ExnConnector {
         try {
             context.registerPublisher(scaleOut);
             Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to scale");
+            }
             // Called for side-effect only; we want to log errors.  The return
             // value from scaleOut is the same as getCluster, but since we have to
             // poll for cluster status anyway to make sure the new machines are
@@ -1009,6 +1049,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(scaleIn);
             Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to scalein");
+            	return false;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "scaleIn");
             return payload.asBoolean();
         } finally {
@@ -1034,6 +1079,11 @@ public class ExnConnector {
         try {
             context.registerPublisher(deleteCluster);
             Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to delete cluster");
+            	return false;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "deleteCluster");
             return payload.asBoolean();
         } finally {
