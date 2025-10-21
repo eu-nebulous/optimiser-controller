@@ -88,7 +88,7 @@ public class ExnConnector {
     /** The topic where we listen for app reset messages. */
     public static final String app_reset_channel = "eu.nebulouscloud.optimiser.controller.app_reset";
     /** The topic where we listen for app deletion messages. */
-    public static final String app_delete_channel = "eu.nebulouscloud.optimiser.controller.app_delete";
+    public static final String app_delete_channel = "eu.nebulouscloud.ui.application.undeploy";
     /** The topic with an application's relevant performance indicators. */
     public static final String performance_indicators_channel =
         "eu.nebulouscloud.optimiser.utilityevaluator.performanceindicators";
