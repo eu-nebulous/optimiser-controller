@@ -799,10 +799,10 @@ public class NebulousApp {
             ObjectNode constant = constants.withObject(function.at("/name").asText());
             constant.put("Variable", variableName);
             String meaning = variable.at("/meaning").asText("unknown");
-            if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
+            if (KubevelaAnalyzer.isKubevelaNumeric(meaning)) {
                 // kubevelaNumberToLong handles converting "8Gi" to 8192 for
                 // meaning "memory", and rounds up kubevela cpu/gpu (floating
-                // point) to SAL number of cores (int) for meaning "cpu"
+                // point) to SAL number of cores (int) for meaning "cpu"            	
                 constant.put("Value", KubevelaAnalyzer.kubevelaNumberToLong(value, meaning));
             } else {
                 constant.set("Value", value);

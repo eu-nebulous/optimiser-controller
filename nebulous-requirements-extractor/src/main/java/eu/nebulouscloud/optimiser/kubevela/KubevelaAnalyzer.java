@@ -302,6 +302,15 @@ public class KubevelaAnalyzer {
         List<String> integerMeanings = List.of("memory", "replicas");
         return integerMeanings.contains(meaning);
     }
+    /**
+     * Check if the field should be numeric (int or float)
+     * @param meaning
+     * @return
+     */
+    public static boolean isKubevelaNumeric(String meaning) {
+        List<String> numericMeanings = List.of("memory", "replicas","cpu","gpu");
+        return numericMeanings.contains(meaning);
+    }
 
     /**
      * Return the long value of the given JSON node.  If the meaning is
