@@ -761,7 +761,7 @@ public class NebulousAppDeployer {
 
         // ------------------------------------------------------------
         // Update NebulousApp state
-
+   
         app.setStateDeploymentFinished(componentRequirements, nodeCounts, componentNodeNames, suggestedNodeCandidates, deployedNodeCandidates, rewritten);
         log.info("App deployment finished.");
     }
@@ -852,6 +852,9 @@ public class NebulousAppDeployer {
             log.error("Aborting redeployment");
             return;
         }
+        
+        //Fetch the whole list of dead nodes from SAL
+        List<String> deadNodeNames = conn.getAppDeadNodes(appUUID,clusterName);
 
         for (String componentName : components.keySet()) {
             // The variable `allMachineNames` shall, at the end of each loop
@@ -868,6 +871,31 @@ public class NebulousAppDeployer {
                 // Requirements did not change
                 int oldCount = oldComponentReplicaCounts.get(componentName);
                 int newCount = componentReplicaCounts.get(componentName);
+                
+                /**
+                 * Check all component node names to see if they are alive.
+                 * If not, add them to the list of nodes to remove and deregisterm, remove them from the deployedNodeCandidates map, and remove their label.
+                 * If they are alive, add them to the list of confirmed node names.
+                 * Update the oldComponentNodeNames map with the confirmed node names.
+                 */
+                Set<String> oldUnconfirmedNodeNames = oldComponentNodeNames.get(componentName);
+                Set<String> oldConfirmedNodeNames = new HashSet<>();
+                for (String nodename : oldUnconfirmedNodeNames) {
+                    if (deadNodeNames.contains(nodename)) {
+                        log.info("Node {} is not alive, removing from deployedNodeCandidates", nodename);
+                        oldCount--;
+                        NodeCandidate c = deployedNodeCandidates.remove(nodename);
+                        nodeCandidatesToDeregister.add(c);
+                        nodeLabels.addObject().put(nodename, "nebulouscloud.eu/" + componentName + "=no");
+                        nodesToRemove.add(nodename);
+
+                    }else
+                    {
+                    	oldConfirmedNodeNames.add(nodename);
+                    }
+                }
+                oldComponentNodeNames.put(componentName, oldConfirmedNodeNames);
+                
                 if (newCount > oldCount) {
                     allMachineNames = new HashSet<>(oldComponentNodeNames.get(componentName));
                     int nAdd = newCount - oldCount;

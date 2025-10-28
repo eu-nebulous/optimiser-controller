@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
+
+import eu.nebulouscloud.optimiser.controller.ResourceManagerClient.ResourceManagerException;
 import eu.nebulouscloud.optimiser.sal.NodeCandidate;
 import eu.nebulouscloud.optimiser.sal.Requirement;
 
@@ -1141,5 +1143,41 @@ public class ExnConnector {
         Map<String, Object> msg = mapper.convertValue(solutions, Map.class);
         solverSolutionPublisher.send(msg, appID);
     }
+    
+    
+    /**
+     * Get the dead nodes of a deployed application.
+     * Query SAL to get cluster nodes URLs and compare them with the alive nodes URLs from the Resource Manager.
+     */
+    public List<String> getAppDeadNodes(String appID, String clusterName)
+    {
+    	try {
+    	JsonNode clusterState = getCluster(appID, clusterName);
+        if (clusterState == null) {
+            log.error("Cluster state is null for appID: {}, clusterName: {}", appID, clusterName);
+             return List.of();
+            }
+        JsonNode clusterNodes = clusterState.at("/nodes");
+        if (clusterNodes == null) {
+            log.error("Cluster nodes are null for appID: {}, clusterName: {}", appID, clusterName);
+             return List.of();
+            }
+        /* Create a map of node URL to node name */    
+        Map<String,String> nodeUrlToNodeName = new HashMap<String,String>();        
+        clusterNodes.forEach(e->{
+        	nodeUrlToNodeName.put(e.at("/nodeUrl").asText(),e.at("/nodeName").asText());        	
+        });
+        /* Query the Resource Manager to get the alive nodes URLs */
+        //TODO: ResourceManagerClient is a temporary solution to get the alive nodes URLs. We should use an EXN middleware endpoint instead.
+        List<String> aliveNodesUrls= new ResourceManagerClient().getAliveNodesURLs();
+        /* Return the dead nodes names */
+        return nodeUrlToNodeName.keySet().stream().filter(u->!aliveNodesUrls.contains(u)).map(u->nodeUrlToNodeName.get(u)).toList();
+        
+		} catch (ResourceManagerException e) {
+			log.error("Failed to get alive nodes URLs from Resource Manager for appID: {}, clusterName: {}", appID, clusterName, e);
+			return List.of();
+		}
+    }
+
 
 }
