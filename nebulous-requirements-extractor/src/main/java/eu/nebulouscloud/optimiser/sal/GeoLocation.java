@@ -61,4 +61,13 @@ public class GeoLocation implements Serializable {
       this.longitude = longitude;
    }
 
+   @Override
+   public String toString() {
+      return "GeoLocation{" +
+             "city='" + city + '\'' +
+             ", country='" + country + '\'' +
+             ", latitude=" + latitude +
+             ", longitude=" + longitude +
+             '}';
+   }
 }

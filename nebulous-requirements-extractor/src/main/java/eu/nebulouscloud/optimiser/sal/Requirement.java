@@ -69,4 +69,11 @@ public abstract class Requirement {
          return null;
       }
    }
+
+   @Override
+   public String toString() {
+      return "Requirement{" +
+             "type=" + type +
+             '}';
+   }
 }

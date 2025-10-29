@@ -20,4 +20,10 @@ public enum RequirementOperator {
       this.value = value;
    }
 
+   @Override
+   public String toString() {
+      return "RequirementOperator{" +
+             "value='" + value + '\'' +
+             '}';
+   }
 }

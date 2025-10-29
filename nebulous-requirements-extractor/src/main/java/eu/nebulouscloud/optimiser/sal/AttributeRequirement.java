@@ -69,6 +69,17 @@ public class AttributeRequirement extends Requirement {
       this.value = value;
    }
 
+   
 
+   @Override
+   public String toString() {
+      return "AttributeRequirement{" +
+             "type=" + type +
+             ", requirementClass='" + requirementClass + '\'' +
+             ", requirementAttribute='" + requirementAttribute + '\'' +
+             ", requirementOperator=" + requirementOperator +
+             ", value='" + value + '\'' +
+             '}';
+   }
 
 }

@@ -674,7 +674,7 @@ public class NebulousApp {
             JsonNode param = kubevelaVariables.get(key);
             // The solver sends all defined AMPL variables, not only the ones
             // that correspond to KubeVela locations
-            if (param == null) continue;
+            if (param == null) {log.info("Ignoring solver variable {}. Not found in Kubevela",key); continue; }
             String pathstr = param.at("/path").asText();
             // The "application_deployment_price" variable (with meaning:
             // "price"), does not have a KubeVela path associated.
@@ -899,8 +899,11 @@ public class NebulousApp {
             log.info("Received solver solution with DeploySolution=false, ignoring.");
             return;
         }
+        log.info("redeployWithSolution: {}",solution);
         ObjectNode variables = solution.withObjectProperty(VARIABLEVALUES_PROPERTY);
+        log.info("variables: {}",variables);
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
+        log.info("kubevela with variables substitution: {}",kubevela);
         if (deployGeneration > 0) {
             NebulousAppDeployer.redeployApplication(this, kubevela);
         } else {

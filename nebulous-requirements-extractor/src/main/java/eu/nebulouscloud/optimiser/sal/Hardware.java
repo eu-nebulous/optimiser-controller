@@ -100,5 +100,20 @@ public class Hardware implements Serializable {
       return this.state;
    }
 
-   
+   @Override
+   public String toString() {
+      return "Hardware{" +
+             "id='" + id + '\'' +
+             ", name='" + name + '\'' +
+             ", providerId='" + providerId + '\'' +
+             ", cores=" + cores +
+             ", cpuFrequency=" + cpuFrequency +
+             ", ram=" + ram +
+             ", disk=" + disk +
+             ", fpga=" + fpga +
+             ", gpu=" + gpu +
+             ", location=" + location +
+             ", state=" + state +
+             '}';
+   }
 }

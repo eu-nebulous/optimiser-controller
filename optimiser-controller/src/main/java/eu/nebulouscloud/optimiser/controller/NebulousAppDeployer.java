@@ -286,6 +286,7 @@ public class NebulousAppDeployer {
         for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String nodeName = e.getKey();
             List<Requirement> requirements = e.getValue();
+            log.info("Searching node candidates for {}. Requirements: {}",nodeName,requirements);
             List<NodeCandidate> candidates = conn.findNodeCandidatesMultiple(
                 requirementsWithLocations(requirements, appUUID, clouds,
                     getComponentLocation(components.get(nodeName))),
