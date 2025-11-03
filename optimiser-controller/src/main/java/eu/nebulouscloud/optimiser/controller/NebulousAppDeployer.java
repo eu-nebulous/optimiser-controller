@@ -888,20 +888,20 @@ public class NebulousAppDeployer {
                         nodeCandidatesToDeregister.add(c);
                         nodeLabels.addObject().put(nodename, "nebulouscloud.eu/" + componentName + "=no");
                         nodesToRemove.add(nodename);
+                        oldComponentNodeNames.get(componentName).remove(nodename);
 
                     }else
                     {
-                    	oldConfirmedNodeNames.add(nodename);
+                    	 log.info("Node {} is alive, do nothing",nodename);
                     }
                 }
-                oldComponentNodeNames.put(componentName, oldConfirmedNodeNames);
                 
                 if (newCount > oldCount) {
                     allMachineNames = new HashSet<>(oldComponentNodeNames.get(componentName));
                     int nAdd = newCount - oldCount;
                     log.info("Node requirements unchanged but need to add {} nodes to component {}", nAdd, componentName);
                     int nodeNumber = 0;
-                    while (nodeNumber <= nAdd) {
+                    while (nodeNumber < nAdd) {
                         String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                         NodeCandidate candidate = candidates.stream()
                             .filter(each -> !isEdgeNodeBusy(each)

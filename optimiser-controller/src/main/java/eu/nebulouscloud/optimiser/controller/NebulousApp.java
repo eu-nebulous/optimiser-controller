@@ -198,6 +198,13 @@ public class NebulousApp {
      */
     @Getter
     private final ObjectNode originalKubevela;
+    
+    /**
+     * Current version of the kubevela. It is the originalKubevela with variable values dictated by solver.
+     * It is different from deployedKubevela
+     */
+    @Getter
+    private ObjectNode currentKubevela;
 
     /**
      * The KubeVela sent to the app's controller node for the currently active
@@ -502,6 +509,7 @@ public class NebulousApp {
 	            components.put(componentName, componentStatusReport);
 	        }
             NodeCandidate master = deployedNodeCandidates.entrySet().stream().filter(n->n.getKey().startsWith("m"+clusterName+"-master")).findFirst().get().getValue();
+            
             appStatusReport.put("master",master);	
 	        ObjectMapper om = new ObjectMapper();
 	       
@@ -927,8 +935,10 @@ public class NebulousApp {
             log.info("Received solver solution with DeploySolution=false, ignoring.");
             return;
         }
+        
         ObjectNode variables = solution.withObjectProperty(VARIABLEVALUES_PROPERTY);
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
+        currentKubevela = kubevela.deepCopy();
         if (deployGeneration > 0) {
             NebulousAppDeployer.redeployApplication(this, kubevela);
         } else {
@@ -946,6 +956,7 @@ public class NebulousApp {
      */
     @Synchronized
     public void deploy() {
+    	currentKubevela = getOriginalKubevela().deepCopy();
         NebulousAppDeployer.deployApplication(this, getOriginalKubevela());
         
     }
@@ -967,8 +978,12 @@ public class NebulousApp {
             }
             log.info("Some nodes are missing: {}, redeploying application",
                     deadNodeNames.stream().collect(Collectors.joining(", ")));
-            NebulousAppDeployer.redeployApplication(this, deployedKubevela.deepCopy());
-        } finally {
+            NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
+        }catch(Exception ex)
+        {
+        	log.error("Failed appHealthCheck",ex);
+        }
+        finally {
             healthCheckExecutor.schedule(
                     this::appHealthCheck,
                     HEALTH_CHECK_INTERVAL_SECONDS,

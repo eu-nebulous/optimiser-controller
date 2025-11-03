@@ -2,6 +2,7 @@ package eu.nebulouscloud.optimiser.sal;
 
  
 import java.util.Locale;
+import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -69,4 +70,24 @@ public abstract class Requirement {
          return null;
       }
    }
+
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(type);
+	}
+	
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		Requirement other = (Requirement) obj;
+		return type == other.type;
+	}
+   
+   
 }
