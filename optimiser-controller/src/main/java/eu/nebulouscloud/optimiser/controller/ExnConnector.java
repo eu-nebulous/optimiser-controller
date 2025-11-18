@@ -14,18 +14,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
 
-import eu.nebulouscloud.optimiser.controller.ResourceManagerClient.ResourceManagerException;
 import eu.nebulouscloud.optimiser.sal.NodeCandidate;
 import eu.nebulouscloud.optimiser.sal.Requirement;
 
 import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1151,32 +1152,52 @@ public class ExnConnector {
      */
     public List<String> getAppDeadNodes(String appID, String clusterName)
     {
-    	try {
-    	JsonNode clusterState = getCluster(appID, clusterName);
-        if (clusterState == null) {
-            log.error("Cluster state is null for appID: {}, clusterName: {}", appID, clusterName);
-             return List.of();
-            }
-        JsonNode clusterNodes = clusterState.at("/nodes");
-        if (clusterNodes == null) {
-            log.error("Cluster nodes are null for appID: {}, clusterName: {}", appID, clusterName);
-             return List.of();
-            }
-        /* Create a map of node URL to node name */    
-        Map<String,String> nodeUrlToNodeName = new HashMap<String,String>();        
-        clusterNodes.forEach(e->{
-        	nodeUrlToNodeName.put(e.at("/nodeUrl").asText(),e.at("/nodeName").asText());        	
-        });
-        /* Query the Resource Manager to get the alive nodes URLs */
-        //TODO: ResourceManagerClient is a temporary solution to get the alive nodes URLs. We should use an EXN middleware endpoint instead.
-        List<String> aliveNodesUrls= new ResourceManagerClient().getAliveNodesURLs();
-        /* Return the dead nodes names */
-        return nodeUrlToNodeName.keySet().stream().filter(u->!aliveNodesUrls.contains(u)).map(u->nodeUrlToNodeName.get(u)).toList();
-        
-		} catch (ResourceManagerException e) {
-			log.error("Failed to get alive nodes URLs from Resource Manager for appID: {}, clusterName: {}", appID, clusterName, e);
+		JsonNode clusterState = getCluster(appID, clusterName);
+		if (clusterState == null) {
+			log.error("Cluster state is null for appID: {}, clusterName: {}", appID, clusterName);
 			return List.of();
 		}
+		JsonNode clusterNodes = clusterState.at("/nodes");
+		if (clusterNodes == null) {
+			log.error("Cluster nodes are null for appID: {}, clusterName: {}", appID, clusterName);
+			return List.of();
+		}
+
+		/* Create a map of node URL to node name */
+		Map<String, String> nodeUrlToNodeName = new HashMap<String, String>();
+		clusterNodes.forEach(e -> {
+			nodeUrlToNodeName.put(e.at("/nodeUrl").asText(), e.at("/nodeName").asText());
+		});
+
+		/* Query the Resource Manager to get the alive nodes URLs */
+		SyncedPublisher getNodeStates = new SyncedPublisher("getNodeStates" + publisherNameCounter.incrementAndGet(),
+				"eu.nebulouscloud.exn.proactive.state", true, true, findBrokerNodeCandidatesTimeout);
+		Context context = getContext();
+		if (context == null) {
+			log.error("Trying to send request before Connector gave us a context (internal error)");
+			return List.of();
+		}
+		try {
+			context.registerPublisher(getNodeStates);
+			Map<String, Object> response = getNodeStates.sendSync(Map.of(), appID, null, false);
+			if (response == null) {
+				log.error("Failed to call eu.nebulouscloud.exn.proactive.state");
+				return Collections.emptyList();
+			}
+			ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+			List<String> aliveNodesUrls = (ArrayList<String>) mapper
+					.readValue(jsonBody.get("body").asText(), new HashMap().getClass()).get("aliveNodes");
+			/* Return the dead nodes names */
+			return nodeUrlToNodeName.keySet().stream().filter(u -> !aliveNodesUrls.contains(u))
+					.map(u -> nodeUrlToNodeName.get(u)).toList();
+		} catch (Exception e) {
+			log.error("Failed to get alive nodes URLs from Resource Manager for appID: {}, clusterName: {}", appID,
+					clusterName, e);
+			return List.of();
+		} finally {
+			context.unregisterPublisher(getNodeStates.key());
+		}
+		
     }
 
 

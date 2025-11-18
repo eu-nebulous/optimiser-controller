@@ -110,25 +110,6 @@ public class Main implements Callable<Integer> {
         scope = ScopeType.INHERIT)
     private boolean[] verbosity;
 
-    @Option(names = {"--proactive-url"},
-    description = "The URL of the ProActive server in a deployed app.  Can also be set via the @|bold PROACTIVE_URL|@ environment variable.",
-    paramLabel = "PROACTIVE_URL",
-    defaultValue = "${PROACTIVE_URL}")
-    @Getter
-    private static String proactiveURL;
-    @Option(names = {"--proactive-user"},
-    description = "The user of the ProActive server in a deployed app.  Can also be set via the @|bold PROACTIVE_USER|@ environment variable.",
-    paramLabel = "PROACTIVE_USER",
-    defaultValue = "${PROACTIVE_USER}")
-    @Getter
-    private static String proactiveUser;
-    @Option(names = {"--proactive-password"},
-    description = "The password of the ProActive server in a deployed app.  Can also be set via the @|bold PROACTIVE_PASSWORD|@ environment variable.",
-    paramLabel = "PROACTIVE_PASSWORD",
-    defaultValue = "${PROACTIVE_PASSWORD}")
-    @Getter
-    private static String proactivePassword;
-
     /**
      * The ActiveMQ connector.
      *

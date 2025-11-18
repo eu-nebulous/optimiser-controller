@@ -966,6 +966,7 @@ public class NebulousApp {
      * Check if the app nodes are alive. If not, redeploy the application.
      */
     public void appHealthCheck() {
+    	boolean isMasterNodeDead = false;
         try {
             if (state != State.RUNNING) {
                 return;
@@ -976,19 +977,32 @@ public class NebulousApp {
                 log.info("All nodes are alive, no redeployment needed");
                 return;
             }
+            //Check if master node is among the dead nodes
+            isMasterNodeDead = deadNodeNames.stream().anyMatch(n->n.startsWith("m"+clusterName+"-master"));
+            
             log.info("Some nodes are missing: {}, redeploying application",
                     deadNodeNames.stream().collect(Collectors.joining(", ")));
+            
+            if(isMasterNodeDead)
+            {
+            	log.error("Master node is dead, can't re-deploy application");
+            	//TODO: what should we do?
+            }
+            
             NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
         }catch(Exception ex)
         {
         	log.error("Failed appHealthCheck",ex);
         }
         finally {
+        	//On any execution path, schedule a helthCheck (except if isMasterNodeDead)
+        	if(!isMasterNodeDead) {
             healthCheckExecutor.schedule(
                     this::appHealthCheck,
                     HEALTH_CHECK_INTERVAL_SECONDS,
                     TimeUnit.SECONDS);
             log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+        	}
         }
     }
 
