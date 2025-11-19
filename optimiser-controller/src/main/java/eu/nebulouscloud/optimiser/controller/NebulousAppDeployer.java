@@ -880,7 +880,7 @@ public class NebulousAppDeployer {
                  * If they are alive, add them to the list of confirmed node names.
                  * Update the oldComponentNodeNames map with the confirmed node names.
                  */
-                Set<String> oldUnconfirmedNodeNames = oldComponentNodeNames.get(componentName);
+                Set<String> oldUnconfirmedNodeNames = new HashSet<String>(oldComponentNodeNames.get(componentName));
                 Set<String> oldConfirmedNodeNames = new HashSet<>();
                 for (String nodename : oldUnconfirmedNodeNames) {
                     if (deadNodeNames.contains(nodename)) {
