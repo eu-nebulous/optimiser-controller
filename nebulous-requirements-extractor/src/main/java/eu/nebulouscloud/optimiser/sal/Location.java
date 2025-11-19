@@ -162,4 +162,19 @@ public class Location implements Serializable {
          return null;
       }
    }
+
+   @Override
+   public String toString() {
+      return "Location{" +
+             "id='" + id + '\'' +
+             ", name='" + name + '\'' +
+             ", providerId='" + providerId + '\'' +
+             ", locationScope='" + locationScope + '\'' +
+             ", isAssignable=" + isAssignable +
+             ", geoLocation=" + geoLocation +
+             ", parent=" + parent +
+             ", state=" + state +
+             ", owner='" + owner + '\'' +
+             '}';
+   }
 }

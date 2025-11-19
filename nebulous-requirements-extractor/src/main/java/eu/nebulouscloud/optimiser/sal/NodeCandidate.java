@@ -189,4 +189,21 @@ public class NodeCandidate implements Serializable {
 			return null;
 		}
 	}
+
+	@Override
+	public String toString() {
+		return "NodeCandidate{" +
+				"id='" + id + '\'' +
+				", nodeCandidateType='" + nodeCandidateType + '\'' +
+				", jobIdForBYON='" + jobIdForBYON + '\'' +
+				", jobIdForEDGE='" + jobIdForEDGE + '\'' +
+				", price=" + price +
+				", cloud=" + cloud +
+				", location=" + location +
+				", hardware=" + hardware +
+				", pricePerInvocation=" + pricePerInvocation +
+				", memoryPrice=" + memoryPrice +
+				", nodeId='" + nodeId + '\'' +
+				'}';
+	}
 }

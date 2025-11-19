@@ -55,4 +55,13 @@ public class NodeTypeRequirement extends Requirement {
    public void setJobIdForEDGE(String jobIdForEDGE) {
       this.jobIdForEDGE = jobIdForEDGE;
    }
+
+   @Override
+   public String toString() {
+      return "NodeTypeRequirement{" +
+             "nodeTypes=" + nodeTypes +
+             ", jobIdForBYON='" + jobIdForBYON + '\'' +
+             ", jobIdForEDGE='" + jobIdForEDGE + '\'' +
+             '}';
+   }
 }
