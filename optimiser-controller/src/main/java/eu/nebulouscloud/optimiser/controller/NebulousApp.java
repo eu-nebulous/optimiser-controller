@@ -984,7 +984,8 @@ public class NebulousApp {
             if(isMasterNodeDead)
             {
             	log.error("Master node is dead, can't re-deploy application");
-            	//TODO: what should we do?
+            	NebulousAppDeployer.undeployApplication(this);
+            	return;
             }
             
             NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
