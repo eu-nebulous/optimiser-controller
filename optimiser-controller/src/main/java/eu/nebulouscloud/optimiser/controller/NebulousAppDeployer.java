@@ -764,6 +764,7 @@ public class NebulousAppDeployer {
         // Update NebulousApp state
    
         app.setStateDeploymentFinished(componentRequirements, nodeCounts, componentNodeNames, suggestedNodeCandidates, deployedNodeCandidates, rewritten);
+        app.startHealthMonitoring();
         log.info("App deployment finished.");
     }
 

@@ -547,10 +547,6 @@ public class NebulousApp {
             state = State.RUNNING;
             Map<String,Object> appStatusReport = buildAppStatusReport(clusterName, deployGeneration, componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
             exnConnector.sendAppStatus(UUID, state,appStatusReport);
-            
-            // Start health monitoring when app reaches RUNNING state
-            startHealthMonitoring();
-            
             return true;
         }
     }
@@ -1012,21 +1008,23 @@ public class NebulousApp {
      * Start the periodic health monitoring thread.
      */
     public void startHealthMonitoring() {       	
-    	if(healthCheckExecutor==null) {
-	        log.info("Starting health monitoring thread for app {}", UUID);
-	        healthCheckExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-	            Thread t = new Thread(r, "health-monitor-" + UUID);
-	            t.setDaemon(true);
-	            return t;
-	        });
+    	if(healthCheckExecutor!=null) {
+    		log.error("healthCheckExecutor for app {} already exists. Ignore", UUID);
+    		return;
     	}
-       
-        healthCheckExecutor.schedule(
-            this::appHealthCheck,
-            HEALTH_CHECK_INTERVAL_SECONDS,
-            TimeUnit.SECONDS
-        ); 
-        log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+        log.info("Starting health monitoring thread for app {}", UUID);
+        healthCheckExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "health-monitor-" + UUID);
+            t.setDaemon(true);
+            return t;
+        });
+        
+		healthCheckExecutor.schedule(
+		        this::appHealthCheck,
+		        HEALTH_CHECK_INTERVAL_SECONDS,
+		        TimeUnit.SECONDS
+		); 
+		log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
     }
 
     /**
