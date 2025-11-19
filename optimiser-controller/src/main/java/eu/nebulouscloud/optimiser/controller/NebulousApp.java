@@ -6,12 +6,15 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.BooleanNode;
+import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
+import eu.nebulouscloud.optimiser.sal.*;
 import lombok.Getter;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +28,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,9 +36,10 @@ import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-import org.ow2.proactive.sal.model.NodeCandidate;
-import org.ow2.proactive.sal.model.Requirement;
 
 /**
  * Internal representation of a NebulOus app.
@@ -115,6 +120,8 @@ public class NebulousApp {
     private static final JsonPointer name_path = JsonPointer.compile("/title");
     private static final JsonPointer utility_function_path = JsonPointer.compile("/utilityFunctions");
     private static final JsonPointer constraints_path = JsonPointer.compile("/sloViolations");
+    
+    
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
@@ -191,6 +198,13 @@ public class NebulousApp {
      */
     @Getter
     private final ObjectNode originalKubevela;
+    
+    /**
+     * Current version of the kubevela. It is the originalKubevela with variable values dictated by solver.
+     * It is different from deployedKubevela
+     */
+    @Getter
+    private ObjectNode currentKubevela;
 
     /**
      * The KubeVela sent to the app's controller node for the currently active
@@ -247,6 +261,13 @@ public class NebulousApp {
      */
     @Getter
     private Map<String, NodeCandidate> deployedNodeCandidates = Map.of();
+
+
+    /** Scheduled executor service for periodic health checks */
+    private ScheduledExecutorService healthCheckExecutor = null;
+    
+    /** Interval in seconds between health checks */
+    private static final int HEALTH_CHECK_INTERVAL_SECONDS = 30;
 
     /**
      * Creates a NebulousApp object.
@@ -439,16 +460,65 @@ public class NebulousApp {
      * @return true if status message sent, false otherwise.
      */
     @Synchronized
-    public boolean sendDeploymentStatus(JsonNode clusterState) {
+    public boolean sendDeploymentStatus(JsonNode clusterState, Map<String,Object> additionalEntries) {
         if (state == State.DEPLOYING) {
-            exnConnector.sendAppStatus(UUID, state
-                // FIXME convert this to something that doesn't crash the middleware.  Comment out for now.
-                // , Map.of("clusterState", clusterState)
-            );
+            exnConnector.sendAppStatus(UUID, state,additionalEntries);
             return true;
         } else {
             return false;
         }
+    }
+    
+    public static Map<String,Object> buildAppStatusReport(
+    		String clusterName,
+    		int deployGeneration,
+    		  Map<String, List<Requirement>> componentRequirements,
+    	        Map<String, Integer> nodeCounts,
+    	        Map<String, Set<String>> componentNodeNames,
+    	        Map<String, NodeCandidate> deployedNodeCandidates)
+    {
+    	Map<String,Object> appStatusReport = new HashMap<>();
+    	try {
+    	
+	        appStatusReport.put("clusterName", clusterName);
+	        appStatusReport.put("deployGeneration", deployGeneration);
+	        Map<String,Object> components= new HashMap<>();
+	        appStatusReport.put("components",components);
+	        for(String componentName : componentNodeNames.keySet()) {
+	            Map<String,Object> componentStatusReport = new HashMap<>();
+	            componentStatusReport.put("componentName", componentName);
+	
+	            if(componentRequirements.containsKey(componentName)) {
+	                componentStatusReport.put("componentRequirements", componentRequirements.get(componentName));
+	            } else {
+	                componentStatusReport.put("componentRequirements", new LinkedList<>());
+	            }
+	            if(nodeCounts.containsKey(componentName)) {
+	                componentStatusReport.put("nodeCount", nodeCounts.get(componentName));
+	            } else {
+	                componentStatusReport.put("nodeCount", 0);
+	            }
+	            LinkedList<NodeCandidate> deployedNodes = new LinkedList<NodeCandidate>();
+	            componentStatusReport.put("deployedNodes",deployedNodes);
+	            componentNodeNames.get(componentName).forEach(nodeCandidate -> {
+	                if(deployedNodeCandidates.containsKey(nodeCandidate)) {
+	                	deployedNodes.add(deployedNodeCandidates.get(nodeCandidate));
+	                }
+	            });                
+
+	            components.put(componentName, componentStatusReport);
+	        }
+            NodeCandidate master = deployedNodeCandidates.entrySet().stream().filter(n->n.getKey().startsWith("m"+clusterName+"-master")).findFirst().get().getValue();
+            
+            appStatusReport.put("master",master);	
+	        ObjectMapper om = new ObjectMapper();
+	       
+	        	return om.readValue(om.writeValueAsString(Map.of("details",appStatusReport)), new HashMap().getClass());
+			} catch (Exception ex) {
+				log.error("Failed to build appStatusReport",ex);
+			}
+        return new HashMap<String, Object>();
+        
     }
 
     /** Set state from DEPLOYING to RUNNING and update app cluster information.
@@ -475,9 +545,12 @@ public class NebulousApp {
             this.deployedKubevela = deployedKubevela;
             this.deployedNodeCandidates = Map.copyOf(deployedNodeCandidates);
             state = State.RUNNING;
-            exnConnector.sendAppStatus(UUID, state
-                // , Map.of("nodeCandidates", deployedNodeCandidates, "nodeNames", componentNodeNames)
-            );
+            Map<String,Object> appStatusReport = buildAppStatusReport(clusterName, deployGeneration, componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
+            exnConnector.sendAppStatus(UUID, state,appStatusReport);
+            
+            // Start health monitoring when app reaches RUNNING state
+            startHealthMonitoring();
+            
             return true;
         }
     }
@@ -509,6 +582,10 @@ public class NebulousApp {
     public void setStateFailed(Collection<NodeCandidate> acquiredNodes) {
         EdgeNodes.release(this.UUID, acquiredNodes);
         if (state == State.DELETED) return;
+        
+        // Stop health monitoring when app fails
+        stopHealthMonitoring();
+        
         state = State.FAILED;
         exnConnector.sendAppStatus(UUID, state);
     }
@@ -525,6 +602,10 @@ public class NebulousApp {
     @Synchronized
     public void resetState() {
         if (state == State.DELETED) return;
+        
+        // Stop health monitoring when resetting state
+        stopHealthMonitoring();
+        
         this.deployGeneration = 0;
         this.componentRequirements = Map.of();
         this.componentReplicaCounts = Map.of();
@@ -543,6 +624,9 @@ public class NebulousApp {
      */
     @Synchronized
     public void setStateDeletedAndUnregister() {
+        // Stop health monitoring before deleting
+        stopHealthMonitoring();
+        
         state = State.DELETED;
         NebulousApps.remove(UUID);
         exnConnector.sendAppStatus(UUID, state);
@@ -626,7 +710,7 @@ public class NebulousApp {
             JsonNode param = kubevelaVariables.get(key);
             // The solver sends all defined AMPL variables, not only the ones
             // that correspond to KubeVela locations
-            if (param == null) continue;
+            if (param == null) {log.info("Ignoring solver variable {}. Not found in Kubevela",key); continue; }
             String pathstr = param.at("/path").asText();
             // The "application_deployment_price" variable (with meaning:
             // "price"), does not have a KubeVela path associated.
@@ -640,19 +724,30 @@ public class NebulousApp {
                 log.warn("Location {} not found in KubeVela, cannot replace with value {}",
                     key, replacementValue);
                 doReplacement = false;
-            } else if (param.at("/meaning").asText().equals("memory")) {
-                // Special case: the solver delivers a number for memory, but
-                // KubeVela wants a number with a unit, so we have to add one.
-                // Also, we have cases where the initial node size is
-                // specified in GB but the formulas and boundaries are
-                // expressed in MB (and vice versa), so we have to use a
-                // heuristic for guessing which unit the user meant.
-                if (!(replacementValue.asText().endsWith("Mi")
-                      || replacementValue.asText().endsWith("Gi"))) {
-                    if (replacementValue.asDouble() <= 512) {
-                        replacementValue = new TextNode(replacementValue.asText() + "Gi");
-                    } else {
-                        replacementValue = new TextNode(replacementValue.asText() + "Mi");
+            } else {
+                String meaning = param.at("/meaning").asText();
+                if (KubevelaAnalyzer.isKubevelaInteger(meaning) && replacementValue.isFloatingPointNumber()) {
+                    // Workaround for
+                    // https://github.com/eu-nebulous/optimiser-controller/issues/119
+                    // -- we didn't get the dsl file so we can't check if we
+                    // (in the AMPL file) or the solver in its return value
+                    // produce the stray float value.
+                    replacementValue = new LongNode(replacementValue.asLong());
+                }
+                if (meaning.equals("memory")) {
+                    // Special case: the solver delivers a number for memory, but
+                    // KubeVela wants a number with a unit, so we have to add one.
+                    // Also, we have cases where the initial node size is
+                    // specified in GB but the formulas and boundaries are
+                    // expressed in MB (and vice versa), so we have to use a
+                    // heuristic for guessing which unit the user meant.
+                    if (!(replacementValue.asText().endsWith("Mi")
+                          || replacementValue.asText().endsWith("Gi"))) {
+                        if (replacementValue.asDouble() <= 512) {
+                            replacementValue = new TextNode(replacementValue.asText() + "Gi");
+                        } else {
+                            replacementValue = new TextNode(replacementValue.asText() + "Mi");
+                        }
                     }
                 }
             }              // Handle other special cases here, as they come up
@@ -740,10 +835,10 @@ public class NebulousApp {
             ObjectNode constant = constants.withObject(function.at("/name").asText());
             constant.put("Variable", variableName);
             String meaning = variable.at("/meaning").asText("unknown");
-            if (KubevelaAnalyzer.isKubevelaInteger(meaning)) {
+            if (KubevelaAnalyzer.isKubevelaNumeric(meaning)) {
                 // kubevelaNumberToLong handles converting "8Gi" to 8192 for
-                // meaning "memory", and rounds up kubevela cpu (floating
-                // point) to SAL number of cores (int) for meaning "cpu"
+                // meaning "memory", and rounds up kubevela cpu/gpu (floating
+                // point) to SAL number of cores (int) for meaning "cpu"            	
                 constant.put("Value", KubevelaAnalyzer.kubevelaNumberToLong(value, meaning));
             } else {
                 constant.set("Value", value);
@@ -840,8 +935,12 @@ public class NebulousApp {
             log.info("Received solver solution with DeploySolution=false, ignoring.");
             return;
         }
+        log.info("redeployWithSolution: {}",solution);
         ObjectNode variables = solution.withObjectProperty(VARIABLEVALUES_PROPERTY);
+        log.info("variables: {}",variables);
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
+        log.info("kubevela with variables substitution: {}",kubevela);
+        currentKubevela = kubevela.deepCopy();
         if (deployGeneration > 0) {
             NebulousAppDeployer.redeployApplication(this, kubevela);
         } else {
@@ -859,6 +958,98 @@ public class NebulousApp {
      */
     @Synchronized
     public void deploy() {
+    	currentKubevela = getOriginalKubevela().deepCopy();
         NebulousAppDeployer.deployApplication(this, getOriginalKubevela());
+        
+    }
+
+    
+    /**
+     * Check if the app nodes are alive. If not, redeploy the application.
+     */
+    public void appHealthCheck() {
+    	boolean isMasterNodeDead = false;
+        try {
+            if (state != State.RUNNING) {
+                return;
+            }
+
+            List<String> deadNodeNames = exnConnector.getAppDeadNodes(UUID, clusterName);
+            if (deadNodeNames.isEmpty()) {
+                log.info("All nodes are alive, no redeployment needed");
+                return;
+            }
+            //Check if master node is among the dead nodes
+            isMasterNodeDead = deadNodeNames.stream().anyMatch(n->n.startsWith("m"+clusterName+"-master"));
+            
+            log.info("Some nodes are missing: {}, redeploying application",
+                    deadNodeNames.stream().collect(Collectors.joining(", ")));
+            
+            if(isMasterNodeDead)
+            {
+            	log.error("Master node is dead, can't re-deploy application");
+            	//TODO: what should we do?
+            }
+            
+            NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
+        }catch(Exception ex)
+        {
+        	log.error("Failed appHealthCheck",ex);
+        }
+        finally {
+        	//On any execution path, schedule a helthCheck (except if isMasterNodeDead)
+        	if(!isMasterNodeDead) {
+            healthCheckExecutor.schedule(
+                    this::appHealthCheck,
+                    HEALTH_CHECK_INTERVAL_SECONDS,
+                    TimeUnit.SECONDS);
+            log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+        	}
+        }
+    }
+
+    /**
+     * Start the periodic health monitoring thread.
+     */
+    public void startHealthMonitoring() {       	
+    	if(healthCheckExecutor==null) {
+	        log.info("Starting health monitoring thread for app {}", UUID);
+	        healthCheckExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+	            Thread t = new Thread(r, "health-monitor-" + UUID);
+	            t.setDaemon(true);
+	            return t;
+	        });
+    	}
+       
+        healthCheckExecutor.schedule(
+            this::appHealthCheck,
+            HEALTH_CHECK_INTERVAL_SECONDS,
+            TimeUnit.SECONDS
+        ); 
+        log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+    }
+
+    /**
+     * Stop the periodic health monitoring thread.
+     * This method is safe to call multiple times.
+     */
+    @Synchronized
+    public void stopHealthMonitoring() {
+        if (healthCheckExecutor != null && !healthCheckExecutor.isShutdown()) {
+            healthCheckExecutor.shutdown();
+            try {
+                if (!healthCheckExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    healthCheckExecutor.shutdownNow();
+                    log.warn("Health monitoring thread for app {} did not terminate gracefully", UUID);
+                } else {
+                    log.info("Stopped health monitoring for app {}", UUID);
+                }
+            } catch (InterruptedException e) {
+                healthCheckExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while stopping health monitoring for app {}", UUID);
+            }
+            healthCheckExecutor = null;
+        }
     }
 }

@@ -13,17 +13,22 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
-import org.ow2.proactive.sal.model.NodeCandidate;
-import org.ow2.proactive.sal.model.Requirement;
+
+import eu.nebulouscloud.optimiser.sal.NodeCandidate;
+import eu.nebulouscloud.optimiser.sal.Requirement;
+
 import org.slf4j.MDC;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +92,7 @@ public class ExnConnector {
     /** The topic where we listen for app reset messages. */
     public static final String app_reset_channel = "eu.nebulouscloud.optimiser.controller.app_reset";
     /** The topic where we listen for app deletion messages. */
-    public static final String app_delete_channel = "eu.nebulouscloud.optimiser.controller.app_delete";
+    public static final String app_delete_channel = "eu.nebulouscloud.ui.application.undeploy";
     /** The topic with an application's relevant performance indicators. */
     public static final String performance_indicators_channel =
         "eu.nebulouscloud.optimiser.utilityevaluator.performanceindicators";
@@ -108,6 +113,8 @@ public class ExnConnector {
     /** The per-app status channel, read by at least the UI and the solver. */
     public static final String app_status_channel = "eu.nebulouscloud.optimiser.controller.app_state";
 
+    
+    private static final int findBrokerNodeCandidatesTimeout = 60*1000*2;
     /**
       * The Message producer for sending AMPL files, shared between all
       * NebulousApp instances.
@@ -315,11 +322,11 @@ public class ExnConnector {
     public class AppDeletionMessageHandler extends Handler {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context context) {
-            if (body.get("uuid") == null) {
-                log.error("Received app reset message without 'uuid' attribute, ignoring.");
+            if (body.get("applicationId") == null) {
+                log.error("Received app reset message without 'applicationId' attribute, ignoring.");
                 return;
             }
-            String appId = body.get("uuid").toString();
+            String appId = body.get("applicationId").toString();
             NebulousApp app = NebulousApps.get(appId);
             if (app == null) {
                 log.error("App with uuid {} not found, ignoring app reset message.", appId);
@@ -564,10 +571,15 @@ public class ExnConnector {
         }
         SyncedPublisher findBrokerNodeCandidates = new SyncedPublisher(
             "findBrokerNodeCandidates" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.cfsb.get_node_candidates", true, true);
+            "eu.nebulouscloud.cfsb.get_node_candidates", true, true, findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findBrokerNodeCandidates);
             Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to fetch node candidates");
+            	return Collections.emptyList();
+            }
             // Note: we do not call extractPayloadFromExnResponse here, since this
             // response does not come from the exn-middleware, so will not be
             // packaged into a string.
@@ -584,6 +596,8 @@ public class ExnConnector {
                 int cpu2 = c2.at("/hardware/cores").intValue();
                 int ram1 = c1.at("/hardware/ram").intValue();
                 int ram2 = c2.at("/hardware/ram").intValue();
+                int gpu1 = c1.at("/hardware/gpu").intValue();
+                int gpu2 = c2.at("/hardware/gpu").intValue();
                 // We return < 0 if c1 < c2.  Since we want to sort better
                 // candidates first, c1 < c2 if rank is lower or rank is equal
                 // and score is higher. (Lower rank = better, higher score =
@@ -592,6 +606,7 @@ public class ExnConnector {
                 if (rank1 != rank2) return Math.toIntExact(rank1 - rank2);
                 else if (score2 != score1) return Math.toIntExact(Math.round(score2 - score1));
                 else if (cpu1 != cpu2) return cpu1 - cpu2;
+                else if (gpu1 != gpu2) return gpu1 - gpu2;
                 else return ram1 - ram2;
             });
             return result.stream()
@@ -638,10 +653,15 @@ public class ExnConnector {
         }
         SyncedPublisher findBrokerNodeCandidatesMultiple = new SyncedPublisher(
             "findBrokerNodeCandidatesMultiple" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true);
+            "eu.nebulouscloud.cfsb.get_node_candidates_multi", true, true,findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findBrokerNodeCandidatesMultiple);
             Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to fetch node candidates");
+            	return Collections.emptyList();
+            }
             // Note: we do not call extractPayloadFromExnResponse here, since this
             // response does not come from the exn-middleware, so will not be
             // packaged into a string.
@@ -658,6 +678,8 @@ public class ExnConnector {
                 int cpu2 = c2.at("/hardware/cores").intValue();
                 int ram1 = c1.at("/hardware/ram").intValue();
                 int ram2 = c2.at("/hardware/ram").intValue();
+                int gpu1 = c1.at("/hardware/gpu").intValue();
+                int gpu2 = c2.at("/hardware/gpu").intValue();
                 // We return < 0 if c1 < c2.  Since we want to sort better
                 // candidates first, c1 < c2 if rank is lower or rank is equal
                 // and score is higher. (Lower rank = better, higher score =
@@ -666,6 +688,7 @@ public class ExnConnector {
                 if (rank1 != rank2) return Math.toIntExact(rank1 - rank2);
                 else if (score2 != score1) return Math.toIntExact(Math.round(score2 - score1));
                 else if (cpu1 != cpu2) return cpu1 - cpu2;
+                else if (gpu1 != gpu2) return gpu1 - gpu2;
                 else return ram1 - ram2;
             });
             return result.stream()
@@ -703,21 +726,29 @@ public class ExnConnector {
         SyncedPublisher findSalNodeCandidates = new SyncedPublisher(
             "findSalNodeCandidates" + publisherNameCounter.incrementAndGet(),
             "eu.nebulouscloud.exn.sal.nodecandidate.get",
-            true, true);
+            true, true,findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findSalNodeCandidates);
 	    Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
+		    if(response==null)
+	        {
+	        	log.error("Failed to fetch node candidates");
+	        	return null;
+	        }
             JsonNode payload = extractPayloadFromExnResponse(response, "findNodeCandidatesFromSal");
             if (payload.isMissingNode()) return null;
             if (!payload.isArray()) return null;
             List<NodeCandidate> candidates = Arrays.asList(mapper.convertValue(payload, NodeCandidate[].class));
-            // We try to choose candidates with lower hardware requirements; sort by cores, ram
+            // We try to choose candidates with lower hardware requirements; sort by cores,gpu, ram
             candidates.sort((NodeCandidate c1, NodeCandidate c2) -> {
                 int cpu1 = c1.getHardware().getCores();
                 int cpu2 = c2.getHardware().getCores();
+                int gpu1 = c1.getHardware().getGpu();
+                int gpu2 = c2.getHardware().getGpu();
                 long ram1 = c1.getHardware().getRam();
                 long ram2 = c2.getHardware().getRam();
                 if (cpu1 != cpu2) return cpu1 - cpu2;
+                if (gpu1 != gpu2) return gpu1 - gpu2;
                 else return Math.toIntExact(ram1 - ram2);
             });
             return candidates;
@@ -780,10 +811,15 @@ public class ExnConnector {
         }
         SyncedPublisher defineCluster = new SyncedPublisher(
             "defineCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.define", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.define", true, true,10*60*1000);
         try {
-            context.registerPublisher(defineCluster);
+            context.registerPublisher(defineCluster);           
             Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to define cluster");
+            	return false;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "defineCluster");
             return payload.asBoolean();
         } finally {
@@ -819,7 +855,7 @@ public class ExnConnector {
         Map<String, Object> msg = Map.of("metaData", Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher getCluster = new SyncedPublisher(
             "getCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.get", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.get", true, true, 30*1000);
         try {
             context.registerPublisher(getCluster);
 	    Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
@@ -853,10 +889,15 @@ public class ExnConnector {
         }
         SyncedPublisher labelNodes = new SyncedPublisher(
             "labelNodes" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.label", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.label", true, true,30*1000);
         try {
             context.registerPublisher(labelNodes);
 	    Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
+		    if(response==null)
+	        {
+	        	log.error("Failed to label nodes");
+	        	return false;
+	        }	    
             JsonNode payload = extractPayloadFromExnResponse(response, "labelNodes");
             return payload.isMissingNode() ? false : true;
         } finally {
@@ -881,10 +922,15 @@ public class ExnConnector {
             Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher deployCluster = new SyncedPublisher(
             "deployCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.deploy", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.deploy", true, true,10*60*1000);
         try {
             context.registerPublisher(deployCluster);
 	    Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+		    if(response==null)
+	        {
+	        	log.error("Failed to deploy cluster");
+	        	return false;
+	        }	    
             JsonNode payload = extractPayloadFromExnResponse(response, "deployCluster");
             return payload.asBoolean();
         } finally {
@@ -923,10 +969,15 @@ public class ExnConnector {
         }
         SyncedPublisher deployApplication = new SyncedPublisher(
             "deployApplication" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.deployapplication", true, true,60*1000);
         try {
             context.registerPublisher(deployApplication);
             Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to deploy application");
+            	return -1;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "deployApplication");
             return payload.asLong();
         } finally {
@@ -957,10 +1008,14 @@ public class ExnConnector {
         }
         SyncedPublisher scaleOut = new SyncedPublisher(
             "scaleOut" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.scaleout", true, true,10*60*1000);
         try {
             context.registerPublisher(scaleOut);
             Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to scale");
+            }
             // Called for side-effect only; we want to log errors.  The return
             // value from scaleOut is the same as getCluster, but since we have to
             // poll for cluster status anyway to make sure the new machines are
@@ -994,10 +1049,15 @@ public class ExnConnector {
         }
         SyncedPublisher scaleIn = new SyncedPublisher(
             "scaleIn" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.scalein", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.scalein", true, true,10*60*1000);
         try {
             context.registerPublisher(scaleIn);
             Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to scalein");
+            	return false;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "scaleIn");
             return payload.asBoolean();
         } finally {
@@ -1019,10 +1079,15 @@ public class ExnConnector {
             Map.of("user", "admin", "clusterName", clusterName));
         SyncedPublisher deleteCluster = new SyncedPublisher(
             "deleteCluster" + publisherNameCounter.incrementAndGet(),
-            "eu.nebulouscloud.exn.sal.cluster.delete", true, true);
+            "eu.nebulouscloud.exn.sal.cluster.delete", true, true,10*60*1000);
         try {
             context.registerPublisher(deleteCluster);
             Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
+            if(response==null)
+            {
+            	log.error("Failed to delete cluster");
+            	return false;
+            }
             JsonNode payload = extractPayloadFromExnResponse(response, "deleteCluster");
             return payload.asBoolean();
         } finally {
@@ -1080,5 +1145,61 @@ public class ExnConnector {
         Map<String, Object> msg = mapper.convertValue(solutions, Map.class);
         solverSolutionPublisher.send(msg, appID);
     }
+    
+    
+    /**
+     * Get the dead nodes of a deployed application.
+     * Query SAL to get cluster nodes URLs and compare them with the alive nodes URLs from the Resource Manager.
+     */
+    public List<String> getAppDeadNodes(String appID, String clusterName)
+    {
+		JsonNode clusterState = getCluster(appID, clusterName);
+		if (clusterState == null) {
+			log.error("Cluster state is null for appID: {}, clusterName: {}", appID, clusterName);
+			return List.of();
+		}
+		JsonNode clusterNodes = clusterState.at("/nodes");
+		if (clusterNodes == null) {
+			log.error("Cluster nodes are null for appID: {}, clusterName: {}", appID, clusterName);
+			return List.of();
+		}
+
+		/* Create a map of node URL to node name */
+		Map<String, String> nodeUrlToNodeName = new HashMap<String, String>();
+		clusterNodes.forEach(e -> {
+			nodeUrlToNodeName.put(e.at("/nodeUrl").asText(), e.at("/nodeName").asText());
+		});
+
+		/* Query the Resource Manager to get the alive nodes URLs */
+		SyncedPublisher getNodeStates = new SyncedPublisher("getNodeStates" + publisherNameCounter.incrementAndGet(),
+				"eu.nebulouscloud.exn.proactive.state", true, true, findBrokerNodeCandidatesTimeout);
+		Context context = getContext();
+		if (context == null) {
+			log.error("Trying to send request before Connector gave us a context (internal error)");
+			return List.of();
+		}
+		try {
+			context.registerPublisher(getNodeStates);
+			Map<String, Object> response = getNodeStates.sendSync(Map.of(), appID, null, false);
+			if (response == null) {
+				log.error("Failed to call eu.nebulouscloud.exn.proactive.state");
+				return Collections.emptyList();
+			}
+			ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+			List<String> aliveNodesUrls = (ArrayList<String>) mapper
+					.readValue(jsonBody.get("body").asText(), new HashMap().getClass()).get("aliveNodes");
+			/* Return the dead nodes names */
+			return nodeUrlToNodeName.keySet().stream().filter(u -> !aliveNodesUrls.contains(u))
+					.map(u -> nodeUrlToNodeName.get(u)).toList();
+		} catch (Exception e) {
+			log.error("Failed to get alive nodes URLs from Resource Manager for appID: {}, clusterName: {}", appID,
+					clusterName, e);
+			return List.of();
+		} finally {
+			context.unregisterPublisher(getNodeStates.key());
+		}
+		
+    }
+
 
 }

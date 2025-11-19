@@ -1,7 +1,6 @@
 package eu.nebulouscloud.optimiser.controller;
 
 import org.junit.jupiter.api.Test;
-import org.ow2.proactive.sal.model.Requirement;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -10,6 +9,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import eu.nebulouscloud.optimiser.kubevela.KubevelaAnalyzer;
+import eu.nebulouscloud.optimiser.sal.Requirement;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -111,7 +111,7 @@ public class NebulousAppTests {
         JsonNode kubevela = yaml_mapper.readTree(kubevela_str);
         JsonNode c = kubevela.at("/spec/components/5");
         JsonNode memory = kubevela.at("/spec/components/5/properties/memory");
-        assertEquals("8.0Gi", memory.asText());
+        assertEquals("8Gi", memory.asText());
         assertEquals(8192, KubevelaAnalyzer.getMemoryRequirement(c, "(component 5)"));
     }
 

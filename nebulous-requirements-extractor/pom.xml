@@ -11,7 +11,6 @@
     <properties>
         <!-- Define properties for versions -->
         <jackson.version>2.17.2</jackson.version>
-        <sal.version>13.1.0-SNAPSHOT</sal.version>
         <slf4j.version>2.0.13</slf4j.version>
         <junit.jupiter.version>5.10.0</junit.jupiter.version>
     </properties>
@@ -26,21 +25,10 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.30</version>
+            <version>1.18.38</version>
         </dependency>
         <!-- SAL client library -->
-        <dependency>
-            <groupId>org.ow2.proactive</groupId>
-            <artifactId>sal-common</artifactId>
-            <version>${sal.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.logging.log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
+      
         <!-- YAML parsing -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
@@ -67,18 +55,28 @@
                     <target>17</target>
                 </configuration>
             </plugin>
+            <plugin>
+	      <groupId>org.apache.maven.plugins</groupId>
+	      <artifactId>maven-compiler-plugin</artifactId>
+	      <configuration>
+		<annotationProcessorPaths>
+		  <path>
+		    <groupId>org.projectlombok</groupId>
+		    <artifactId>lombok</artifactId>
+		    <version>1.18.38</version>
+		  </path>
+		</annotationProcessorPaths>
+	      </configuration>
+	    </plugin>
         </plugins>
     </build>
 
     <distributionManagement>
         <repository>
             <id>github</id>
+            <name>GitHub Nebulous Apache Maven Packages</name>
             <url>https://maven.pkg.github.com/eu-nebulous/optimiser-controller</url>
         </repository>
-        <snapshotRepository>
-            <id>github</id>
-            <url>https://maven.pkg.github.com/eu-nebulous/optimiser-controller</url>
-        </snapshotRepository>
     </distributionManagement>
 
     <repositories>
