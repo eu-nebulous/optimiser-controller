@@ -887,10 +887,9 @@ public class NebulousAppDeployer {
                         log.info("Node {} is not alive, removing from deployedNodeCandidates", nodename);
                         oldCount--;
                         NodeCandidate c = deployedNodeCandidates.remove(nodename);
-                        nodeCandidatesToDeregister.add(c);
                         nodeLabels.addObject().put(nodename, "nebulouscloud.eu/" + componentName + "=no");
-                        nodesToRemove.add(nodename);
                         oldComponentNodeNames.get(componentName).remove(nodename);
+                        //No need to add node to nodeCandidatesToDeregister nor nodesToRemove since the node is considered gone
 
                     }else
                     {
