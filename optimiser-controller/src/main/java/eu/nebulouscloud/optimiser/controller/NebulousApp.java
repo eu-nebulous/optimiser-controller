@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -35,6 +36,9 @@ import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -116,6 +120,8 @@ public class NebulousApp {
     private static final JsonPointer name_path = JsonPointer.compile("/title");
     private static final JsonPointer utility_function_path = JsonPointer.compile("/utilityFunctions");
     private static final JsonPointer constraints_path = JsonPointer.compile("/sloViolations");
+    
+    
 
     /** The YAML converter */
     // Note that instantiating this is apparently expensive, so we do it only once
@@ -192,6 +198,13 @@ public class NebulousApp {
      */
     @Getter
     private final ObjectNode originalKubevela;
+    
+    /**
+     * Current version of the kubevela. It is the originalKubevela with variable values dictated by solver.
+     * It is different from deployedKubevela
+     */
+    @Getter
+    private ObjectNode currentKubevela;
 
     /**
      * The KubeVela sent to the app's controller node for the currently active
@@ -248,6 +261,13 @@ public class NebulousApp {
      */
     @Getter
     private Map<String, NodeCandidate> deployedNodeCandidates = Map.of();
+
+
+    /** Scheduled executor service for periodic health checks */
+    private ScheduledExecutorService healthCheckExecutor = null;
+    
+    /** Interval in seconds between health checks */
+    private static final int HEALTH_CHECK_INTERVAL_SECONDS = 30;
 
     /**
      * Creates a NebulousApp object.
@@ -489,6 +509,7 @@ public class NebulousApp {
 	            components.put(componentName, componentStatusReport);
 	        }
             NodeCandidate master = deployedNodeCandidates.entrySet().stream().filter(n->n.getKey().startsWith("m"+clusterName+"-master")).findFirst().get().getValue();
+            
             appStatusReport.put("master",master);	
 	        ObjectMapper om = new ObjectMapper();
 	       
@@ -526,6 +547,10 @@ public class NebulousApp {
             state = State.RUNNING;
             Map<String,Object> appStatusReport = buildAppStatusReport(clusterName, deployGeneration, componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
             exnConnector.sendAppStatus(UUID, state,appStatusReport);
+            
+            // Start health monitoring when app reaches RUNNING state
+            startHealthMonitoring();
+            
             return true;
         }
     }
@@ -557,6 +582,10 @@ public class NebulousApp {
     public void setStateFailed(Collection<NodeCandidate> acquiredNodes) {
         EdgeNodes.release(this.UUID, acquiredNodes);
         if (state == State.DELETED) return;
+        
+        // Stop health monitoring when app fails
+        stopHealthMonitoring();
+        
         state = State.FAILED;
         exnConnector.sendAppStatus(UUID, state);
     }
@@ -573,6 +602,10 @@ public class NebulousApp {
     @Synchronized
     public void resetState() {
         if (state == State.DELETED) return;
+        
+        // Stop health monitoring when resetting state
+        stopHealthMonitoring();
+        
         this.deployGeneration = 0;
         this.componentRequirements = Map.of();
         this.componentReplicaCounts = Map.of();
@@ -591,6 +624,9 @@ public class NebulousApp {
      */
     @Synchronized
     public void setStateDeletedAndUnregister() {
+        // Stop health monitoring before deleting
+        stopHealthMonitoring();
+        
         state = State.DELETED;
         NebulousApps.remove(UUID);
         exnConnector.sendAppStatus(UUID, state);
@@ -904,6 +940,7 @@ public class NebulousApp {
         log.info("variables: {}",variables);
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
         log.info("kubevela with variables substitution: {}",kubevela);
+        currentKubevela = kubevela.deepCopy();
         if (deployGeneration > 0) {
             NebulousAppDeployer.redeployApplication(this, kubevela);
         } else {
@@ -921,6 +958,98 @@ public class NebulousApp {
      */
     @Synchronized
     public void deploy() {
+    	currentKubevela = getOriginalKubevela().deepCopy();
         NebulousAppDeployer.deployApplication(this, getOriginalKubevela());
+        
+    }
+
+    
+    /**
+     * Check if the app nodes are alive. If not, redeploy the application.
+     */
+    public void appHealthCheck() {
+    	boolean isMasterNodeDead = false;
+        try {
+            if (state != State.RUNNING) {
+                return;
+            }
+
+            List<String> deadNodeNames = exnConnector.getAppDeadNodes(UUID, clusterName);
+            if (deadNodeNames.isEmpty()) {
+                log.info("All nodes are alive, no redeployment needed");
+                return;
+            }
+            //Check if master node is among the dead nodes
+            isMasterNodeDead = deadNodeNames.stream().anyMatch(n->n.startsWith("m"+clusterName+"-master"));
+            
+            log.info("Some nodes are missing: {}, redeploying application",
+                    deadNodeNames.stream().collect(Collectors.joining(", ")));
+            
+            if(isMasterNodeDead)
+            {
+            	log.error("Master node is dead, can't re-deploy application");
+            	//TODO: what should we do?
+            }
+            
+            NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
+        }catch(Exception ex)
+        {
+        	log.error("Failed appHealthCheck",ex);
+        }
+        finally {
+        	//On any execution path, schedule a helthCheck (except if isMasterNodeDead)
+        	if(!isMasterNodeDead) {
+            healthCheckExecutor.schedule(
+                    this::appHealthCheck,
+                    HEALTH_CHECK_INTERVAL_SECONDS,
+                    TimeUnit.SECONDS);
+            log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+        	}
+        }
+    }
+
+    /**
+     * Start the periodic health monitoring thread.
+     */
+    public void startHealthMonitoring() {       	
+    	if(healthCheckExecutor==null) {
+	        log.info("Starting health monitoring thread for app {}", UUID);
+	        healthCheckExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+	            Thread t = new Thread(r, "health-monitor-" + UUID);
+	            t.setDaemon(true);
+	            return t;
+	        });
+    	}
+       
+        healthCheckExecutor.schedule(
+            this::appHealthCheck,
+            HEALTH_CHECK_INTERVAL_SECONDS,
+            TimeUnit.SECONDS
+        ); 
+        log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+    }
+
+    /**
+     * Stop the periodic health monitoring thread.
+     * This method is safe to call multiple times.
+     */
+    @Synchronized
+    public void stopHealthMonitoring() {
+        if (healthCheckExecutor != null && !healthCheckExecutor.isShutdown()) {
+            healthCheckExecutor.shutdown();
+            try {
+                if (!healthCheckExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    healthCheckExecutor.shutdownNow();
+                    log.warn("Health monitoring thread for app {} did not terminate gracefully", UUID);
+                } else {
+                    log.info("Stopped health monitoring for app {}", UUID);
+                }
+            } catch (InterruptedException e) {
+                healthCheckExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while stopping health monitoring for app {}", UUID);
+            }
+            healthCheckExecutor = null;
+        }
     }
 }

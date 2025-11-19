@@ -1,6 +1,8 @@
 package eu.nebulouscloud.optimiser.sal;
 
 
+import java.util.Objects;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
@@ -69,7 +71,26 @@ public class AttributeRequirement extends Requirement {
       this.value = value;
    }
 
-   
+	@Override
+	public int hashCode() {
+		return Objects.hash(requirementAttribute, requirementClass, requirementOperator, value);
+	}
+	
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
+		AttributeRequirement other = (AttributeRequirement) obj;
+		return Objects.equals(requirementAttribute, other.requirementAttribute)
+				&& Objects.equals(requirementClass, other.requirementClass)
+				&& requirementOperator == other.requirementOperator && Objects.equals(value, other.value);
+	}
+	   
+	   
 
    @Override
    public String toString() {
@@ -81,5 +102,6 @@ public class AttributeRequirement extends Requirement {
              ", value='" + value + '\'' +
              '}';
    }
+
 
 }
