@@ -880,17 +880,16 @@ public class NebulousAppDeployer {
                  * If they are alive, add them to the list of confirmed node names.
                  * Update the oldComponentNodeNames map with the confirmed node names.
                  */
-                Set<String> oldUnconfirmedNodeNames = oldComponentNodeNames.get(componentName);
+                Set<String> oldUnconfirmedNodeNames = new HashSet<String>(oldComponentNodeNames.get(componentName));
                 Set<String> oldConfirmedNodeNames = new HashSet<>();
                 for (String nodename : oldUnconfirmedNodeNames) {
                     if (deadNodeNames.contains(nodename)) {
                         log.info("Node {} is not alive, removing from deployedNodeCandidates", nodename);
                         oldCount--;
                         NodeCandidate c = deployedNodeCandidates.remove(nodename);
-                        nodeCandidatesToDeregister.add(c);
                         nodeLabels.addObject().put(nodename, "nebulouscloud.eu/" + componentName + "=no");
-                        nodesToRemove.add(nodename);
                         oldComponentNodeNames.get(componentName).remove(nodename);
+                        //No need to add node to nodeCandidatesToDeregister nor nodesToRemove since the node is considered gone
 
                     }else
                     {
