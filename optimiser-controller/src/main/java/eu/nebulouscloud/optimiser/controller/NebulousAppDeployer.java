@@ -852,6 +852,7 @@ public class NebulousAppDeployer {
             app.getClouds(), components, componentRequirements);
         if (!checkComponentNodeCandidates(componentCandidates, componentRequirements)) {
             log.error("Aborting redeployment");
+            app.setStateRunning();
             return;
         }
         
@@ -910,8 +911,9 @@ public class NebulousAppDeployer {
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
-                            log.error("No available node candidate for node {} of component {} (out of edge nodes?)", nodeNumber, componentName);
-                            continue;
+                            log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                            app.setStateRunning();
+                            return;
                         }
                         if (candidate.isEdgeNodeCandidate()) {
                             //  If we already own the edge node, it's busy but
@@ -985,8 +987,9 @@ public class NebulousAppDeployer {
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
-                        log.error("No available node candidate for node {} of component {} (out of edge nodes?)", nodeNumber, componentName);
-                        continue;
+                       log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                       app.setStateRunning();
+                       return;
                     }
                     if (candidate.isEdgeNodeCandidate()) {
                         //  If we already own the edge node, it's busy but we
