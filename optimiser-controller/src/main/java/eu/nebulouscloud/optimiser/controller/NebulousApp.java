@@ -450,6 +450,22 @@ public class NebulousApp {
             return true;
         }
     }
+    
+    /**
+     * Set the state from DEPLOYING to RUNNING
+     *
+     * @return false if deployment could not be started, true otherwise.
+     */
+    @Synchronized
+    public boolean setStateRunning() {
+        if (state != State.DEPLOYING) {
+            return false;
+        } else {
+            state = State.RUNNING;
+            exnConnector.sendAppStatus(UUID, state);
+            return true;
+        }
+    }
 
     /**
      * If app is in the DEPLOYING state, sends a DEPLOYING state message, with
