@@ -37,13 +37,13 @@ public class NebulousAppDeployer {
     /**
      * The requirements of the node running the NebulOuS controller.
      * This machine runs the Kubernetes cluster and KubeVela.  For
-     * now, we ask for 8GB memory and 4 cores.
+     * now, we ask for 8GB memory and 6 cores.
      */
     public static List<Requirement> getControllerRequirements(String jobID) {
         List<Requirement> reqs = new ArrayList<>(
             Arrays.asList(
                 new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
-                new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4")));
+                new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "6")));
         return reqs;
     }
 
