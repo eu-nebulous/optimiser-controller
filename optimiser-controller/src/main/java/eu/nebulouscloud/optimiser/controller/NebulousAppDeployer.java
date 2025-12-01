@@ -43,6 +43,7 @@ public class NebulousAppDeployer {
         List<Requirement> reqs = new ArrayList<>(
             Arrays.asList(
                 new AttributeRequirement("hardware", "ram", RequirementOperator.GEQ, "8192"),
+                new AttributeRequirement("hardware", "gpu", RequirementOperator.LEQ, "0"),
                 new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "6")));
         return reqs;
     }
