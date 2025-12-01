@@ -450,6 +450,22 @@ public class NebulousApp {
             return true;
         }
     }
+    
+    /**
+     * Set the state from DEPLOYING to RUNNING
+     *
+     * @return false if deployment could not be started, true otherwise.
+     */
+    @Synchronized
+    public boolean setStateRunning() {
+        if (state != State.DEPLOYING) {
+            return false;
+        } else {
+            state = State.RUNNING;
+            exnConnector.sendAppStatus(UUID, state);
+            return true;
+        }
+    }
 
     /**
      * If app is in the DEPLOYING state, sends a DEPLOYING state message, with
@@ -547,10 +563,6 @@ public class NebulousApp {
             state = State.RUNNING;
             Map<String,Object> appStatusReport = buildAppStatusReport(clusterName, deployGeneration, componentRequirements, nodeCounts, componentNodeNames, deployedNodeCandidates);
             exnConnector.sendAppStatus(UUID, state,appStatusReport);
-            
-            // Start health monitoring when app reaches RUNNING state
-            startHealthMonitoring();
-            
             return true;
         }
     }
@@ -988,7 +1000,8 @@ public class NebulousApp {
             if(isMasterNodeDead)
             {
             	log.error("Master node is dead, can't re-deploy application");
-            	//TODO: what should we do?
+            	NebulousAppDeployer.undeployApplication(this);
+            	return;
             }
             
             NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
@@ -1012,21 +1025,23 @@ public class NebulousApp {
      * Start the periodic health monitoring thread.
      */
     public void startHealthMonitoring() {       	
-    	if(healthCheckExecutor==null) {
-	        log.info("Starting health monitoring thread for app {}", UUID);
-	        healthCheckExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-	            Thread t = new Thread(r, "health-monitor-" + UUID);
-	            t.setDaemon(true);
-	            return t;
-	        });
+    	if(healthCheckExecutor!=null) {
+    		log.error("healthCheckExecutor for app {} already exists. Ignore", UUID);
+    		return;
     	}
-       
-        healthCheckExecutor.schedule(
-            this::appHealthCheck,
-            HEALTH_CHECK_INTERVAL_SECONDS,
-            TimeUnit.SECONDS
-        ); 
-        log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
+        log.info("Starting health monitoring thread for app {}", UUID);
+        healthCheckExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "health-monitor-" + UUID);
+            t.setDaemon(true);
+            return t;
+        });
+        
+		healthCheckExecutor.schedule(
+		        this::appHealthCheck,
+		        HEALTH_CHECK_INTERVAL_SECONDS,
+		        TimeUnit.SECONDS
+		); 
+		log.debug("Scheduling health check for app {} in {} seconds", UUID, HEALTH_CHECK_INTERVAL_SECONDS);
     }
 
     /**

@@ -776,6 +776,7 @@ public class NebulousAppDeployer {
         // Update NebulousApp state
    
         app.setStateDeploymentFinished(componentRequirements, nodeCounts, componentNodeNames, suggestedNodeCandidates, deployedNodeCandidates, rewritten);
+        app.startHealthMonitoring();
         log.info("App deployment finished.");
     }
 
@@ -863,6 +864,7 @@ public class NebulousAppDeployer {
             app.getClouds(), components, componentRequirements);
         if (!checkComponentNodeCandidates(componentCandidates, componentRequirements)) {
             log.error("Aborting redeployment");
+            app.setStateRunning();
             return;
         }
         
@@ -891,17 +893,16 @@ public class NebulousAppDeployer {
                  * If they are alive, add them to the list of confirmed node names.
                  * Update the oldComponentNodeNames map with the confirmed node names.
                  */
-                Set<String> oldUnconfirmedNodeNames = oldComponentNodeNames.get(componentName);
+                Set<String> oldUnconfirmedNodeNames = new HashSet<String>(oldComponentNodeNames.get(componentName));
                 Set<String> oldConfirmedNodeNames = new HashSet<>();
                 for (String nodename : oldUnconfirmedNodeNames) {
                     if (deadNodeNames.contains(nodename)) {
                         log.info("Node {} is not alive, removing from deployedNodeCandidates", nodename);
                         oldCount--;
                         NodeCandidate c = deployedNodeCandidates.remove(nodename);
-                        nodeCandidatesToDeregister.add(c);
                         nodeLabels.addObject().put(nodename, "nebulouscloud.eu/" + componentName + "=no");
-                        nodesToRemove.add(nodename);
                         oldComponentNodeNames.get(componentName).remove(nodename);
+                        //No need to add node to nodeCandidatesToDeregister nor nodesToRemove since the node is considered gone
 
                     }else
                     {
@@ -922,8 +923,9 @@ public class NebulousAppDeployer {
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
-                            log.error("No available node candidate for node {} of component {} (out of edge nodes?)", nodeNumber, componentName);
-                            continue;
+                            log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                            app.setStateRunning();
+                            return;
                         }
                         if (candidate.isEdgeNodeCandidate()) {
                             //  If we already own the edge node, it's busy but
@@ -997,8 +999,9 @@ public class NebulousAppDeployer {
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
-                        log.error("No available node candidate for node {} of component {} (out of edge nodes?)", nodeNumber, componentName);
-                        continue;
+                       log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                       app.setStateRunning();
+                       return;
                     }
                     if (candidate.isEdgeNodeCandidate()) {
                         //  If we already own the edge node, it's busy but we
