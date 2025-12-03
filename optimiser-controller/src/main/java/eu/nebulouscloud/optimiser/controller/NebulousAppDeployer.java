@@ -46,6 +46,32 @@ public class NebulousAppDeployer {
                 new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "4")));
         return reqs;
     }
+    
+    private static Map<String,String> getAppEnvVarsMap(NebulousApp app)
+    {
+    	Map<String,String> envirnoment = new HashMap<String, String>();
+    	for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
+            if (v.has("name") && v.has("value") && v.get("name").isTextual()) {
+                // TODO: figure out what to do with the `"secret":true` field
+            	envirnoment.put(v.get("name").asText(), v.get("value").asText());
+            } else {
+                log.warn("Invalid environmentVariables entry: {}", v);
+            }
+        }
+    	return envirnoment;
+    }
+    
+    /**
+     * Check if the app is a best effort app.
+     * A best effort app is an app that tolerates partial deployments due to missing node candidates.
+     * @param app the app
+     * @return true if the app is a best effort app, false otherwise
+     */
+    private static boolean isBestEffort(NebulousApp app)
+    {
+    	Map<String,String> envs = getAppEnvVarsMap(app);
+    	return envs.containsKey("BEST_EFFORT") && envs.get("BEST_EFFORT").toLowerCase().equals("true");
+    }
 
     /**
      * Check if an edge node has a job id assigned.
@@ -540,12 +566,7 @@ public class NebulousAppDeployer {
         // track of its suggested node candidates.
         String masterNodeName = "m" + clusterName.toLowerCase() + "-master";
         suggestedNodeCandidates.put(masterNodeName, controllerCandidates);
-        if (!checkComponentNodeCandidates(suggestedNodeCandidates, componentRequirements)) {
-            app.setStateFailed(List.of());
-            log.error("Aborting deployment");
-            return;
-        }
-
+        
         // ------------------------------------------------------------
         // Select node candidates
 
@@ -587,6 +608,7 @@ public class NebulousAppDeployer {
         //   candidate (already includes master node at this point)
         // - nodeLabels: a map from node name to its label
         Map<String, Set<String>> componentNodeNames = new HashMap<>();
+        boolean bestEffort = isBestEffort(app);
         for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String componentName = e.getKey();
             int numberOfNodes = nodeCounts.get(componentName);
@@ -603,9 +625,19 @@ public class NebulousAppDeployer {
                     .findFirst()
                     .orElse(null);
                 if (candidate == null) {
-                    log.error("No available node candidate for node {} of component {}, aborting deployment", nodeNumber, componentName);
-                    app.setStateFailed(deployedNodeCandidates.values());
-                    return;
+                	if(bestEffort)
+                	{
+                		nodeCounts.put(componentName, nodeNumber);
+                		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
+                		break;
+                	}else
+                	{
+                		log.error("No available node candidate for node {} of component {}, aborting deployment", nodeNumber, componentName);
+                        app.setStateFailed(deployedNodeCandidates.values());
+                        return;
+                	}
+                	
+                    
                 }
                 if (candidate.isEdgeNodeCandidate()) {
                     if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
@@ -855,6 +887,7 @@ public class NebulousAppDeployer {
         //Fetch the whole list of dead nodes from SAL
         List<String> deadNodeNames = conn.getAppDeadNodes(appUUID,clusterName);
 
+        boolean bestEffort = isBestEffort(app);
         for (String componentName : components.keySet()) {
             // The variable `allMachineNames` shall, at the end of each loop
             // body, contain the machine names for this component.
@@ -907,18 +940,31 @@ public class NebulousAppDeployer {
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
-                            log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
-                            
-                            try {
-                         	   log.info("Proceed to free uncommited edge node candidates");
-                     		   EdgeNodes.release(appUUID, newNodeCandidatesRegistered);
-                     	   }catch(Exception ex)
-                     	   {
-                     		   log.error("Failed to free uncommited edge node candidates",ex);
-                     		   
-                     	   }
-                            app.setStateRunning();
-                            return;
+                        	
+                        	
+                        	if(bestEffort)
+                        	{
+                        		componentReplicaCounts.put(componentName, nodeNumber);
+                        		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
+                        		break;
+                        	}else
+                        	{
+                                log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                                
+                                try {
+                             	   log.info("Proceed to free uncommited edge node candidates");
+                         		   EdgeNodes.release(appUUID, newNodeCandidatesRegistered);
+                         	   }catch(Exception ex)
+                         	   {
+                         		   log.error("Failed to free uncommited edge node candidates",ex);
+                         		   
+                         	   }
+                                app.setStateRunning();
+                                return;
+                        	}
+                        	
+                        	
+          
                         }
                         if (candidate.isEdgeNodeCandidate()) {
                             //  If we already own the edge node, it's busy but
@@ -992,18 +1038,26 @@ public class NebulousAppDeployer {
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
-                       log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
-                       
-                       try {
-                    	   log.info("Proceed to free uncommited edge node candidates");
-                		   EdgeNodes.release(appUUID, newNodeCandidatesRegistered);
-                	   }catch(Exception ex)
-                	   {
-                		   log.error("Failed to free uncommited edge node candidates",ex);
-                		   
-                	   }
-                       app.setStateRunning();
-                       return;
+                       	if(bestEffort)
+                    	{
+                       		componentReplicaCounts.put(componentName, nodeNumber);
+                    		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
+                    		break;
+                    	}else
+                    	{
+                            log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                            
+                            try {
+                         	   log.info("Proceed to free uncommited edge node candidates");
+                     		   EdgeNodes.release(appUUID, newNodeCandidatesRegistered);
+                     	   }catch(Exception ex)
+                     	   {
+                     		   log.error("Failed to free uncommited edge node candidates",ex);
+                     		   
+                     	   }
+                            app.setStateRunning();
+                            return;
+                    	}
                     }
                     if (candidate.isEdgeNodeCandidate()) {
                         //  If we already own the edge node, it's busy but we
