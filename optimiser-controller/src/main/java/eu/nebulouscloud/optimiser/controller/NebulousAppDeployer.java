@@ -815,7 +815,7 @@ public class NebulousAppDeployer {
      * @param app the NebulOuS app object.
      * @param updatedKubevela the KubeVela file to deploy.
      */
-    public static void redeployApplication(NebulousApp app, ObjectNode updatedKubevela) {
+    public static void redeployApplication(NebulousApp app, ObjectNode updatedKubevela, boolean kubevelaChanged) {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
@@ -1110,14 +1110,21 @@ public class NebulousAppDeployer {
 
             log.info("Labeling nodes: {}", nodeLabels);
             Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
-            conn.labelNodes(appUUID, clusterName, nodeLabels);
+            if(!nodeLabels.isEmpty())conn.labelNodes(appUUID, clusterName, nodeLabels);
 
             log.info("Redeploying application: {}", deploymentKubevela);
-            long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), deploymentKubevela);
-            if (proActiveJobID == 0) {
-                // 0 means conversion from long has failed (because of an
-                // invalid response), OR a ProActive job id of 0.
-                log.error("DeployApplication ProActive job ID = 0, deployApplication has probably failed during redeployment; continuing and hoping for the best.");
+            if(kubevelaChanged)
+            {
+                long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), deploymentKubevela);
+                if (proActiveJobID == 0) {
+                    // 0 means conversion from long has failed (because of an
+                    // invalid response), OR a ProActive job id of 0.
+                    log.error("DeployApplication ProActive job ID = 0, deployApplication has probably failed during redeployment; continuing and hoping for the best.");
+                    }
+                
+            }else
+            {
+                log.info("Kubevela has not changed, skipping redeployment");
             }
             // TODO: wait until redeployment finished before scaling down the
             // cluster, so that kubernetes can move containers etc.
