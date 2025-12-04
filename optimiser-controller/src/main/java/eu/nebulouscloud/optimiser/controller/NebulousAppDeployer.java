@@ -944,7 +944,7 @@ public class NebulousAppDeployer {
                         	
                         	if(bestEffort)
                         	{
-                        		componentReplicaCounts.put(componentName, nodeNumber);
+                        		componentReplicaCounts.put(componentName, nodeNumber+oldCount);
                         		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
                         		break;
                         	}else
@@ -1029,8 +1029,8 @@ public class NebulousAppDeployer {
                 });
                 allMachineNames = new HashSet<>();
                 log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
-                int nodeNumber = 1;
-                while (nodeNumber <= componentReplicaCounts.get(componentName)) {
+                int nodeNumber = 0;
+                while (nodeNumber < componentReplicaCounts.get(componentName)) {
                     String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                     NodeCandidate candidate = candidates.stream()
                         .filter(each -> !isEdgeNodeBusy(each)
