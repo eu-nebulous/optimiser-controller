@@ -952,9 +952,21 @@ public class NebulousApp {
         log.info("variables: {}",variables);
         ObjectNode kubevela = rewriteKubevelaWithSolution(variables);
         log.info("kubevela with variables substitution: {}",kubevela);
-        currentKubevela = kubevela.deepCopy();
+        
+        /**
+         * Check if the kubevela has changed. If it has, redeploy the vela file
+         */
+        boolean kubevelaChanged = false;
+        try {
+            kubevelaChanged = !yamlMapper.writeValueAsString(kubevela).equals(kubevela);
+        }catch(Exception ex)
+        {
+        	log.error("Failed to check if kubevela changed. Assuming it changed.",ex);
+            kubevelaChanged = true;
+        }
+        
         if (deployGeneration > 0) {
-            NebulousAppDeployer.redeployApplication(this, kubevela);
+            NebulousAppDeployer.redeployApplication(this, kubevela,kubevelaChanged);
         } else {
             // Since the solver is started as part of the initial deployment
             // this branch is effectively dead code -- but in case the overall
@@ -963,6 +975,7 @@ public class NebulousApp {
             log.warn("App received a solver solution before being deployed, this is unexpected. Boldly moving forward with initial deployment.");
             NebulousAppDeployer.deployApplication(this, kubevela);
         }
+        currentKubevela = kubevela.deepCopy();
     }
 
     /**
@@ -1004,7 +1017,7 @@ public class NebulousApp {
             	return;
             }
             
-            NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy());
+            NebulousAppDeployer.redeployApplication(this, currentKubevela.deepCopy(),false);
         }catch(Exception ex)
         {
         	log.error("Failed appHealthCheck",ex);

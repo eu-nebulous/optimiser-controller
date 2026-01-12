@@ -47,6 +47,32 @@ public class NebulousAppDeployer {
                 new AttributeRequirement("hardware", "cores", RequirementOperator.GEQ, "6")));
         return reqs;
     }
+    
+    private static Map<String,String> getAppEnvVarsMap(NebulousApp app)
+    {
+    	Map<String,String> envirnoment = new HashMap<String, String>();
+    	for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
+            if (v.has("name") && v.has("value") && v.get("name").isTextual()) {
+                // TODO: figure out what to do with the `"secret":true` field
+            	envirnoment.put(v.get("name").asText(), v.get("value").asText());
+            } else {
+                log.warn("Invalid environmentVariables entry: {}", v);
+            }
+        }
+    	return envirnoment;
+    }
+    
+    /**
+     * Check if the app is a best effort app.
+     * A best effort app is an app that tolerates partial deployments due to missing node candidates.
+     * @param app the app
+     * @return true if the app is a best effort app, false otherwise
+     */
+    private static boolean isBestEffort(NebulousApp app)
+    {
+    	Map<String,String> envs = getAppEnvVarsMap(app);
+    	return envs.containsKey("BEST_EFFORT") && envs.get("BEST_EFFORT").toLowerCase().equals("true");
+    }
 
     /**
      * Check if an edge node has a job id assigned.
@@ -544,12 +570,7 @@ public class NebulousAppDeployer {
         // track of its suggested node candidates.
         String masterNodeName = "m" + clusterName.toLowerCase() + "-master";
         suggestedNodeCandidates.put(masterNodeName, controllerCandidates);
-        if (!checkComponentNodeCandidates(suggestedNodeCandidates, componentRequirements)) {
-            app.setStateFailed(List.of());
-            log.error("Aborting deployment");
-            return;
-        }
-
+        
         // ------------------------------------------------------------
         // Select node candidates
 
@@ -591,6 +612,7 @@ public class NebulousAppDeployer {
         //   candidate (already includes master node at this point)
         // - nodeLabels: a map from node name to its label
         Map<String, Set<String>> componentNodeNames = new HashMap<>();
+        boolean bestEffort = isBestEffort(app);
         for (Map.Entry<String, List<Requirement>> e : componentRequirements.entrySet()) {
             String componentName = e.getKey();
             int numberOfNodes = nodeCounts.get(componentName);
@@ -607,9 +629,19 @@ public class NebulousAppDeployer {
                     .findFirst()
                     .orElse(null);
                 if (candidate == null) {
-                    log.error("No available node candidate for node {} of component {}, aborting deployment", nodeNumber, componentName);
-                    app.setStateFailed(deployedNodeCandidates.values());
-                    return;
+                	if(bestEffort)
+                	{
+                		nodeCounts.put(componentName, nodeNumber);
+                		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
+                		break;
+                	}else
+                	{
+                		log.error("No available node candidate for node {} of component {}, aborting deployment", nodeNumber, componentName);
+                        app.setStateFailed(deployedNodeCandidates.values());
+                        return;
+                	}
+                	
+                    
                 }
                 if (candidate.isEdgeNodeCandidate()) {
                     if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
@@ -796,7 +828,7 @@ public class NebulousAppDeployer {
      * @param app the NebulOuS app object.
      * @param updatedKubevela the KubeVela file to deploy.
      */
-    public static void redeployApplication(NebulousApp app, ObjectNode updatedKubevela) {
+    public static void redeployApplication(NebulousApp app, ObjectNode updatedKubevela, boolean kubevelaChanged) {
         String appUUID = app.getUUID();
         String clusterName = app.getClusterName();
         ExnConnector conn = app.getExnConnector();
@@ -863,15 +895,12 @@ public class NebulousAppDeployer {
 
         Map<String, List<NodeCandidate>> componentCandidates = findComponentNodeCandidates(conn, appUUID,
             app.getClouds(), components, componentRequirements);
-        if (!checkComponentNodeCandidates(componentCandidates, componentRequirements)) {
-            log.error("Aborting redeployment");
-            app.setStateRunning();
-            return;
-        }
+
         
         //Fetch the whole list of dead nodes from SAL
         List<String> deadNodeNames = conn.getAppDeadNodes(appUUID,clusterName);
 
+        boolean bestEffort = isBestEffort(app);
         for (String componentName : components.keySet()) {
             // The variable `allMachineNames` shall, at the end of each loop
             // body, contain the machine names for this component.
@@ -924,9 +953,31 @@ public class NebulousAppDeployer {
                             .findFirst()
                             .orElse(null);
                         if (candidate == null) {
-                            log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
-                            app.setStateRunning();
-                            return;
+                        	
+                        	
+                        	if(bestEffort)
+                        	{
+                        		componentReplicaCounts.put(componentName, nodeNumber+oldCount);
+                        		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
+                        		break;
+                        	}else
+                        	{
+                                log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                                
+                                try {
+                             	   log.info("Proceed to free uncommited edge node candidates");
+                         		   EdgeNodes.release(appUUID, newNodeCandidatesRegistered);
+                         	   }catch(Exception ex)
+                         	   {
+                         		   log.error("Failed to free uncommited edge node candidates",ex);
+                         		   
+                         	   }
+                                app.setStateRunning();
+                                return;
+                        	}
+                        	
+                        	
+          
                         }
                         if (candidate.isEdgeNodeCandidate()) {
                             //  If we already own the edge node, it's busy but
@@ -991,8 +1042,8 @@ public class NebulousAppDeployer {
                 });
                 allMachineNames = new HashSet<>();
                 log.info("Node requirements changed, need to redeploy all nodes of component {}", componentName);
-                int nodeNumber = 1;
-                while (nodeNumber <= componentReplicaCounts.get(componentName)) {
+                int nodeNumber = 0;
+                while (nodeNumber < componentReplicaCounts.get(componentName)) {
                     String nodeName = createNodeName(clusterName, componentName, app.getDeployGeneration(), nodeNumber);
                     NodeCandidate candidate = candidates.stream()
                         .filter(each -> !isEdgeNodeBusy(each)
@@ -1000,9 +1051,26 @@ public class NebulousAppDeployer {
                         .findFirst()
                         .orElse(null);
                     if (candidate == null) {
-                       log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
-                       app.setStateRunning();
-                       return;
+                       	if(bestEffort)
+                    	{
+                       		componentReplicaCounts.put(componentName, nodeNumber);
+                    		log.error("No available node candidate for node {} of component {}, continuing deployment regardless", nodeNumber, componentName);
+                    		break;
+                    	}else
+                    	{
+                            log.error("No available node candidate for node {} of component {} (out of edge nodes?). Aborting redeployment.", nodeNumber, componentName);
+                            
+                            try {
+                         	   log.info("Proceed to free uncommited edge node candidates");
+                     		   EdgeNodes.release(appUUID, newNodeCandidatesRegistered);
+                     	   }catch(Exception ex)
+                     	   {
+                     		   log.error("Failed to free uncommited edge node candidates",ex);
+                     		   
+                     	   }
+                            app.setStateRunning();
+                            return;
+                    	}
                     }
                     if (candidate.isEdgeNodeCandidate()) {
                         //  If we already own the edge node, it's busy but we
@@ -1010,6 +1078,7 @@ public class NebulousAppDeployer {
                         // currently using it doesn't need it anymore ...
                         // something to be considered while implementing #30
                         if (!isEdgeNodeBusy(candidate) && EdgeNodes.acquire(appUUID, candidate)) {
+                            newNodeCandidatesRegistered.add(candidate);
                             nodeNumber++;
                         } else {
                             // We hit the race condition!  An edge node that was
@@ -1054,14 +1123,21 @@ public class NebulousAppDeployer {
 
             log.info("Labeling nodes: {}", nodeLabels);
             Main.logFile("redeploy-labelNodes-" + appUUID + ".json", nodeLabels.toPrettyString());
-            conn.labelNodes(appUUID, clusterName, nodeLabels);
+            if(!nodeLabels.isEmpty())conn.labelNodes(appUUID, clusterName, nodeLabels);
 
             log.info("Redeploying application: {}", deploymentKubevela);
-            long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), deploymentKubevela);
-            if (proActiveJobID == 0) {
-                // 0 means conversion from long has failed (because of an
-                // invalid response), OR a ProActive job id of 0.
-                log.error("DeployApplication ProActive job ID = 0, deployApplication has probably failed during redeployment; continuing and hoping for the best.");
+            if(kubevelaChanged)
+            {
+                long proActiveJobID = conn.deployApplication(appUUID, clusterName, app.getName(), deploymentKubevela);
+                if (proActiveJobID == 0) {
+                    // 0 means conversion from long has failed (because of an
+                    // invalid response), OR a ProActive job id of 0.
+                    log.error("DeployApplication ProActive job ID = 0, deployApplication has probably failed during redeployment; continuing and hoping for the best.");
+                    }
+                
+            }else
+            {
+                log.info("Kubevela has not changed, skipping redeployment");
             }
             // TODO: wait until redeployment finished before scaling down the
             // cluster, so that kubernetes can move containers etc.
