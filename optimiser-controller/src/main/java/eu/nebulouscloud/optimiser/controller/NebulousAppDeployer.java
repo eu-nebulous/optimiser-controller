@@ -695,24 +695,27 @@ public class NebulousAppDeployer {
         ObjectNode environment = cluster.withObject("/env-var");
         // See https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/env-variables-necessary-for-nebulous-application-deployment-scripts
         environment.put("APPLICATION_ID", appUUID);
-        if (Main.getAppBrokerAddress() == null || Main.getAppBrokerAddress().equals("")) {
-            log.warn("ActiveMQ broker address for app (APP_ACTIVEMQ_HOST) is not set, optimistically continuing with 'localhost'");
-            environment.put("BROKER_ADDRESS", "localhost");
-            environment.put("ACTIVEMQ_HOST", "localhost");
-        } else {
-            environment.put("BROKER_ADDRESS", Main.getAppBrokerAddress());
-            environment.put("ACTIVEMQ_HOST", Main.getAppBrokerAddress());
+        environment.put("CONTROL_PLANE_BROKER_ADDRESS", Main.getPublicActivemqHost()); 
+        environment.put("CONTROL_PLANE_BROKER_PORT", Integer.toString(Main.getPublicActivemqPort()));
+    
+    
+        if(!environment.has("COMPONENTS_IN_CLUSTER"))
+        {
+        	 environment.put("CONTROL_PLANE_BROKER_STATIC_APP_CLIENT_USER", Main.getActivemqStaticAppClientUser());
+             environment.put("CONTROL_PLANE_BROKER_STATIC_APP_CLIENT_PASSWORD", Main.getActivemqStaticAppClientPassword());
+        }else
+        {
+            //If user hasn't specified APP_BROKER_ADMIN_PASSWORD, generate a random one.
+            if(!environment.has("APP_BROKER_ADMIN_PASSWORD"))
+            {
+            	environment.put("APP_BROKER_ADMIN_PASSWORD", PasswordUtils.generatePassword(10));
+            }       
+            
+            //Generate a password to be used for the bridging between message broker in control plane and message broker in app cluster
+            environment.put("NEBULOUS_MESSAGE_BRIDGE_PASSWORD", PasswordUtils.generatePassword(10));
         }
         
-        environment.put("NEBULOUS_SCRIPTS_BRANCH", Main.getAppNebulousScriptsBranch());        
-        // Don't warn when those are unset, 5672 is usually the right call
-        environment.put("BROKER_PORT", Integer.toString(Main.getAppBrokerPort()));
-        environment.put("ACTIVEMQ_PORT", Integer.toString(Main.getAppBrokerPort()));
-        if (Main.getOnmIp() == null || Main.getOnmIp().equals("")) {
-            log.warn("Overlay Network Manager address (ONM_IP) is not set, continuing without setting ONM_IP for the app");
-        } else {
-            environment.put("ONM_IP", Main.getOnmIp());
-        }
+        environment.put("NEBULOUS_SCRIPTS_BRANCH", Main.getAppNebulousScriptsBranch());  
         if (Main.getOnmUrl() == null || Main.getOnmUrl().equals("")) {
             log.warn("Overlay Network Manager address (ONM_URL) is not set, continuing without setting ONM_URL for the app");
         } else {
@@ -729,14 +732,7 @@ public class NebulousAppDeployer {
                 log.warn("Invalid environmentVariables entry: {}", v);
             }
         }
-        //If user hasn't specified APP_BROKER_ADMIN_PASSWORD, generate a random one.
-        if(!environment.has("APP_BROKER_ADMIN_PASSWORD"))
-        {
-        	environment.put("APP_BROKER_ADMIN_PASSWORD", PasswordUtils.generatePassword(10));
-        }
-        
-        //Generate a password to be used for the bridging between message broker in control plane and message broker in app cluster
-        environment.put("NEBULOUS_MESSAGE_BRIDGE_PASSWORD", PasswordUtils.generatePassword(10));
+
         
         log.info("Calling defineCluster");
         boolean defineClusterSuccess = conn.defineCluster(appUUID, clusterName, cluster);
