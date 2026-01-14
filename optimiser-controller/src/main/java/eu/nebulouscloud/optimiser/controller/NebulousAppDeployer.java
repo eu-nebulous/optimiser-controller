@@ -693,6 +693,18 @@ public class NebulousAppDeployer {
                     .put("cloudId", candidate.getCloud().getId());
             });
         ObjectNode environment = cluster.withObject("/env-var");
+        // TODO: consider pre-parsing environment variables from the app
+        // message and storing them in the app object instead of reading them
+        // from the raw JSON here -- but it's not that important
+        for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
+            if (v.has("name") && v.has("value") && v.get("name").isTextual()) {
+                // TODO: figure out what to do with the `"secret":true` field
+                environment.put(v.get("name").asText(), v.get("value").asText());
+            } else {
+                log.warn("Invalid environmentVariables entry: {}", v);
+            }
+        }
+        
         // See https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/env-variables-necessary-for-nebulous-application-deployment-scripts
         environment.put("APPLICATION_ID", appUUID);
         environment.put("CONTROL_PLANE_BROKER_ADDRESS", Main.getPublicActivemqHost()); 
@@ -721,17 +733,7 @@ public class NebulousAppDeployer {
         } else {
             environment.put("ONM_URL", Main.getOnmUrl());
         }
-        // TODO: consider pre-parsing environment variables from the app
-        // message and storing them in the app object instead of reading them
-        // from the raw JSON here -- but it's not that important
-        for (final JsonNode v : app.getOriginalAppMessage().withArray("/environmentVariables")) {
-            if (v.has("name") && v.has("value") && v.get("name").isTextual()) {
-                // TODO: figure out what to do with the `"secret":true` field
-                environment.put(v.get("name").asText(), v.get("value").asText());
-            } else {
-                log.warn("Invalid environmentVariables entry: {}", v);
-            }
-        }
+       
 
         
         log.info("Calling defineCluster");
