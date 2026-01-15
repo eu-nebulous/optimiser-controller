@@ -62,6 +62,21 @@ public class Main implements Callable<Integer> {
             defaultValue = "${ACTIVEMQ_PASSWORD}")
     private String activemq_password;
 
+    
+    @Option(names = {"--activemq-static-app-client-user"},
+            description = "The user name for the ActiveMQ server. Can also be set via the @|bold ACTIVEMQ_STATIC_APP_CLIENT_USER|@ environment variable.",
+            paramLabel = "ACTIVEMQ_STATIC_APP_CLIENT_USER",
+            defaultValue = "${ACTIVEMQ_STATIC_APP_CLIENT_USER}")
+    @Getter
+    private static String activemqStaticAppClientUser;
+    
+    @Option(names = {"--activemq-static-app-client-password"},
+            description = "The password for the ActiveMQ server. Can also be set via the @|bold ACTIVEMQ_STATIC_APP_CLIENT_PASSWORD|@ environment variable.",
+            paramLabel = "ACTIVEMQ_STATIC_APP_CLIENT_PASSWORD",
+            defaultValue = "${ACTIVEMQ_STATIC_APP_CLIENT_PASSWORD}")
+    @Getter
+    private static String activemqStaticAppClientPassword;        
+    
     @Option(names = {"--log-dir"},
             description = "Directory where to log incoming and outgoing messages as files. Can also be set via the @|bold LOGDIR|@ variable.",
             paramLabel = "LOGDIR",
@@ -69,35 +84,21 @@ public class Main implements Callable<Integer> {
     @Getter
     private static Path logDirectory;
 
-    @Option(names = {"--app-activemq-host"},
-        description = "The hostname of the ActiveMQ server in a deployed app.  Can also be set via the @|bold APP_ACTIVEMQ_HOST|@ environment variable.",
-        paramLabel = "APP_ACTIVEMQ_HOST",
-        defaultValue = "${APP_ACTIVEMQ_HOST}")
+    @Option(names = {"--public-activemq-host"},
+        description = "The external hostname of the ActiveMQ.  Can also be set via the @|bold PUBLIC_ACTIVEMQ_HOST|@ environment variable.",
+        paramLabel = "PUBLIC_ACTIVEMQ_HOST",
+        defaultValue = "${PUBLIC_ACTIVEMQ_HOST}")
     @Getter
-    private static String appBrokerAddress;
-
+    private static String publicActivemqHost;   
     
-    @Option(names = {"--app-nebulous-scripts-branch"},
-        description = "The name of the branch of the scripts to use for app deployment.  Can also be set via the @|bold APP_NEBULOUS_SCRIPTS_BRANCH|@ environment variable.",
-        paramLabel = "APP_NEBULOUS_SCRIPTS_BRANCH",
-        defaultValue = "${APP_NEBULOUS_SCRIPTS_BRANCH:-main}")
+    @Option(names = {"--public-activemq-port"},
+        description = "The external port of the ActiveMQ.  Can also be set via the @|bold PUBLIC_ACTIVEMQ_PORT|@ environment variable.",
+        paramLabel = "PUBLIC_ACTIVEMQ_PORT",
+        defaultValue = "${PUBLIC_ACTIVEMQ_PORT:-5672}")
     @Getter
-    private static String appNebulousScriptsBranch;    
-    
-    @Option(names = {"--app-activemq-port"},
-        description = "The port of the ActiveMQ server in a deployed app.  Can also be set via the @|bold APP_ACTIVEMQ_PORT|@ environment variable.",
-        paramLabel = "APP_ACTIVEMQ_PORT",
-        defaultValue = "${APP_ACTIVEMQ_PORT:-5672}")
-    @Getter
-    private static int appBrokerPort;
+    private static int publicActivemqPort;
 
-    @Option(names = {"--onm-ip"},
-        description = "The IP address of the ONM server in a deployed app.  Can also be set via the @|bold ONM_IP|@ environment variable.  NOTE: will be deprecated soon.",
-        paramLabel = "ONM_IP",
-        defaultValue = "${ONM_IP}")
-    @Getter
-    private static String onmIp;
-
+     
     @Option(names = {"--onm-url"},
         description = "The URL of the ONM server in a deployed app.  Can also be set via the @|bold ONM_URL|@ environment variable.",
         paramLabel = "ONM_URL",
@@ -105,6 +106,13 @@ public class Main implements Callable<Integer> {
     @Getter
     private static String onmUrl;
 
+    @Option(names = {"--app-nebulous-scripts-branch"},
+            description = "The name of the branch of the scripts to use for app deployment.  Can also be set via the @|bold APP_NEBULOUS_SCRIPTS_BRANCH|@ environment variable.",
+            paramLabel = "APP_NEBULOUS_SCRIPTS_BRANCH",
+            defaultValue = "${APP_NEBULOUS_SCRIPTS_BRANCH:-main}")
+        @Getter
+        private static String appNebulousScriptsBranch;      
+    
     @Option(names = {"--verbose", "-v"},
             description = "Turn on more verbose logging output. Can be given multiple times. When not given, print only warnings and error messages. With @|underline -v|@, print status messages. With @|underline -vvv|@, print everything.",
         scope = ScopeType.INHERIT)
