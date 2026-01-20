@@ -66,10 +66,10 @@ public class ExnConnector {
             synchronized(this) {
                 while (context_ == null) {
                     try {
-	        	wait();
-	            } catch (InterruptedException e) {
+                        wait();
+                    } catch (InterruptedException e) {
                         log.error("Caught InterruptException while waiting for ActiveMQ connection Context; looping", e);
-	            }
+                    }
                 }
             }
         }
@@ -105,15 +105,22 @@ public class ExnConnector {
 
     /** The metrics to send to EMS and Solver */
     public static final String metric_list_channel = "eu.nebulouscloud.optimiser.controller.metric_list";
-    /** The status channel for the solvers.  We send out an app's AMPL file on
-     * the channel named by {@link #ampl_message_channel} when getting the
-     * "started" message from a solver. */
+    /** The status channel for an app's digital twin.  We send out the
+     * initialization message on the channel named by {@link
+     * #twin_init_channel} when getting the "started" message from a digital
+     * twin. */
+    public static final String twin_status_channel = "eu.nebulouscloud.optimiser.twin.state";
+    /** The topic for sending the initialization message to the digital twin
+     * (app creation message and initial solution) */
+    public static final String twin_init_channel = "eu.nebulouscloud.optimiser.controller.twin_init";
+    /** The status channel for the per-app solvers.  We send out an app's AMPL
+     * file on the channel named by {@link #ampl_message_channel} when getting
+     * the "started" message from a solver. */
     public static final String solver_status_channel = "eu.nebulouscloud.solver.state";
 
     /** The per-app status channel, read by at least the UI and the solver. */
     public static final String app_status_channel = "eu.nebulouscloud.optimiser.controller.app_state";
 
-    
     private static final int findBrokerNodeCandidatesTimeout = 60*1000*2;
     /**
       * The Message producer for sending AMPL files, shared between all
@@ -122,19 +129,23 @@ public class ExnConnector {
       * @return the publisher configured to send AMPL files to the solver.
       */
     @Getter
-    private final Publisher amplMessagePublisher;
+    private final Publisher amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
 
     /** The publisher for sending the metric list to EMS and Solver during app
       * creation. */
     @Getter
-    private final Publisher metricListPublisher;
+    private final Publisher metricListPublisher = new Publisher("controller_metric_list", metric_list_channel, true, true);
+
+    /** The publisher for sending the twin init message to the digital twin. */
+    @Getter
+    private final Publisher twinInitMessagePublisher = new Publisher("twin_init", twin_init_channel, true, true);
 
     /**
      * The publisher for broadcasting the current status of each application
      * (new, ready, deploying, running, failed).
      */
     @Getter
-    private final Publisher appStatusPublisher;
+    private final Publisher appStatusPublisher = new Publisher("app_status", app_status_channel, true, true);
 
     /**
      * The publisher for a first synthetic solver solution.  This is needed
@@ -143,7 +154,7 @@ public class ExnConnector {
      * from the solver, of course.
      */
     @Getter
-    private final Publisher solverSolutionPublisher;
+    private final Publisher solverSolutionPublisher = new Publisher("controller_synthetic_solution", solver_solution_channel, true, true);
 
     /**
      * Create a connection to ActiveMQ via the exn middleware, and set up the
@@ -155,11 +166,6 @@ public class ExnConnector {
      * @param password the login password to use
      */
     public ExnConnector(String host, int port, String name, String password) {
-        amplMessagePublisher = new Publisher("controller_ampl", ampl_message_channel, true, true);
-        metricListPublisher = new Publisher("controller_metric_list", metric_list_channel, true, true);
-        appStatusPublisher = new Publisher("app_status", app_status_channel, true, true);
-        solverSolutionPublisher = new Publisher("controller_synthetic_solution", solver_solution_channel, true, true);
-
         conn = new Connector(
             "optimiser_controller",
             new ConnectorHandler() {
@@ -177,11 +183,14 @@ public class ExnConnector {
                 // here.
                 amplMessagePublisher,
                 metricListPublisher,
+                twinInitMessagePublisher,
                 appStatusPublisher,
                 solverSolutionPublisher),
             List.of(
                 new Consumer("solver_status", solver_status_channel,
                     new SolverStatusMessageHandler(), true, true),
+                new Consumer("twin_status", twin_status_channel,
+                    new DigitalTwinStatusMessageHandler(), true, true),
                 new Consumer("ui_app_messages", app_creation_channel,
                     new AppCreationMessageHandler(), true, true),
                 new Consumer("app_message_reset", app_reset_channel,
@@ -453,6 +462,51 @@ public class ExnConnector {
     }
 
     /**
+     * A handler that detects when the digital twin for a given application
+     * has started, and sends it the app creation message.
+     */
+    public class DigitalTwinStatusMessageHandler extends Handler {
+        @Override
+        public void onMessage(String key, String address, Map body, Message message, Context context) {
+            try {
+                Object appIdObject = null;
+                String appId = null;
+                try {
+                    appIdObject = message.property("application");
+                } catch (ClientException e) {
+                    log.error("Received digital twin ready message {} without application property, aborting", body);
+                    return;
+                }
+                if (appIdObject == null) {
+                    log.error("Received digital twin ready message {} without application property, aborting", body);
+                    return;
+                }
+                appId = appIdObject.toString(); // should be a string already
+                MDC.put("appId", appId);
+
+                JsonNode appMessage = mapper.valueToTree(body);
+                String status = appMessage.at("/state").textValue();
+                if (status == null || !status.equals("started")) {
+                    return;
+                }
+
+                NebulousApp app = NebulousApps.get(appId);
+                if (app == null) {
+                    log.info("Received twin startupo message {} for unknown application, this should not happen", body);
+                } else try {
+                    // This should be very quick, no need to start a thread
+                    MDC.put("clusterName", app.getClusterName());
+                    app.sendTwinInitializationMessage();
+                } catch (Exception e) {
+                    log.error("Internal error while processing digital twin status message", e);
+                }
+            } finally {
+                MDC.clear();
+            }
+        }
+    }
+
+    /**
      * A message handler for incoming messages from the solver, containing
      * mappings from variable names to new values.  This is used to produce an
      * updated KubeVela YAML file.
@@ -577,8 +631,8 @@ public class ExnConnector {
             Map<String, Object> response = findBrokerNodeCandidates.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to fetch node candidates");
-            	return Collections.emptyList();
+                log.error("Failed to fetch node candidates");
+                return Collections.emptyList();
             }
             // Note: we do not call extractPayloadFromExnResponse here, since this
             // response does not come from the exn-middleware, so will not be
@@ -659,8 +713,8 @@ public class ExnConnector {
             Map<String, Object> response = findBrokerNodeCandidatesMultiple.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to fetch node candidates");
-            	return Collections.emptyList();
+                log.error("Failed to fetch node candidates");
+                return Collections.emptyList();
             }
             // Note: we do not call extractPayloadFromExnResponse here, since this
             // response does not come from the exn-middleware, so will not be
@@ -729,12 +783,12 @@ public class ExnConnector {
             true, true,findBrokerNodeCandidatesTimeout);
         try {
             context.registerPublisher(findSalNodeCandidates);
-	    Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
-		    if(response==null)
-	        {
-	        	log.error("Failed to fetch node candidates");
-	        	return null;
-	        }
+            Map<String, Object> response = findSalNodeCandidates.sendSync(msg, appID, null, false);
+                    if(response==null)
+                {
+                        log.error("Failed to fetch node candidates");
+                        return null;
+                }
             JsonNode payload = extractPayloadFromExnResponse(response, "findNodeCandidatesFromSal");
             if (payload.isMissingNode()) return null;
             if (!payload.isArray()) return null;
@@ -798,7 +852,7 @@ public class ExnConnector {
     public boolean defineCluster(String appID, String clusterName, ObjectNode cluster) {
         // https://openproject.nebulouscloud.eu/projects/nebulous-collaboration-hub/wiki/deployment-manager-sal-1#specification-of-endpoints-being-developed
         Main.logFile("define-cluster-" + appID + ".json", cluster.toPrettyString());
-        
+
         Context context = getContext(); if (context == null) { log.error("Trying to send request before Connector gave us a context (internal error)"); return false; }
         Map<String, Object> msg;
         try {
@@ -813,12 +867,12 @@ public class ExnConnector {
             "defineCluster" + publisherNameCounter.incrementAndGet(),
             "eu.nebulouscloud.exn.sal.cluster.define", true, true,10*60*1000);
         try {
-            context.registerPublisher(defineCluster);           
+            context.registerPublisher(defineCluster);
             Map<String, Object> response = defineCluster.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to define cluster");
-            	return false;
+                log.error("Failed to define cluster");
+                return false;
             }
             JsonNode payload = extractPayloadFromExnResponse(response, "defineCluster");
             return payload.asBoolean();
@@ -858,7 +912,7 @@ public class ExnConnector {
             "eu.nebulouscloud.exn.sal.cluster.get", true, true, 30*1000);
         try {
             context.registerPublisher(getCluster);
-	    Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
+            Map<String, Object> response = getCluster.sendSync(msg, appID, null, false);
             JsonNode payload = extractPayloadFromExnResponse(response, "getCluster");
             if (removeEnvVars && payload.isObject()) {
                 ((ObjectNode)payload).remove("env-var-script");
@@ -892,12 +946,12 @@ public class ExnConnector {
             "eu.nebulouscloud.exn.sal.cluster.label", true, true,30*1000);
         try {
             context.registerPublisher(labelNodes);
-	    Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
-		    if(response==null)
-	        {
-	        	log.error("Failed to label nodes");
-	        	return false;
-	        }	    
+            Map<String, Object> response = labelNodes.sendSync(msg, appID, null, false);
+                    if(response==null)
+                {
+                        log.error("Failed to label nodes");
+                        return false;
+                }
             JsonNode payload = extractPayloadFromExnResponse(response, "labelNodes");
             return payload.isMissingNode() ? false : true;
         } finally {
@@ -925,12 +979,12 @@ public class ExnConnector {
             "eu.nebulouscloud.exn.sal.cluster.deploy", true, true,10*60*1000);
         try {
             context.registerPublisher(deployCluster);
-	    Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
-		    if(response==null)
-	        {
-	        	log.error("Failed to deploy cluster");
-	        	return false;
-	        }	    
+            Map<String, Object> response = deployCluster.sendSync(msg, appID, null, false);
+                    if(response==null)
+                {
+                        log.error("Failed to deploy cluster");
+                        return false;
+                }
             JsonNode payload = extractPayloadFromExnResponse(response, "deployCluster");
             return payload.asBoolean();
         } finally {
@@ -975,8 +1029,8 @@ public class ExnConnector {
             Map<String, Object> response = deployApplication.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to deploy application");
-            	return -1;
+                log.error("Failed to deploy application");
+                return -1;
             }
             JsonNode payload = extractPayloadFromExnResponse(response, "deployApplication");
             return payload.asLong();
@@ -1014,7 +1068,7 @@ public class ExnConnector {
             Map<String, Object> response = scaleOut.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to scale");
+                log.error("Failed to scale");
             }
             // Called for side-effect only; we want to log errors.  The return
             // value from scaleOut is the same as getCluster, but since we have to
@@ -1055,8 +1109,8 @@ public class ExnConnector {
             Map<String, Object> response = scaleIn.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to scalein");
-            	return false;
+                log.error("Failed to scalein");
+                return false;
             }
             JsonNode payload = extractPayloadFromExnResponse(response, "scaleIn");
             return payload.asBoolean();
@@ -1085,8 +1139,8 @@ public class ExnConnector {
             Map<String, Object> response = deleteCluster.sendSync(msg, appID, null, false);
             if(response==null)
             {
-            	log.error("Failed to delete cluster");
-            	return false;
+                log.error("Failed to delete cluster");
+                return false;
             }
             JsonNode payload = extractPayloadFromExnResponse(response, "deleteCluster");
             return payload.asBoolean();
@@ -1145,60 +1199,60 @@ public class ExnConnector {
         Map<String, Object> msg = mapper.convertValue(solutions, Map.class);
         solverSolutionPublisher.send(msg, appID);
     }
-    
-    
+
+
     /**
      * Get the dead nodes of a deployed application.
      * Query SAL to get cluster nodes URLs and compare them with the alive nodes URLs from the Resource Manager.
      */
     public List<String> getAppDeadNodes(String appID, String clusterName)
     {
-		JsonNode clusterState = getCluster(appID, clusterName);
-		if (clusterState == null) {
-			log.error("Cluster state is null for appID: {}, clusterName: {}", appID, clusterName);
-			return List.of();
-		}
-		JsonNode clusterNodes = clusterState.at("/nodes");
-		if (clusterNodes == null) {
-			log.error("Cluster nodes are null for appID: {}, clusterName: {}", appID, clusterName);
-			return List.of();
-		}
+                JsonNode clusterState = getCluster(appID, clusterName);
+                if (clusterState == null) {
+                        log.error("Cluster state is null for appID: {}, clusterName: {}", appID, clusterName);
+                        return List.of();
+                }
+                JsonNode clusterNodes = clusterState.at("/nodes");
+                if (clusterNodes == null) {
+                        log.error("Cluster nodes are null for appID: {}, clusterName: {}", appID, clusterName);
+                        return List.of();
+                }
 
-		/* Create a map of node URL to node name */
-		Map<String, String> nodeUrlToNodeName = new HashMap<String, String>();
-		clusterNodes.forEach(e -> {
-			nodeUrlToNodeName.put(e.at("/nodeUrl").asText(), e.at("/nodeName").asText());
-		});
+                /* Create a map of node URL to node name */
+                Map<String, String> nodeUrlToNodeName = new HashMap<String, String>();
+                clusterNodes.forEach(e -> {
+                        nodeUrlToNodeName.put(e.at("/nodeUrl").asText(), e.at("/nodeName").asText());
+                });
 
-		/* Query the Resource Manager to get the alive nodes URLs */
-		SyncedPublisher getNodeStates = new SyncedPublisher("getNodeStates" + publisherNameCounter.incrementAndGet(),
-				"eu.nebulouscloud.exn.proactive.state", true, true, findBrokerNodeCandidatesTimeout);
-		Context context = getContext();
-		if (context == null) {
-			log.error("Trying to send request before Connector gave us a context (internal error)");
-			return List.of();
-		}
-		try {
-			context.registerPublisher(getNodeStates);
-			Map<String, Object> response = getNodeStates.sendSync(Map.of(), appID, null, false);
-			if (response == null) {
-				log.error("Failed to call eu.nebulouscloud.exn.proactive.state");
-				return Collections.emptyList();
-			}
-			ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
-			List<String> aliveNodesUrls = (ArrayList<String>) mapper
-					.readValue(jsonBody.get("body").asText(), new HashMap().getClass()).get("aliveNodes");
-			/* Return the dead nodes names */
-			return nodeUrlToNodeName.keySet().stream().filter(u -> !aliveNodesUrls.contains(u))
-					.map(u -> nodeUrlToNodeName.get(u)).toList();
-		} catch (Exception e) {
-			log.error("Failed to get alive nodes URLs from Resource Manager for appID: {}, clusterName: {}", appID,
-					clusterName, e);
-			return List.of();
-		} finally {
-			context.unregisterPublisher(getNodeStates.key());
-		}
-		
+                /* Query the Resource Manager to get the alive nodes URLs */
+                SyncedPublisher getNodeStates = new SyncedPublisher("getNodeStates" + publisherNameCounter.incrementAndGet(),
+                                "eu.nebulouscloud.exn.proactive.state", true, true, findBrokerNodeCandidatesTimeout);
+                Context context = getContext();
+                if (context == null) {
+                        log.error("Trying to send request before Connector gave us a context (internal error)");
+                        return List.of();
+                }
+                try {
+                        context.registerPublisher(getNodeStates);
+                        Map<String, Object> response = getNodeStates.sendSync(Map.of(), appID, null, false);
+                        if (response == null) {
+                                log.error("Failed to call eu.nebulouscloud.exn.proactive.state");
+                                return Collections.emptyList();
+                        }
+                        ObjectNode jsonBody = mapper.convertValue(response, ObjectNode.class);
+                        List<String> aliveNodesUrls = (ArrayList<String>) mapper
+                                        .readValue(jsonBody.get("body").asText(), new HashMap().getClass()).get("aliveNodes");
+                        /* Return the dead nodes names */
+                        return nodeUrlToNodeName.keySet().stream().filter(u -> !aliveNodesUrls.contains(u))
+                                        .map(u -> nodeUrlToNodeName.get(u)).toList();
+                } catch (Exception e) {
+                        log.error("Failed to get alive nodes URLs from Resource Manager for appID: {}, clusterName: {}", appID,
+                                        clusterName, e);
+                        return List.of();
+                } finally {
+                        context.unregisterPublisher(getNodeStates.key());
+                }
+
     }
 
 
